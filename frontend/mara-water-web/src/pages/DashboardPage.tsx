@@ -1,429 +1,346 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  ResponsiveContainer, BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+} from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
-import { 
-  Droplets, 
-  Package, 
-  Truck, 
-  TrendingUp, 
+import { api } from '../services/api';
+import {
+  Droplets,
+  Package,
+  Truck,
+  TrendingUp,
   CheckCircle,
-  Clock,
   DollarSign,
   Users,
   AlertCircle,
-  Bell
+  AlertTriangle,
+  UserPlus,
+  Loader2,
 } from 'lucide-react';
+
+interface Overview {
+  today: {
+    production_liters: number;
+    sales_amount: number;
+    orders: number;
+    qa_tests: number;
+    qa_pass_rate: number | null;
+    staff_present: number;
+  };
+  this_month: {
+    revenue: number;
+    orders: number;
+    batches: number;
+    water_tests: number;
+  };
+  snapshot: {
+    low_stock_items: number;
+    debtor_balance_outstanding: number;
+    pending_orders: number;
+    active_vehicles: number;
+    total_vehicles: number;
+  };
+  trends: {
+    sales_7d: { date: string; amount: string; orders: number }[];
+    production_liters_7d: { date: string; liters: string }[];
+    fuel_cost_7d: { date: string; cost: string; liters: string }[];
+  };
+  alerts: { type: string; severity: 'high' | 'medium' | 'low'; message: string; route: string }[];
+  recent_activity: { type: string; message: string; at: string; route: string }[];
+}
+
+// One place for severity -> color, so alerts here and status badges
+// elsewhere in the app can share the same convention.
+const SEVERITY_STYLES: Record<string, { border: string; bg: string; text: string; icon: string }> = {
+  high: { border: 'border-l-red-500', bg: 'bg-red-50', text: 'text-red-800', icon: 'text-red-500' },
+  medium: { border: 'border-l-amber-500', bg: 'bg-amber-50', text: 'text-amber-800', icon: 'text-amber-500' },
+  low: { border: 'border-l-green-500', bg: 'bg-green-50', text: 'text-green-800', icon: 'text-green-500' },
+};
+
+const ACTIVITY_ICON: Record<string, React.ElementType> = {
+  order: Truck,
+  batch: Package,
+  water_test: Droplets,
+  invoice: DollarSign,
+};
+
+const money = (n: number) => `KES ${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const dayLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: 'short' });
 
 const DashboardPage: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [isLoading, setIsLoading] = useState(false);
+  const [data, setData] = useState<Overview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Production-ready data with real-time updates
-  const stats = [
-    {
-      name: 'Today\'s Production',
-      value: '2,450',
-      unit: 'Liters',
-      change: '+12%',
-      changeType: 'positive',
-      icon: Droplets,
-      color: 'bg-gradient-to-r from-blue-500 to-blue-600',
-      trend: 'up',
-      target: '2,500L',
-    },
-    {
-      name: 'QA Pass Rate',
-      value: '98.5',
-      unit: '%',
-      change: '+2.1%',
-      changeType: 'positive',
-      icon: CheckCircle,
-      color: 'bg-gradient-to-r from-green-500 to-green-600',
-      trend: 'up',
-      target: '95%',
-    },
-    {
-      name: 'Sales Today',
-      value: 'KES 45,200',
-      unit: '',
-      change: '+8.3%',
-      changeType: 'positive',
-      icon: TrendingUp,
-      color: 'bg-gradient-to-r from-purple-500 to-purple-600',
-      trend: 'up',
-      target: 'KES 40,000',
-    },
-    {
-      name: 'Pending Orders',
-      value: '12',
-      unit: '',
-      change: '-3',
-      changeType: 'negative',
-      icon: Clock,
-      color: 'bg-gradient-to-r from-orange-500 to-orange-600',
-      trend: 'down',
-      target: '10',
-    },
-    {
-      name: 'Active Vehicles',
-      value: '8',
-      unit: '',
-      change: '+1',
-      changeType: 'positive',
-      icon: Truck,
-      color: 'bg-gradient-to-r from-indigo-500 to-indigo-600',
-      trend: 'up',
-      target: '10',
-    },
-    {
-      name: 'Staff Present',
-      value: '24',
-      unit: '',
-      change: '+2',
-      changeType: 'positive',
-      icon: Users,
-      color: 'bg-gradient-to-r from-pink-500 to-pink-600',
-      trend: 'up',
-      target: '25',
-    },
-  ];
-
-  const alerts = [
-    {
-      id: 1,
-      type: 'warning',
-      priority: 'high',
-      message: 'Low stock alert: Bottles (0.5L) - 50 units remaining',
-      time: '2 hours ago',
-      action: 'Reorder Now',
-    },
-    {
-      id: 2,
-      type: 'info',
-      priority: 'medium',
-      message: 'Vehicle KCA 123A due for service in 3 days',
-      time: '4 hours ago',
-      action: 'Schedule Service',
-    },
-    {
-      id: 3,
-      type: 'success',
-      priority: 'low',
-      message: 'Daily reconciliation completed successfully',
-      time: '6 hours ago',
-      action: 'View Report',
-    },
-    {
-      id: 4,
-      type: 'error',
-      priority: 'high',
-      message: 'QA test failed: pH level out of range',
-      time: '1 hour ago',
-      action: 'Investigate',
-    },
-  ];
-
-  const recentActivities = [
-    {
-      id: 1,
-      action: 'New batch created',
-      details: 'Batch #B2024001 - 1L bottles',
-      time: '10 minutes ago',
-      user: 'QA Officer',
-      status: 'completed',
-      icon: Package,
-    },
-    {
-      id: 2,
-      action: 'Order delivered',
-      details: 'Order #ORD001 - Customer: ABC Supermarket',
-      time: '1 hour ago',
-      user: 'Driver',
-      status: 'completed',
-      icon: Truck,
-    },
-    {
-      id: 3,
-      action: 'Payment received',
-      details: 'KES 15,000 - Invoice #INV001',
-      time: '2 hours ago',
-      user: 'Finance Officer',
-      status: 'completed',
-      icon: DollarSign,
-    },
-    {
-      id: 4,
-      action: 'Water test completed',
-      details: 'pH: 7.2, TDS: 45ppm - All parameters within range',
-      time: '3 hours ago',
-      user: 'RIC Technician',
-      status: 'completed',
-      icon: CheckCircle,
-    },
-  ];
+  useEffect(() => {
+    api.get('/dashboard/overview')
+      .then((res) => setData(res.data.data))
+      .catch(() => setError('Could not load dashboard data.'))
+      .finally(() => setLoading(false));
+  }, []);
 
   const quickActions = [
-    {
-      name: 'New Water Test',
-      description: 'Record QA parameters',
-      icon: Droplets,
-      color: 'bg-blue-500 hover:bg-blue-600',
-      href: '/qa/tests/new',
-    },
-    {
-      name: 'Create Batch',
-      description: 'Start production batch',
-      icon: Package,
-      color: 'bg-green-500 hover:bg-green-600',
-      href: '/production/batches/new',
-    },
-    {
-      name: 'New Order',
-      description: 'Create customer order',
-      icon: Truck,
-      color: 'bg-purple-500 hover:bg-purple-600',
-      href: '/sales/orders/new',
-    },
-    {
-      name: 'Record Payment',
-      description: 'Process customer payment',
-      icon: DollarSign,
-      color: 'bg-orange-500 hover:bg-orange-600',
-      href: '/finance/payments/new',
-    },
-    {
-      name: 'Vehicle Check',
-      description: 'Perform vehicle inspection',
-      icon: AlertCircle,
-      color: 'bg-indigo-500 hover:bg-indigo-600',
-      href: '/fleet/checks/new',
-    },
-    {
-      name: 'Staff Attendance',
-      description: 'Record staff attendance',
-      icon: Users,
-      color: 'bg-pink-500 hover:bg-pink-600',
-      href: '/hr/attendance/new',
-    },
+    { name: 'Log a Sale', description: 'Create a customer order', icon: Truck, color: 'bg-purple-600 hover:bg-purple-700', route: '/sales?tab=orders' },
+    { name: 'Add a Customer', description: 'Register a new customer', icon: UserPlus, color: 'bg-blue-600 hover:bg-blue-700', route: '/sales?tab=customers' },
+    { name: 'Add Stock Movement', description: 'Log stock in/out', icon: Package, color: 'bg-green-600 hover:bg-green-700', route: '/inventory' },
+    { name: 'New Water Test', description: 'Record QA parameters', icon: Droplets, color: 'bg-cyan-600 hover:bg-cyan-700', route: '/qa' },
+    { name: 'Record Payment', description: 'Mark an invoice paid', icon: DollarSign, color: 'bg-orange-600 hover:bg-orange-700', route: '/finance' },
+    { name: 'Staff Attendance', description: 'Record today’s attendance', icon: Users, color: 'bg-pink-600 hover:bg-pink-700', route: '/hr' },
   ];
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'high': return 'border-l-red-500 bg-red-50';
-      case 'medium': return 'border-l-yellow-500 bg-yellow-50';
-      case 'low': return 'border-l-green-500 bg-green-50';
-      default: return 'border-l-gray-500 bg-gray-50';
-    }
-  };
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
 
-  const getAlertIcon = (type: string) => {
-    switch (type) {
-      case 'warning': return <AlertCircle className="h-5 w-5 text-yellow-500" />;
-      case 'error': return <AlertCircle className="h-5 w-5 text-red-500" />;
-      case 'success': return <CheckCircle className="h-5 w-5 text-green-500" />;
-      case 'info': return <Bell className="h-5 w-5 text-blue-500" />;
-      default: return <Bell className="h-5 w-5 text-gray-500" />;
-    }
-  };
+  const d = data;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Welcome back, {user?.first_name}! 👋
-              </h1>
-              <p className="text-gray-600 mt-1">
-                Here's what's happening with MARA-WATER today
-              </p>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="text-right">
-                <div className="text-sm text-gray-500">Current Time</div>
-                <div className="text-lg font-semibold text-gray-900">
-                  {currentTime.toLocaleTimeString()}
-                </div>
-                <div className="text-sm text-gray-500">
-                  {currentTime.toLocaleDateString()}
-                </div>
-              </div>
-              <div className="h-12 w-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                <span className="text-white font-bold text-lg">
-                  {user?.first_name?.charAt(0)}
-                </span>
-              </div>
-            </div>
-          </div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 px-4 py-5 sm:px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+            Welcome back, {user?.first_name}
+          </h1>
+          <p className="text-sm text-gray-600 mt-0.5">Here's what's happening at MARA-WATER today</p>
+        </div>
+        <div className="text-left sm:text-right">
+          <div className="text-lg font-semibold text-gray-900">{currentTime.toLocaleTimeString()}</div>
+          <div className="text-xs text-gray-500">{currentTime.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          {stats.map((stat) => {
-            const Icon = stat.icon;
-            return (
-              <div key={stat.name} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center">
-                      <div className={`${stat.color} rounded-lg p-3 mr-4`}>
-                        <Icon className="h-6 w-6 text-white" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">{stat.name}</p>
-                        <div className="flex items-baseline">
-                          <p className="text-2xl font-bold text-gray-900">
-                            {stat.value}
-                            {stat.unit && <span className="text-lg font-medium text-gray-500 ml-1">{stat.unit}</span>}
-                          </p>
-                          <span className={`ml-2 text-sm font-semibold ${
-                            stat.changeType === 'positive' ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {stat.change}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-4 flex items-center justify-between">
-                      <div className="text-xs text-gray-500">
-                        Target: {stat.target}
-                      </div>
-                      <div className={`flex items-center text-xs ${
-                        stat.trend === 'up' ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        <TrendingUp className={`h-3 w-3 mr-1 ${
-                          stat.trend === 'down' ? 'transform rotate-180' : ''
-                        }`} />
-                        {stat.trend === 'up' ? 'On Track' : 'Below Target'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>
+      )}
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          {/* Alerts */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-gray-900">Recent Alerts</h3>
-                  <span className="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
-                    {alerts.filter(a => a.priority === 'high').length} High Priority
-                  </span>
-                </div>
-              </div>
-              <div className="p-6">
-                <div className="space-y-4">
-                  {alerts.map((alert) => (
-                    <div key={alert.id} className={`border-l-4 p-4 rounded-r-lg ${getPriorityColor(alert.priority)}`}>
-                      <div className="flex items-start">
-                        {getAlertIcon(alert.type)}
-                        <div className="ml-3 flex-1">
-                          <p className="text-sm font-medium text-gray-900">{alert.message}</p>
-                          <p className="text-xs text-gray-500 mt-1">{alert.time}</p>
-                          <button className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-800">
-                            {alert.action} →
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+      {d && (
+        <>
+          {/* Today -- the numbers that matter most, first */}
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Today</h2>
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+              <KpiCard label="Sales Today" value={money(d.today.sales_amount)} icon={TrendingUp} color="from-purple-500 to-purple-600" onClick={() => navigate('/sales?tab=orders')} />
+              <KpiCard label="Litres Produced" value={`${d.today.production_liters.toLocaleString()} L`} icon={Droplets} color="from-blue-500 to-blue-600" onClick={() => navigate('/production')} />
+              <KpiCard
+                label="Stock Alerts"
+                value={String(d.snapshot.low_stock_items)}
+                icon={AlertTriangle}
+                color={d.snapshot.low_stock_items > 0 ? 'from-red-500 to-red-600' : 'from-green-500 to-green-600'}
+                onClick={() => navigate('/inventory')}
+              />
+              <KpiCard label="Debtor Balance" value={money(d.snapshot.debtor_balance_outstanding)} icon={DollarSign} color="from-amber-500 to-amber-600" onClick={() => navigate('/finance')} />
+              <KpiCard
+                label="QA Pass Rate"
+                value={d.today.qa_pass_rate === null ? 'No tests yet' : `${d.today.qa_pass_rate}%`}
+                icon={CheckCircle}
+                color="from-teal-500 to-teal-600"
+                onClick={() => navigate('/qa')}
+              />
             </div>
           </div>
 
-          {/* Recent Activities */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-gray-900">Recent Activities</h3>
-                  <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">
-                    View All →
-                  </button>
-                </div>
+          {/* Operational snapshot -- everything the previous dashboard surfaced, kept */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <KpiCard label="Pending Orders" value={String(d.snapshot.pending_orders)} icon={Package} color="from-orange-500 to-orange-600" onClick={() => navigate('/sales?tab=orders')} compact />
+            <KpiCard label="Active Vehicles" value={`${d.snapshot.active_vehicles} / ${d.snapshot.total_vehicles}`} icon={Truck} color="from-indigo-500 to-indigo-600" onClick={() => navigate('/fleet')} compact />
+            <KpiCard label="Staff Present Today" value={String(d.today.staff_present)} icon={Users} color="from-pink-500 to-pink-600" onClick={() => navigate('/hr')} compact />
+            <KpiCard label="Orders This Month" value={String(d.this_month.orders)} icon={TrendingUp} color="from-slate-500 to-slate-600" onClick={() => navigate('/sales?tab=orders')} compact />
+          </div>
+
+          {/* Trends */}
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Last 7 Days</h2>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <ChartCard title="Sales">
+                {d.trends.sales_7d.length === 0 ? (
+                  <EmptyChart label="No sales in the last 7 days" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={d.trends.sales_7d.map(r => ({ ...r, day: dayLabel(r.date), amount: Number(r.amount) }))}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                      <XAxis dataKey="day" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={40} />
+                      <Tooltip formatter={(v: number) => money(v)} />
+                      <Bar dataKey="amount" fill="#7c3aed" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </ChartCard>
+
+              <ChartCard title="Production (Litres)">
+                {d.trends.production_liters_7d.length === 0 ? (
+                  <EmptyChart label="No completed packaging runs in the last 7 days" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={d.trends.production_liters_7d.map(r => ({ ...r, day: dayLabel(r.date), liters: Number(r.liters) }))}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                      <XAxis dataKey="day" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={40} />
+                      <Tooltip formatter={(v: number) => `${v} L`} />
+                      <Line type="monotone" dataKey="liters" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </ChartCard>
+
+              <ChartCard title="Fleet Fuel Cost">
+                {d.trends.fuel_cost_7d.length === 0 ? (
+                  <EmptyChart label="No fuel logged yet" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={d.trends.fuel_cost_7d.map(r => ({ ...r, day: dayLabel(r.date), cost: Number(r.cost) }))}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                      <XAxis dataKey="day" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={40} />
+                      <Tooltip formatter={(v: number) => money(v)} />
+                      <Bar dataKey="cost" fill="#ea580c" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </ChartCard>
+            </div>
+          </div>
+
+          {/* Alerts + Recent Activity */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-gray-200">
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">Alerts</h3>
+                {d.alerts.filter(a => a.severity === 'high').length > 0 && (
+                  <span className="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+                    {d.alerts.filter(a => a.severity === 'high').length} High Priority
+                  </span>
+                )}
               </div>
-              <div className="p-6">
-                <div className="space-y-4">
-                  {recentActivities.map((activity) => {
-                    const Icon = activity.icon;
+              <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
+                {d.alerts.length === 0 ? (
+                  <p className="text-sm text-gray-500 px-2 py-4 text-center">Nothing needs attention right now.</p>
+                ) : (
+                  d.alerts.map((alert, i) => {
+                    const style = SEVERITY_STYLES[alert.severity] || SEVERITY_STYLES.low;
                     return (
-                      <div key={activity.id} className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
-                        <div className="flex-shrink-0">
-                          <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
-                            <Icon className="h-4 w-4 text-blue-600" />
-                          </div>
+                      <button
+                        key={i}
+                        onClick={() => navigate(alert.route)}
+                        className={`w-full text-left border-l-4 p-3 rounded-r-lg ${style.border} ${style.bg} hover:brightness-95 transition`}
+                      >
+                        <div className="flex items-start">
+                          <AlertCircle className={`h-4 w-4 mt-0.5 flex-shrink-0 ${style.icon}`} />
+                          <p className={`ml-2 text-sm font-medium ${style.text}`}>{alert.message}</p>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
+              </div>
+              <div className="p-4 space-y-2 max-h-96 overflow-y-auto">
+                {d.recent_activity.length === 0 ? (
+                  <p className="text-sm text-gray-500 px-2 py-4 text-center">No activity yet.</p>
+                ) : (
+                  d.recent_activity.map((activity, i) => {
+                    const Icon = ACTIVITY_ICON[activity.type] || Package;
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => navigate(activity.route)}
+                        className="w-full text-left flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50 transition"
+                      >
+                        <div className="h-8 w-8 flex-shrink-0 bg-blue-100 rounded-full flex items-center justify-center">
+                          <Icon className="h-4 w-4 text-blue-600" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900">{activity.action}</p>
-                          <p className="text-sm text-gray-600">{activity.details}</p>
-                          <div className="flex items-center mt-2">
-                            <span className="text-xs text-gray-500">{activity.time}</span>
-                            <span className="text-xs text-gray-400 mx-2">•</span>
-                            <span className="text-xs text-gray-500">{activity.user}</span>
-                            <span className="text-xs text-gray-400 mx-2">•</span>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                              {activity.status}
-                            </span>
-                          </div>
+                          <p className="text-sm text-gray-900 truncate">{activity.message}</p>
+                          <p className="text-xs text-gray-500">{new Date(activity.at).toLocaleString()}</p>
                         </div>
-                      </div>
+                      </button>
                     );
-                  })}
-                </div>
+                  })
+                )}
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Quick Actions */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
-            <p className="text-sm text-gray-600 mt-1">Common tasks and shortcuts</p>
-          </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {quickActions.map((action) => {
-                const Icon = action.icon;
-                return (
-                  <button
-                    key={action.name}
-                    className={`${action.color} text-white p-4 rounded-lg text-left transition-all duration-200 transform hover:scale-105 hover:shadow-lg`}
-                  >
-                    <div className="flex items-center">
-                      <Icon className="h-6 w-6 mr-3" />
-                      <div>
-                        <div className="font-medium">{action.name}</div>
-                        <div className="text-sm opacity-90">{action.description}</div>
+          {/* Quick Actions */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
+            </div>
+            <div className="p-4 sm:p-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {quickActions.map((action) => {
+                  const Icon = action.icon;
+                  return (
+                    <button
+                      key={action.name}
+                      onClick={() => navigate(action.route)}
+                      className={`${action.color} text-white p-4 rounded-lg text-left transition-transform duration-150 hover:scale-[1.02]`}
+                    >
+                      <div className="flex items-center">
+                        <Icon className="h-6 w-6 mr-3 flex-shrink-0" />
+                        <div>
+                          <div className="font-medium">{action.name}</div>
+                          <div className="text-sm opacity-90">{action.description}</div>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 };
+
+const KpiCard: React.FC<{
+  label: string; value: string; icon: React.ElementType; color: string; onClick?: () => void; compact?: boolean;
+}> = ({ label, value, icon: Icon, color, onClick, compact }) => (
+  <button
+    onClick={onClick}
+    className={`text-left bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow ${compact ? 'p-4' : 'p-4 sm:p-5'}`}
+  >
+    <div className={`bg-gradient-to-r ${color} rounded-lg p-2.5 inline-flex mb-3`}>
+      <Icon className="h-5 w-5 text-white" />
+    </div>
+    <p className="text-xs font-medium text-gray-500">{label}</p>
+    <p className={`font-bold text-gray-900 mt-0.5 ${compact ? 'text-lg' : 'text-xl sm:text-2xl'}`}>{value}</p>
+  </button>
+);
+
+const ChartCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+    <h4 className="text-sm font-semibold text-gray-700 mb-2">{title}</h4>
+    {children}
+  </div>
+);
+
+const EmptyChart: React.FC<{ label: string }> = ({ label }) => (
+  <div className="h-[200px] flex items-center justify-center text-center px-4">
+    <p className="text-sm text-gray-400">{label}</p>
+  </div>
+);
 
 export default DashboardPage;
