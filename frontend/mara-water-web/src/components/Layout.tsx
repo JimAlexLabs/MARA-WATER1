@@ -1,26 +1,41 @@
-import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { 
-  Menu, 
-  X, 
-  Home, 
-  Droplets, 
-  Package, 
-  Truck, 
-  Users, 
-  BarChart3, 
-  Settings, 
+import { api } from '../services/api';
+import {
+  Menu,
+  X,
+  Home,
+  Droplets,
+  Package,
+  Truck,
+  Users,
+  BarChart3,
+  Settings,
   LogOut,
   User,
   Bell,
   ChevronDown,
   Search,
-  Sun,
-  Moon,
-  HelpCircle,
-  FileText
+  FileText,
+  Factory,
+  Loader2
 } from 'lucide-react';
+
+interface SearchResult {
+  type: string;
+  label: string;
+  sublabel: string;
+  route: string;
+}
+
+interface AppNotification {
+  id: string;
+  type: string;
+  message: string;
+  time: string;
+  read: boolean;
+}
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -30,9 +45,77 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
+
+  // --- Global search ---
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      setSearchOpen(false);
+      return;
+    }
+    setSearchLoading(true);
+    const timer = setTimeout(() => {
+      api.get('/search', { params: { q } })
+        .then((res) => {
+          setSearchResults(res.data.data || []);
+          setSearchOpen(true);
+        })
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearchLoading(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const goToSearchResult = (result: SearchResult) => {
+    navigate(result.route);
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchOpen(false);
+  };
+
+  // --- Notifications ---
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+
+  const loadNotifications = () => {
+    api.get('/notifications').then((res) => {
+      const raw = res.data?.data ?? [];
+      setNotifications(raw.map((n: any) => ({
+        id: n.id,
+        type: n.type ?? 'info',
+        message: n.message ?? n.title ?? 'Notification',
+        time: n.created_at ?? '',
+        read: !!n.read_at,
+      })));
+    }).catch(() => setNotifications([]));
+  };
+
+  useEffect(() => {
+    loadNotifications();
+  }, []);
+
+  const markAllNotificationsRead = () => {
+    api.post('/notifications/mark-all-read').then(() => loadNotifications()).catch(() => {});
+  };
 
   const navigation = [
     { 
@@ -41,16 +124,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       icon: Home,
       description: 'Overview and KPIs'
     },
-    { 
-      name: 'QA & Production', 
-      href: '/qa', 
+    {
+      name: 'QA',
+      href: '/qa',
       icon: Droplets,
-      description: 'Quality assurance and production management',
-      badge: '2 alerts'
+      description: 'Water tests and batch quality'
     },
-    { 
-      name: 'Inventory', 
-      href: '/inventory', 
+    {
+      name: 'Production',
+      href: '/production',
+      icon: Factory,
+      description: 'Packaging runs and production batches'
+    },
+    {
+      name: 'Inventory',
+      href: '/inventory',
       icon: Package,
       description: 'Stock management and materials'
     },
@@ -84,36 +172,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       icon: FileText,
       description: 'Analytics and reporting'
     },
-    { 
-      name: 'Settings', 
-      href: '/settings', 
+    {
+      name: 'Users',
+      href: '/users',
+      icon: Users,
+      description: 'System users, roles and departments'
+    },
+    {
+      name: 'Settings',
+      href: '/settings',
       icon: Settings,
       description: 'System configuration'
     },
-  ];
-
-  const notifications = [
-    {
-      id: 1,
-      type: 'alert',
-      message: 'Low stock alert: Bottles (0.5L)',
-      time: '2 hours ago',
-      read: false
-    },
-    {
-      id: 2,
-      type: 'info',
-      message: 'Vehicle KCA 123A due for service',
-      time: '4 hours ago',
-      read: false
-    },
-    {
-      id: 3,
-      type: 'success',
-      message: 'Daily reconciliation completed',
-      time: '6 hours ago',
-      read: true
-    }
   ];
 
   const isActive = (href: string) => {
@@ -130,7 +200,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
+    <div className="min-h-screen bg-gray-50">
       {/* Mobile sidebar */}
       <div className={`fixed inset-0 z-50 lg:hidden ${sidebarOpen ? 'block' : 'hidden'}`}>
         <div className="fixed inset-0 bg-gray-600 bg-opacity-75" onClick={() => setSidebarOpen(false)} />
@@ -169,11 +239,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
                       <span>{item.name}</span>
-                      {item.badge && (
-                        <span className="bg-red-100 text-red-800 text-xs font-medium px-2 py-0.5 rounded-full">
-                          {item.badge}
-                        </span>
-                      )}
                     </div>
                     <p className="text-xs text-gray-500 mt-1">{item.description}</p>
                   </div>
@@ -212,11 +277,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
                       <span>{item.name}</span>
-                      {item.badge && (
-                        <span className="bg-red-100 text-red-800 text-xs font-medium px-2 py-0.5 rounded-full">
-                          {item.badge}
-                        </span>
-                      )}
                     </div>
                     <p className="text-xs text-gray-500 mt-1">{item.description}</p>
                   </div>
@@ -260,27 +320,50 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
           <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6">
             {/* Search */}
-            <div className="relative flex flex-1 items-center">
+            <div className="relative flex flex-1 items-center" ref={searchBoxRef}>
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                <Search className="h-5 w-5 text-gray-400" />
+                {searchLoading ? (
+                  <Loader2 className="h-5 w-5 text-gray-400 animate-spin" />
+                ) : (
+                  <Search className="h-5 w-5 text-gray-400" />
+                )}
               </div>
               <input
                 type="text"
                 className="block h-full w-full border-0 py-0 pl-10 pr-0 text-gray-900 placeholder:text-gray-400 focus:ring-0 sm:text-sm"
-                placeholder="Search..."
+                placeholder="Search customers, employees, orders, invoices, products, vehicles..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => { if (searchResults.length > 0) setSearchOpen(true); }}
               />
+
+              {searchOpen && (
+                <div className="absolute left-0 right-0 top-full mt-2 max-h-96 overflow-y-auto bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                  {searchResults.length === 0 ? (
+                    <div className="px-4 py-3 text-sm text-gray-500">
+                      {searchLoading ? 'Searching…' : 'No matches'}
+                    </div>
+                  ) : (
+                    searchResults.map((result, idx) => (
+                      <button
+                        key={`${result.type}-${idx}`}
+                        onClick={() => goToSearchResult(result)}
+                        className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center justify-between border-b border-gray-100 last:border-b-0"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{result.label}</p>
+                          <p className="text-xs text-gray-500">{result.sublabel}</p>
+                        </div>
+                        <span className="text-xs uppercase tracking-wide text-gray-400">{result.type}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
-            
+
             {/* Right side */}
             <div className="flex items-center gap-x-4 lg:gap-x-6">
-              {/* Dark mode toggle */}
-              <button
-                onClick={() => setDarkMode(!darkMode)}
-                className="p-2 text-gray-400 hover:text-gray-500"
-              >
-                {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-              </button>
-
               {/* Notifications */}
               <div className="relative">
                 <button
@@ -303,23 +386,32 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                       <h3 className="text-sm font-medium text-gray-900">Notifications</h3>
                     </div>
                     <div className="max-h-64 overflow-y-auto">
-                      {notifications.map((notification) => (
-                        <div key={notification.id} className={`px-4 py-3 hover:bg-gray-50 ${!notification.read ? 'bg-blue-50' : ''}`}>
-                          <div className="flex items-start">
-                            {getNotificationIcon(notification.type)}
-                            <div className="ml-3 flex-1">
-                              <p className="text-sm text-gray-900">{notification.message}</p>
-                              <p className="text-xs text-gray-500 mt-1">{notification.time}</p>
+                      {notifications.length === 0 ? (
+                        <p className="px-4 py-3 text-sm text-gray-500">No notifications</p>
+                      ) : (
+                        notifications.map((notification) => (
+                          <div key={notification.id} className={`px-4 py-3 hover:bg-gray-50 ${!notification.read ? 'bg-blue-50' : ''}`}>
+                            <div className="flex items-start">
+                              {getNotificationIcon(notification.type)}
+                              <div className="ml-3 flex-1">
+                                <p className="text-sm text-gray-900">{notification.message}</p>
+                                <p className="text-xs text-gray-500 mt-1">{notification.time}</p>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        ))
+                      )}
                     </div>
-                    <div className="px-4 py-2 border-t border-gray-200">
-                      <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">
-                        View all notifications
-                      </button>
-                    </div>
+                    {notifications.some(n => !n.read) && (
+                      <div className="px-4 py-2 border-t border-gray-200">
+                        <button
+                          onClick={markAllNotificationsRead}
+                          className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                        >
+                          Mark all as read
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -349,17 +441,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                       </div>
                     </div>
                     <div className="py-1">
-                      <button className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
+                      <button
+                        onClick={() => { setUserMenuOpen(false); navigate('/settings?tab=profile'); }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                      >
                         <User className="mr-2 h-4 w-4" />
                         Profile
                       </button>
-                      <button className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
+                      <button
+                        onClick={() => { setUserMenuOpen(false); navigate('/settings'); }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                      >
                         <Settings className="mr-2 h-4 w-4" />
                         Settings
-                      </button>
-                      <button className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
-                        <HelpCircle className="mr-2 h-4 w-4" />
-                        Help
                       </button>
                     </div>
                     <div className="border-t border-gray-200 py-1">

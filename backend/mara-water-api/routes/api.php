@@ -17,6 +17,8 @@ use App\Http\Controllers\Api\ReportsController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\FileUploadController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\SearchController;
+use App\Http\Controllers\Api\SettingsController;
 
 /*
 |--------------------------------------------------------------------------
@@ -44,6 +46,13 @@ Route::prefix('v1')->group(function () {
         // Dashboard routes
         Route::get('/dashboard/health', [DashboardController::class, 'health']);
         Route::get('/dashboard/overview', [DashboardController::class, 'overview']);
+
+        // Global top-bar search
+        Route::get('/search', [SearchController::class, 'index']);
+
+        // System settings
+        Route::get('/settings', [SettingsController::class, 'index']);
+        Route::put('/settings', [SettingsController::class, 'update']);
 
         // QA routes
         Route::prefix('qa')->group(function () {

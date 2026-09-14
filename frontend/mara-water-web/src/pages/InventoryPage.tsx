@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Plus, 
   Search, 
@@ -70,6 +71,14 @@ const InventoryPage: React.FC = () => {
   const [stockMoves, setStockMoves] = useState<StockMove[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q) setSearchTerm(q);
+    const tab = searchParams.get('tab');
+    if (tab) setActiveTab(tab);
+  }, [searchParams]);
   const [filterType, setFilterType] = useState('all');
   const [activeTab, setActiveTab] = useState('stock');
   const [showStockMoveForm, setShowStockMoveForm] = useState(false);
