@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { 
   Plus, 
   Search, 
@@ -131,7 +131,11 @@ const HRPage: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">HR Management</h1>
-          <p className="text-gray-600">Manage attendance and tasks</p>
+          <p className="text-gray-600">
+            Attendance tracking. Adding or bulk-importing employee records (name, phone, ID
+            number, department, role, employment date, salary) is in{' '}
+            <Link to="/users" className="text-blue-600 hover:text-blue-800 font-medium">Employees</Link>.
+          </p>
         </div>
         <div className="flex space-x-3">
           <button

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -53,10 +54,18 @@ class UserController extends Controller
             // Paginate
             $perPage = $request->get('per_page', 15);
             $users = $query->paginate($perPage);
+            $items = $users->items();
+
+            // Salary is sensitive -- only an admin gets it back.
+            if (!$request->user()->isDirector()) {
+                foreach ($items as $u) {
+                    $u->makeHidden('salary');
+                }
+            }
 
             return response()->json([
                 'success' => true,
-                'data' => $users->items()
+                'data' => $items
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -70,14 +79,20 @@ class UserController extends Controller
     public function store(Request $request)
     {
         try {
+            // email/password are optional -- most staff (drivers, storekeepers,
+            // packaging crew) are employee records with no need to log into
+            // the app. No password_hash means they simply can't log in.
             $validator = Validator::make($request->all(), [
-                'email' => 'required|email|unique:users,email',
+                'email' => 'nullable|email|unique:users,email',
                 'phone' => 'required|string|max:20',
-                'password' => 'required|string|min:8',
+                'password' => 'nullable|string|min:8',
                 'first_name' => 'required|string|max:50',
                 'last_name' => 'required|string|max:50',
                 'role_id' => 'required|exists:roles,id',
                 'department_id' => 'required|exists:departments,id',
+                'id_number' => 'nullable|string|max:20|unique:users,id_number',
+                'employment_date' => 'nullable|date',
+                'salary' => 'nullable|numeric|min:0',
                 'status' => 'sometimes|in:active,inactive,suspended'
             ]);
 
@@ -91,13 +106,16 @@ class UserController extends Controller
 
             $user = User::create([
                 'id' => Str::uuid(),
-                'email' => $request->email,
+                'email' => $request->email ?: null,
                 'phone' => $request->phone,
-                'password_hash' => Hash::make($request->password),
+                'password_hash' => $request->filled('password') ? Hash::make($request->password) : null,
                 'first_name' => $request->first_name,
                 'last_name' => $request->last_name,
                 'role_id' => $request->role_id,
                 'department_id' => $request->department_id,
+                'id_number' => $request->id_number ?: null,
+                'employment_date' => $request->employment_date ?: null,
+                'salary' => $request->salary ?: null,
                 'status' => $request->status ?? 'active',
                 'created_by' => Auth::id(),
                 'updated_by' => Auth::id(),
@@ -117,6 +135,144 @@ class UserController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Bulk-add every current employee in one sitting: pasted spreadsheet
+     * rows or a CSV upload, parsed client-side into a plain array of
+     * {first_name, last_name, phone, id_number, department, role,
+     * employment_date, salary, status}. department/role are matched here
+     * (case-insensitively) against existing code or name -- callers don't
+     * need to know the underlying UUIDs. Rows that don't resolve are
+     * reported back per-row rather than failing the whole batch, so a typo
+     * in row 40 doesn't block the other 39 from being created.
+     */
+    public function bulkStore(Request $request)
+    {
+        if (!$request->user()->isDirector()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only an administrator can bulk-import employees',
+            ], 403);
+        }
+
+        $rows = $request->input('employees', []);
+        if (!is_array($rows) || count($rows) === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No employee rows provided',
+            ], 422);
+        }
+        if (count($rows) > 500) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Too many rows in one batch (max 500). Split into smaller batches.',
+            ], 422);
+        }
+
+        $rolesByCode = Role::all()->keyBy(fn ($r) => strtolower($r->code));
+        $rolesByName = Role::all()->keyBy(fn ($r) => strtolower($r->name));
+        $deptsByCode = Department::all()->keyBy(fn ($d) => strtolower($d->code));
+        $deptsByName = Department::all()->keyBy(fn ($d) => strtolower($d->name));
+
+        $created = [];
+        $errors = [];
+
+        DB::beginTransaction();
+        try {
+            foreach ($rows as $i => $row) {
+                $rowNum = $i + 1;
+                $firstName = trim((string) ($row['first_name'] ?? ''));
+                $lastName = trim((string) ($row['last_name'] ?? ''));
+                $phone = trim((string) ($row['phone'] ?? ''));
+                $roleKey = strtolower(trim((string) ($row['role'] ?? '')));
+                $deptKey = strtolower(trim((string) ($row['department'] ?? '')));
+
+                if ($firstName === '' || $lastName === '') {
+                    $errors[] = ['row' => $rowNum, 'error' => 'Missing first or last name'];
+                    continue;
+                }
+                if ($phone === '') {
+                    $errors[] = ['row' => $rowNum, 'error' => 'Missing phone'];
+                    continue;
+                }
+
+                $role = $rolesByCode[$roleKey] ?? $rolesByName[$roleKey] ?? null;
+                if (!$role) {
+                    $errors[] = ['row' => $rowNum, 'error' => "Unrecognized role \"{$row['role']}\""];
+                    continue;
+                }
+
+                $department = $deptsByCode[$deptKey] ?? $deptsByName[$deptKey] ?? null;
+                if (!$department) {
+                    $errors[] = ['row' => $rowNum, 'error' => "Unrecognized department \"{$row['department']}\""];
+                    continue;
+                }
+
+                $email = trim((string) ($row['email'] ?? '')) ?: null;
+                if ($email && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $errors[] = ['row' => $rowNum, 'error' => "Invalid email \"{$email}\""];
+                    continue;
+                }
+                if ($email && User::where('email', $email)->exists()) {
+                    $errors[] = ['row' => $rowNum, 'error' => "Email already in use: {$email}"];
+                    continue;
+                }
+
+                $idNumber = trim((string) ($row['id_number'] ?? '')) ?: null;
+                if ($idNumber && User::where('id_number', $idNumber)->exists()) {
+                    $errors[] = ['row' => $rowNum, 'error' => "ID number already in use: {$idNumber}"];
+                    continue;
+                }
+
+                $employmentDate = trim((string) ($row['employment_date'] ?? '')) ?: null;
+                if ($employmentDate && !strtotime($employmentDate)) {
+                    $errors[] = ['row' => $rowNum, 'error' => "Unrecognized employment date \"{$employmentDate}\""];
+                    continue;
+                }
+
+                $salaryRaw = preg_replace('/[^0-9.]/', '', (string) ($row['salary'] ?? ''));
+                $salary = $salaryRaw !== '' ? (float) $salaryRaw : null;
+
+                $status = in_array($row['status'] ?? null, ['active', 'inactive', 'suspended'], true)
+                    ? $row['status'] : 'active';
+
+                $user = User::create([
+                    'first_name' => $firstName,
+                    'last_name' => $lastName,
+                    'phone' => $phone,
+                    'email' => $email,
+                    'id_number' => $idNumber,
+                    'role_id' => $role->id,
+                    'department_id' => $department->id,
+                    'employment_date' => $employmentDate ? date('Y-m-d', strtotime($employmentDate)) : null,
+                    'salary' => $salary,
+                    'status' => $status,
+                    'password_hash' => null,
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+                $created[] = ['row' => $rowNum, 'id' => $user->id, 'name' => "{$firstName} {$lastName}"];
+            }
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Bulk import failed',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => count($created) . ' employee(s) created' .
+                (count($errors) ? ', ' . count($errors) . ' row(s) skipped' : ''),
+            'data' => [
+                'created' => $created,
+                'errors' => $errors,
+            ],
+        ], 201);
     }
 
     public function show($id)
@@ -157,12 +313,15 @@ class UserController extends Controller
             }
 
             $validator = Validator::make($request->all(), [
-                'email' => 'sometimes|email|unique:users,email,' . $id,
+                'email' => 'sometimes|nullable|email|unique:users,email,' . $id,
                 'phone' => 'sometimes|string|max:20',
                 'first_name' => 'sometimes|string|max:50',
                 'last_name' => 'sometimes|string|max:50',
                 'role_id' => 'sometimes|exists:roles,id',
                 'department_id' => 'sometimes|exists:departments,id',
+                'id_number' => 'sometimes|nullable|string|max:20|unique:users,id_number,' . $id,
+                'employment_date' => 'sometimes|nullable|date',
+                'salary' => 'sometimes|nullable|numeric|min:0',
                 'status' => 'sometimes|in:active,inactive,suspended'
             ]);
 
@@ -176,8 +335,9 @@ class UserController extends Controller
 
             $user->update(array_merge(
                 $request->only([
-                    'email', 'phone', 'first_name', 'last_name', 
-                    'role_id', 'department_id', 'status'
+                    'email', 'phone', 'first_name', 'last_name',
+                    'role_id', 'department_id', 'status',
+                    'id_number', 'employment_date', 'salary',
                 ]),
                 ['updated_by' => Auth::id()]
             ));
