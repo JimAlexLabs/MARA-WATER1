@@ -21,6 +21,33 @@ Seeded login: **`director@marawater.com` / `password`**
 
 ---
 
+## Deploying via the Railway CLI — gotchas that cost real time
+
+The service has **both** a GitHub source and gets deployed via `railway up` (CLI
+upload). Its **Root Directory is set to `backend/mara-water-api`** (needed for the
+GitHub source to build correctly in this monorepo). That setting applies to CLI
+uploads too, so:
+
+- **Run `railway up` from the repo root**, not from inside `backend/mara-water-api`.
+  Running it from the subfolder double-applies the Root Directory (Railway looks for
+  `backend/mara-water-api/backend/mara-water-api` and fails with "Root directory ...
+  was not found").
+- **`composer.lock` must be resolved against the PHP version Railway actually
+  provisions**, not whatever PHP is on your dev machine. `composer.json` pins
+  `config.platform.php` to `8.2.33` for exactly this reason — regenerate the lock
+  with `composer update` (not `composer update --with-all-dependencies` on a newer
+  local PHP) if you bump dependencies, or the build fails immediately in
+  `composer install --no-scripts` with "your lock file does not contain a
+  compatible set of packages."
+- **`php artisan view:cache` can fail at build time** with `RuntimeException: View
+  path not found` — `config('view.compiled')` is `realpath(storage_path('framework/
+  views'))`, evaluated once during `config:cache`, and can resolve to `false`
+  depending on build-stage timing/layer ordering. Fixed by setting the
+  `VIEW_COMPILED_PATH=/app/storage/framework/views` environment variable on the
+  service (already set) so it never depends on `realpath()` at all.
+
+---
+
 ## 1. Create the project
 
 1. railway.app → **New Project** → **Deploy from GitHub repo** → `JimAlexLabs/MARA-WATER1`
@@ -60,6 +87,9 @@ SESSION_DRIVER=array
 CACHE_STORE=database
 QUEUE_CONNECTION=database
 LOG_CHANNEL=stderr
+
+# Required -- see "Deploying via the Railway CLI" above for why.
+VIEW_COMPILED_PATH=/app/storage/framework/views
 
 # Optional: restrict CORS once the Vercel URL is known
 # CORS_ALLOWED_ORIGINS=https://mara-water.vercel.app
