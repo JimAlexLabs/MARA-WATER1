@@ -16,6 +16,9 @@ class SettingsController extends Controller
         'timezone', 'date_format', 'time_format', 'language',
         'notifications_enabled', 'email_notifications', 'sms_notifications',
         'session_timeout',
+        // Danger Zone gate (Phase 3) -- the reset endpoint checks this
+        // server-side too, this isn't just a frontend show/hide flag.
+        'danger_zone_unlocked',
     ];
 
     public function index()

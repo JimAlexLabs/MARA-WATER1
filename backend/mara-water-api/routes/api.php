@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\FileUploadController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SettingsController;
+use App\Http\Controllers\Api\AdminController;
 
 /*
 |--------------------------------------------------------------------------
@@ -53,6 +54,16 @@ Route::prefix('v1')->group(function () {
         // System settings
         Route::get('/settings', [SettingsController::class, 'index']);
         Route::put('/settings', [SettingsController::class, 'update']);
+
+        // Admin: backups + danger-zone reset (all admin-gated inside the controller)
+        Route::prefix('admin')->group(function () {
+            Route::get('/danger-zone/tables', [AdminController::class, 'tableGroups']);
+            Route::get('/backups', [AdminController::class, 'listBackups']);
+            Route::post('/backups', [AdminController::class, 'createBackup']);
+            Route::get('/backups/{id}/download', [AdminController::class, 'downloadBackup']);
+            Route::post('/reset', [AdminController::class, 'resetAllData']);
+            Route::get('/reset-logs', [AdminController::class, 'listResetLogs']);
+        });
 
         // QA routes
         Route::prefix('qa')->group(function () {

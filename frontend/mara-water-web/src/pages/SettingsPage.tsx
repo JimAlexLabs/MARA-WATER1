@@ -7,6 +7,11 @@ import {
   Bell,
   Globe,
   User as UserIcon,
+  AlertTriangle,
+  Lock,
+  Unlock,
+  Download,
+  DatabaseBackup,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
@@ -102,12 +107,104 @@ const SettingsPage: React.FC = () => {
     }
   };
 
+  // --- Danger Zone tab (backups + guarded full-data reset) ---
+  const [dangerInfo, setDangerInfo] = useState<{ preserved: string[]; wiped: string[]; confirmation_phrase: string } | null>(null);
+  const [backups, setBackups] = useState<any[]>([]);
+  const [resetLogs, setResetLogs] = useState<any[]>([]);
+  const [dangerLoading, setDangerLoading] = useState(false);
+  const [creatingBackup, setCreatingBackup] = useState(false);
+  const [togglingLock, setTogglingLock] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const dangerUnlocked = !!(settings as any).danger_zone_unlocked;
+
+  const loadDangerZoneData = () => {
+    setDangerLoading(true);
+    Promise.all([
+      api.get('/admin/danger-zone/tables'),
+      api.get('/admin/backups'),
+      api.get('/admin/reset-logs'),
+    ]).then(([tablesRes, backupsRes, logsRes]) => {
+      setDangerInfo(tablesRes.data.data);
+      setBackups(backupsRes.data.data);
+      setResetLogs(logsRes.data.data);
+    }).catch(() => {
+      toast.error('Could not load Danger Zone data');
+    }).finally(() => setDangerLoading(false));
+  };
+
+  useEffect(() => {
+    if (activeTab === 'danger' && isAdmin && !dangerInfo) {
+      loadDangerZoneData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, isAdmin]);
+
+  const toggleDangerZoneLock = async () => {
+    setTogglingLock(true);
+    try {
+      const res = await api.put('/settings', { danger_zone_unlocked: !dangerUnlocked });
+      setSettings((prev) => ({ ...prev, ...res.data.data }));
+      toast.success(dangerUnlocked ? 'Danger Zone locked' : 'Danger Zone unlocked');
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to update');
+    } finally {
+      setTogglingLock(false);
+    }
+  };
+
+  const createBackupNow = async () => {
+    setCreatingBackup(true);
+    try {
+      await api.post('/admin/backups');
+      toast.success('Backup created');
+      loadDangerZoneData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to create backup');
+    } finally {
+      setCreatingBackup(false);
+    }
+  };
+
+  const downloadBackup = async (id: string) => {
+    try {
+      const res = await api.get(`/admin/backups/${id}/download`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mara-water-backup-${id}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Failed to download backup');
+    }
+  };
+
+  const runReset = async () => {
+    if (!dangerInfo || confirmText !== dangerInfo.confirmation_phrase) return;
+    setResetting(true);
+    try {
+      const res = await api.post('/admin/reset', { confirmation: confirmText });
+      toast.success(`Data cleared. Backup ${res.data.data.backup_id.slice(0, 8)}… was taken first.`);
+      setConfirmText('');
+      setSettings((prev) => ({ ...prev, danger_zone_unlocked: false }));
+      loadDangerZoneData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Reset failed');
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const tabs = [
     { id: 'profile', name: 'Profile', icon: UserIcon },
     { id: 'general', name: 'General', icon: Settings },
     { id: 'notifications', name: 'Notifications', icon: Bell },
     { id: 'appearance', name: 'Locale', icon: Globe },
     { id: 'security', name: 'Security', icon: Shield },
+    ...(isAdmin ? [{ id: 'danger', name: 'Danger Zone', icon: AlertTriangle }] : []),
   ];
 
   return (
@@ -118,7 +215,7 @@ const SettingsPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900">System Settings</h1>
           <p className="text-gray-600">Configure system preferences and options</p>
         </div>
-        {activeTab !== 'profile' && activeTab !== 'security' && (
+        {activeTab !== 'profile' && activeTab !== 'security' && activeTab !== 'danger' && (
           <div className="flex space-x-3">
             <button
               onClick={handleSaveSettings}
@@ -414,6 +511,135 @@ const SettingsPage: React.FC = () => {
                     when clicked, rather than leave them decorative. Change your password from the
                     Profile tab.
                   </p>
+                </div>
+              )}
+
+              {/* Danger Zone */}
+              {activeTab === 'danger' && isAdmin && (
+                <div className="space-y-8">
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900">Backups</h3>
+                    <p className="text-sm text-gray-500 mt-1">
+                      A full snapshot of every business table, downloadable as JSON. Take one any
+                      time — this doesn't touch any data.
+                    </p>
+                    <button
+                      onClick={createBackupNow}
+                      disabled={creatingBackup}
+                      className="mt-3 flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      <DatabaseBackup className="w-4 h-4 mr-2" />
+                      {creatingBackup ? 'Creating…' : 'Create Backup Now'}
+                    </button>
+
+                    {dangerLoading ? (
+                      <p className="text-sm text-gray-500 mt-4">Loading…</p>
+                    ) : (
+                      <div className="mt-4 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-56 overflow-y-auto">
+                        {backups.length === 0 ? (
+                          <p className="text-sm text-gray-500 p-4">No backups yet.</p>
+                        ) : (
+                          backups.map((b) => (
+                            <div key={b.id} className="flex items-center justify-between px-4 py-2.5">
+                              <div>
+                                <p className="text-sm text-gray-900">
+                                  {new Date(b.created_at).toLocaleString()}
+                                  <span className="ml-2 text-xs uppercase tracking-wide text-gray-400">{b.reason.replace('_', ' ')}</span>
+                                </p>
+                                <p className="text-xs text-gray-500">{b.total_rows.toLocaleString()} rows · {(b.size_bytes / 1024).toFixed(0)} KB{b.created_by ? ` · by ${b.created_by}` : ''}</p>
+                              </div>
+                              <button
+                                onClick={() => downloadBackup(b.id)}
+                                className="flex items-center text-sm text-blue-600 hover:text-blue-800 font-medium"
+                              >
+                                <Download className="w-4 h-4 mr-1" /> Download
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-t border-gray-200 pt-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-medium text-red-700 flex items-center">
+                          <AlertTriangle className="w-5 h-5 mr-2" /> Clear All Data
+                        </h3>
+                        <p className="text-sm text-gray-500 mt-1 max-w-2xl">
+                          Wipes operational data (orders, invoices, production, inventory, attendance,
+                          fleet logs, and more) for a fresh launch. Logins, the product/customer-route
+                          catalog, pricing, the vehicle registry, and settings are preserved. A backup
+                          is always taken automatically first.
+                        </p>
+                      </div>
+                      <button
+                        onClick={toggleDangerZoneLock}
+                        disabled={togglingLock}
+                        className={`flex items-center px-4 py-2 rounded-lg font-medium flex-shrink-0 ml-4 ${
+                          dangerUnlocked ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-gray-900 text-white hover:bg-gray-800'
+                        }`}
+                      >
+                        {dangerUnlocked ? <Unlock className="w-4 h-4 mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
+                        {dangerUnlocked ? 'Unlocked — click to lock' : 'Unlock Danger Zone'}
+                      </button>
+                    </div>
+
+                    {dangerUnlocked && dangerInfo && (
+                      <div className="mt-4 border border-red-200 bg-red-50 rounded-lg p-5 space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <p className="font-medium text-gray-900 mb-1">Will be wiped ({dangerInfo.wiped.length} tables)</p>
+                            <p className="text-gray-600 max-h-24 overflow-y-auto">{dangerInfo.wiped.join(', ')}</p>
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900 mb-1">Preserved ({dangerInfo.preserved.length} tables)</p>
+                            <p className="text-gray-600 max-h-24 overflow-y-auto">{dangerInfo.preserved.join(', ')}</p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-900">
+                            Type <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-gray-300">{dangerInfo.confirmation_phrase}</span> to confirm
+                          </label>
+                          <input
+                            type="text"
+                            value={confirmText}
+                            onChange={(e) => setConfirmText(e.target.value)}
+                            className="mt-1 block w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
+                            placeholder={dangerInfo.confirmation_phrase}
+                          />
+                        </div>
+
+                        <button
+                          onClick={runReset}
+                          disabled={resetting || confirmText !== dangerInfo.confirmation_phrase}
+                          className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <AlertTriangle className="w-4 h-4 mr-2" />
+                          {resetting ? 'Backing up and clearing…' : 'Back Up & Clear All Data'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-t border-gray-200 pt-6">
+                    <h3 className="text-sm font-semibold text-gray-900">Reset history</h3>
+                    <p className="text-xs text-gray-500 mb-3">Permanent — survives the reset it records.</p>
+                    <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-40 overflow-y-auto">
+                      {resetLogs.length === 0 ? (
+                        <p className="text-sm text-gray-500 p-4">No resets have been run.</p>
+                      ) : (
+                        resetLogs.map((l) => (
+                          <div key={l.id} className="px-4 py-2.5 text-sm">
+                            <span className="text-gray-900">{l.performed_by_email}</span>
+                            <span className="text-gray-500"> · {new Date(l.created_at).toLocaleString()} · {l.tables_wiped.length} tables</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </>
