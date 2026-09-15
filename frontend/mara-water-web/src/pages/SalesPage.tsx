@@ -21,15 +21,36 @@ interface Customer {
   id: string;
   code: string;
   name: string;
-  type: 'retail' | 'wholesale' | 'corporate';
+  contact_person?: string | null;
+  type: 'retail' | 'wholesale' | 'corporate' | 'hotel_restaurant';
   phone: string;
   email: string;
   address: string;
   price_tier: string;
+  preferred_products?: string | null;
+  typical_order_size?: string | null;
+  payment_terms?: string | null;
+  notes?: string | null;
+  status?: 'active' | 'inactive';
+  debtor_balance?: number;
   route: {
+    id?: string;
     name: string;
-  };
+  } | null;
 }
+
+const CUSTOMER_TYPE_LABELS: Record<string, string> = {
+  retail: 'Retail Shop',
+  wholesale: 'Distributor / Reseller',
+  corporate: 'Institution',
+  hotel_restaurant: 'Hotel / Restaurant',
+};
+
+const EMPTY_CUSTOMER_FORM = {
+  code: '', name: '', contact_person: '', type: 'retail', phone: '', email: '',
+  address: '', route_id: '', price_tier: 'standard', preferred_products: '',
+  typical_order_size: '', payment_terms: '', notes: '', status: 'active',
+};
 
 interface Order {
   id: string;
@@ -61,17 +82,11 @@ const SalesPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('orders');
   const [showCustomerForm, setShowCustomerForm] = useState(false);
   const [showOrderForm, setShowOrderForm] = useState(false);
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
+  const [routes, setRoutes] = useState<{ id: string; name: string }[]>([]);
 
   // Customer Form State
-  const [customerForm, setCustomerForm] = useState({
-    code: '',
-    name: '',
-    type: 'retail',
-    phone: '',
-    email: '',
-    address: '',
-    price_tier: 'standard'
-  });
+  const [customerForm, setCustomerForm] = useState(EMPTY_CUSTOMER_FORM);
 
   // Order Form State
   const [orderForm, setOrderForm] = useState({
@@ -82,6 +97,7 @@ const SalesPage: React.FC = () => {
 
   useEffect(() => {
     fetchData();
+    api.get('/fleet/routes').then(res => setRoutes(res.data.data)).catch(() => {});
   }, []);
 
   const fetchData = async () => {
@@ -91,7 +107,7 @@ const SalesPage: React.FC = () => {
         api.get('/sales/customers'),
         api.get('/sales/orders')
       ]);
-      
+
       setCustomers(customersResponse.data.data);
       setOrders(ordersResponse.data.data);
     } catch (error) {
@@ -101,24 +117,51 @@ const SalesPage: React.FC = () => {
     }
   };
 
+  const openNewCustomer = () => {
+    setEditingCustomerId(null);
+    setCustomerForm(EMPTY_CUSTOMER_FORM);
+    setShowCustomerForm(true);
+  };
+
+  const openEditCustomer = (c: Customer) => {
+    setEditingCustomerId(c.id);
+    setCustomerForm({
+      code: c.code, name: c.name, contact_person: c.contact_person || '', type: c.type,
+      phone: c.phone || '', email: c.email || '', address: c.address || '',
+      route_id: c.route?.id || '', price_tier: c.price_tier || 'standard',
+      preferred_products: c.preferred_products || '', typical_order_size: c.typical_order_size || '',
+      payment_terms: c.payment_terms || '', notes: c.notes || '', status: c.status || 'active',
+    });
+    setShowCustomerForm(true);
+  };
+
   const handleCustomerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/sales/customers', customerForm);
-      toast.success('Customer created successfully');
+      if (editingCustomerId) {
+        await api.put(`/sales/customers/${editingCustomerId}`, customerForm);
+        toast.success('Customer updated successfully');
+      } else {
+        await api.post('/sales/customers', customerForm);
+        toast.success('Customer created successfully');
+      }
       setShowCustomerForm(false);
-      setCustomerForm({
-        code: '',
-        name: '',
-        type: 'retail',
-        phone: '',
-        email: '',
-        address: '',
-        price_tier: 'standard'
-      });
       fetchData();
-    } catch (error) {
-      toast.error('Failed to create customer');
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to save customer');
+    }
+  };
+
+  const handleDeleteCustomer = async (c: Customer) => {
+    if (!window.confirm(`Remove customer ${c.name}?`)) return;
+    try {
+      await api.delete(`/sales/customers/${c.id}`);
+      toast.success('Customer removed');
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to remove customer');
     }
   };
 
@@ -167,6 +210,7 @@ const SalesPage: React.FC = () => {
       case 'retail': return 'text-blue-600 bg-blue-100';
       case 'wholesale': return 'text-green-600 bg-green-100';
       case 'corporate': return 'text-purple-600 bg-purple-100';
+      case 'hotel_restaurant': return 'text-orange-600 bg-orange-100';
       default: return 'text-gray-600 bg-gray-100';
     }
   };
@@ -189,7 +233,7 @@ const SalesPage: React.FC = () => {
         </div>
         <div className="flex space-x-3">
           <button
-            onClick={() => setShowCustomerForm(true)}
+            onClick={openNewCustomer}
             className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -410,7 +454,10 @@ const SalesPage: React.FC = () => {
                       Route
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Price Tier
+                      Debtor Balance
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
@@ -421,37 +468,37 @@ const SalesPage: React.FC = () => {
                   {filteredCustomers.map((customer) => (
                     <tr key={customer.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{customer.name}</div>
-                          <div className="text-sm text-gray-500">{customer.code}</div>
-                        </div>
+                        <div className="text-sm font-medium text-gray-900">{customer.name}</div>
+                        <div className="text-sm text-gray-500">{customer.code}{customer.contact_person ? ` · ${customer.contact_person}` : ''}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm text-gray-900">{customer.phone}</div>
-                          <div className="text-sm text-gray-500">{customer.email}</div>
-                        </div>
+                        <div className="text-sm text-gray-900">{customer.phone}</div>
+                        <div className="text-sm text-gray-500">{customer.email}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${getTypeColor(customer.type)}`}>
-                          {customer.type}
+                          {CUSTOMER_TYPE_LABELS[customer.type] || customer.type}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {customer.route?.name || 'No Route'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {customer.price_tier}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <span className={(customer.debtor_balance || 0) > 0 ? 'text-red-600 font-medium' : 'text-gray-500'}>
+                          KES {(customer.debtor_balance || 0).toLocaleString()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${customer.status === 'inactive' ? 'text-gray-600 bg-gray-100' : 'text-green-600 bg-green-100'}`}>
+                          {customer.status || 'active'}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex items-center space-x-2">
-                          <button className="text-blue-600 hover:text-blue-900">
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button className="text-green-600 hover:text-green-900">
+                        <div className="flex items-center space-x-3">
+                          <button onClick={() => openEditCustomer(customer)} className="text-green-600 hover:text-green-900">
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button className="text-red-600 hover:text-red-900">
+                          <button onClick={() => handleDeleteCustomer(customer)} className="text-red-600 hover:text-red-900">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
@@ -467,14 +514,15 @@ const SalesPage: React.FC = () => {
 
       {/* Customer Form Modal */}
       {showCustomerForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">New Customer</h3>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">{editingCustomerId ? 'Edit Customer' : 'New Customer'}</h3>
             <form onSubmit={handleCustomerSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Customer Code</label>
                   <input
+                    required
                     type="text"
                     value={customerForm.code}
                     onChange={(e) => setCustomerForm({...customerForm, code: e.target.value})}
@@ -488,18 +536,28 @@ const SalesPage: React.FC = () => {
                     onChange={(e) => setCustomerForm({...customerForm, type: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="retail">Retail</option>
-                    <option value="wholesale">Wholesale</option>
-                    <option value="corporate">Corporate</option>
+                    {Object.entries(CUSTOMER_TYPE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Name</label>
+                <label className="block text-sm font-medium text-gray-700">Organization / Shop Name</label>
                 <input
+                  required
                   type="text"
                   value={customerForm.name}
                   onChange={(e) => setCustomerForm({...customerForm, name: e.target.value})}
+                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Contact Person</label>
+                <input
+                  type="text"
+                  value={customerForm.contact_person}
+                  onChange={(e) => setCustomerForm({...customerForm, contact_person: e.target.value})}
                   className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -524,25 +582,96 @@ const SalesPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Address</label>
+                <label className="block text-sm font-medium text-gray-700">Delivery Address</label>
                 <textarea
                   value={customerForm.address}
                   onChange={(e) => setCustomerForm({...customerForm, address: e.target.value})}
                   className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={3}
+                  rows={2}
                 />
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Route / Zone</label>
+                  <select
+                    value={customerForm.route_id}
+                    onChange={(e) => setCustomerForm({...customerForm, route_id: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">No route</option>
+                    {routes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Price Tier</label>
+                  <select
+                    value={customerForm.price_tier}
+                    onChange={(e) => setCustomerForm({...customerForm, price_tier: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="standard">Standard</option>
+                    <option value="premium">Premium</option>
+                    <option value="wholesale">Wholesale</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Preferred Products</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Premium 1L, 5L"
+                    value={customerForm.preferred_products}
+                    onChange={(e) => setCustomerForm({...customerForm, preferred_products: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Typical Order Size</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 50 crates/week"
+                    value={customerForm.typical_order_size}
+                    onChange={(e) => setCustomerForm({...customerForm, typical_order_size: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Payment Terms</label>
+                  <select
+                    value={customerForm.payment_terms}
+                    onChange={(e) => setCustomerForm({...customerForm, payment_terms: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Not set</option>
+                    <option value="cash">Cash</option>
+                    <option value="mpesa">M-Pesa</option>
+                    <option value="credit">Credit / Debtor Account</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Status</label>
+                  <select
+                    value={customerForm.status}
+                    onChange={(e) => setCustomerForm({...customerForm, status: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+              </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Price Tier</label>
-                <select
-                  value={customerForm.price_tier}
-                  onChange={(e) => setCustomerForm({...customerForm, price_tier: e.target.value})}
+                <label className="block text-sm font-medium text-gray-700">Notes</label>
+                <textarea
+                  value={customerForm.notes}
+                  onChange={(e) => setCustomerForm({...customerForm, notes: e.target.value})}
                   className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="standard">Standard</option>
-                  <option value="premium">Premium</option>
-                  <option value="wholesale">Wholesale</option>
-                </select>
+                  rows={2}
+                  placeholder="Interaction history, preferences, anything worth remembering..."
+                />
               </div>
               <div className="flex justify-end space-x-3">
                 <button
@@ -556,7 +685,7 @@ const SalesPage: React.FC = () => {
                   type="submit"
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                 >
-                  Create Customer
+                  {editingCustomerId ? 'Save Changes' : 'Create Customer'}
                 </button>
               </div>
             </form>

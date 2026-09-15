@@ -18,7 +18,7 @@ class CustomerController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Customer::with(['route'])
+            $query = Customer::with(['route', 'debts'])
                 ->whereNull('deleted_at');
 
             // Apply filters
@@ -34,10 +34,15 @@ class CustomerController extends Controller
                 $query->where('price_tier', $request->price_tier);
             }
 
+            if ($request->filled('status')) {
+                $query->where('status', $request->status);
+            }
+
             if ($request->filled('search')) {
                 $search = $request->search;
                 $query->where(function($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('contact_person', 'like', "%{$search}%")
                       ->orWhere('code', 'like', "%{$search}%")
                       ->orWhere('phone', 'like', "%{$search}%")
                       ->orWhere('email', 'like', "%{$search}%");
@@ -76,12 +81,18 @@ class CustomerController extends Controller
             $validator = Validator::make($request->all(), [
                 'code' => 'required|string|max:50|unique:customers,code',
                 'name' => 'required|string|max:255',
-                'type' => 'required|in:retail,wholesale,corporate',
+                'contact_person' => 'nullable|string|max:150',
+                'type' => 'required|in:retail,wholesale,corporate,hotel_restaurant',
                 'phone' => 'nullable|string|max:20',
                 'email' => 'nullable|email|max:255',
                 'address' => 'nullable|string|max:500',
                 'route_id' => 'nullable|exists:routes,id',
                 'price_tier' => 'nullable|string|max:50',
+                'preferred_products' => 'nullable|string|max:255',
+                'typical_order_size' => 'nullable|string|max:100',
+                'payment_terms' => 'nullable|in:cash,mpesa,credit',
+                'notes' => 'nullable|string|max:2000',
+                'status' => 'nullable|in:active,inactive',
             ]);
 
             if ($validator->fails()) {
@@ -95,12 +106,18 @@ class CustomerController extends Controller
             $customer = Customer::create([
                 'code' => $request->code,
                 'name' => $request->name,
+                'contact_person' => $request->contact_person,
                 'type' => $request->type,
                 'phone' => $request->phone,
                 'email' => $request->email,
                 'address' => $request->address,
                 'route_id' => $request->route_id,
                 'price_tier' => $request->price_tier,
+                'preferred_products' => $request->preferred_products,
+                'typical_order_size' => $request->typical_order_size,
+                'payment_terms' => $request->payment_terms,
+                'notes' => $request->notes,
+                'status' => $request->status ?? 'active',
                 'created_by' => Auth::id(),
                 'updated_by' => Auth::id(),
             ]);
@@ -130,7 +147,7 @@ class CustomerController extends Controller
     public function show($id)
     {
         try {
-            $customer = Customer::with(['route'])
+            $customer = Customer::with(['route', 'debts'])
                 ->whereNull('deleted_at')
                 ->findOrFail($id);
 
@@ -161,12 +178,18 @@ class CustomerController extends Controller
             $validator = Validator::make($request->all(), [
                 'code' => 'nullable|string|max:50|unique:customers,code,' . $id,
                 'name' => 'nullable|string|max:255',
-                'type' => 'nullable|in:retail,wholesale,corporate',
+                'contact_person' => 'nullable|string|max:150',
+                'type' => 'nullable|in:retail,wholesale,corporate,hotel_restaurant',
                 'phone' => 'nullable|string|max:20',
                 'email' => 'nullable|email|max:255',
                 'address' => 'nullable|string|max:500',
                 'route_id' => 'nullable|exists:routes,id',
                 'price_tier' => 'nullable|string|max:50',
+                'preferred_products' => 'nullable|string|max:255',
+                'typical_order_size' => 'nullable|string|max:100',
+                'payment_terms' => 'nullable|in:cash,mpesa,credit',
+                'notes' => 'nullable|string|max:2000',
+                'status' => 'nullable|in:active,inactive',
             ]);
 
             if ($validator->fails()) {
@@ -180,12 +203,18 @@ class CustomerController extends Controller
             $customer->update([
                 'code' => $request->code ?? $customer->code,
                 'name' => $request->name ?? $customer->name,
+                'contact_person' => $request->has('contact_person') ? $request->contact_person : $customer->contact_person,
                 'type' => $request->type ?? $customer->type,
                 'phone' => $request->phone ?? $customer->phone,
                 'email' => $request->email ?? $customer->email,
                 'address' => $request->address ?? $customer->address,
                 'route_id' => $request->route_id ?? $customer->route_id,
                 'price_tier' => $request->price_tier ?? $customer->price_tier,
+                'preferred_products' => $request->has('preferred_products') ? $request->preferred_products : $customer->preferred_products,
+                'typical_order_size' => $request->has('typical_order_size') ? $request->typical_order_size : $customer->typical_order_size,
+                'payment_terms' => $request->has('payment_terms') ? $request->payment_terms : $customer->payment_terms,
+                'notes' => $request->has('notes') ? $request->notes : $customer->notes,
+                'status' => $request->status ?? $customer->status,
                 'updated_by' => Auth::id(),
             ]);
 
@@ -263,10 +292,15 @@ class CustomerController extends Controller
                     COUNT(CASE WHEN type = "retail" THEN 1 END) as retail_customers,
                     COUNT(CASE WHEN type = "wholesale" THEN 1 END) as wholesale_customers,
                     COUNT(CASE WHEN type = "corporate" THEN 1 END) as corporate_customers,
+                    COUNT(CASE WHEN type = "hotel_restaurant" THEN 1 END) as hotel_restaurant_customers,
+                    COUNT(CASE WHEN status = "active" OR status IS NULL THEN 1 END) as active_customers,
+                    COUNT(CASE WHEN status = "inactive" THEN 1 END) as inactive_customers,
                     COUNT(CASE WHEN route_id IS NOT NULL THEN 1 END) as assigned_route_customers,
                     COUNT(CASE WHEN route_id IS NULL THEN 1 END) as unassigned_route_customers
                 ')
                 ->first();
+
+            $totalDebt = (float) \App\Models\Debt::sum('balance');
 
             // Get top customers by order value
             $topCustomers = Customer::whereNull('deleted_at')
@@ -290,8 +324,12 @@ class CustomerController extends Controller
                         'retail_customers' => $stats->retail_customers,
                         'wholesale_customers' => $stats->wholesale_customers,
                         'corporate_customers' => $stats->corporate_customers,
+                        'hotel_restaurant_customers' => $stats->hotel_restaurant_customers,
+                        'active_customers' => $stats->active_customers,
+                        'inactive_customers' => $stats->inactive_customers,
                         'assigned_route_customers' => $stats->assigned_route_customers,
                         'unassigned_route_customers' => $stats->unassigned_route_customers,
+                        'total_debtor_balance' => round($totalDebt, 2),
                     ],
                     'top_customers' => $topCustomers
                 ]
@@ -312,7 +350,7 @@ class CustomerController extends Controller
     public function byRoute(Request $request, $routeId)
     {
         try {
-            $query = Customer::with(['route'])
+            $query = Customer::with(['route', 'debts'])
                 ->where('route_id', $routeId)
                 ->whereNull('deleted_at');
 
@@ -387,7 +425,7 @@ class CustomerController extends Controller
                       ->orWhere('phone', 'like', "%{$query}%")
                       ->orWhere('email', 'like', "%{$query}%");
                 })
-                ->with(['route'])
+                ->with(['route', 'debts'])
                 ->limit(10)
                 ->get();
 
