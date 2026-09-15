@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\AdminController;
+use App\Http\Controllers\Api\DriverTripController;
 
 /*
 |--------------------------------------------------------------------------
@@ -159,6 +160,22 @@ Route::prefix('v1')->group(function () {
             Route::delete('/vehicles/{id}', [VehicleController::class, 'destroy']);
             Route::post('/vehicles/{id}/assign-driver', [VehicleController::class, 'assignDriver']);
             Route::post('/vehicles/{id}/unassign-driver', [VehicleController::class, 'unassignDriver']);
+
+            // Route/zone reference list drivers pick from on the trip form.
+            Route::get('/routes', [DriverTripController::class, 'routes']);
+            Route::post('/routes', [DriverTripController::class, 'storeRoute']);
+            Route::get('/skus', [DriverTripController::class, 'skus']);
+
+            // Driver trips (the worksheet replacement). Fixed segments first,
+            // same reason as everywhere else in this file: /{id} is a
+            // wildcard and would otherwise capture "statistics" etc.
+            Route::get('/trips/statistics', [DriverTripController::class, 'statistics']);
+            Route::get('/trips/mileage-trend', [DriverTripController::class, 'mileageTrend']);
+            Route::get('/trips', [DriverTripController::class, 'index']);
+            Route::post('/trips', [DriverTripController::class, 'store']);
+            Route::get('/trips/{id}', [DriverTripController::class, 'show']);
+            Route::put('/trips/{id}', [DriverTripController::class, 'update']);
+            Route::delete('/trips/{id}', [DriverTripController::class, 'destroy']);
         });
 
         // HR routes

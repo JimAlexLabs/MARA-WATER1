@@ -8,17 +8,25 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Vehicle;
+use App\Models\DriverAssignment;
 
 class VehicleController extends Controller
 {
     public function index(Request $request)
     {
         try {
-            $query = Vehicle::with(['driver', 'createdBy']);
+            $query = Vehicle::with(['currentAssignment.driver', 'createdBy']);
 
             // Filtering
             if ($request->filled('status')) {
-                $query->where('status', $request->status);
+                // No `status` column -- "active"/"inactive" maps to the real
+                // `active` boolean; "maintenance" maps to speed_gov_status,
+                // which is what the frontend already uses to flag it.
+                if ($request->status === 'maintenance') {
+                    $query->where('speed_gov_status', 'maintenance');
+                } else {
+                    $query->where('active', $request->status === 'active');
+                }
             }
             if ($request->filled('make')) {
                 $query->where('make', 'like', '%' . $request->make . '%');
@@ -67,7 +75,7 @@ class VehicleController extends Controller
                 'model' => 'required|string|max:100',
                 'year' => 'required|integer|min:1900|max:' . (date('Y') + 1),
                 'capacity' => 'required|numeric|min:0',
-                'fuel_type' => 'required|string|max:50',
+                'fuel_type' => 'nullable|string|max:50',
                 'insurance_expiry' => 'required|date|after:today',
                 'inspection_expiry' => 'required|date|after:today',
                 'speed_gov_status' => 'required|string|max:50',
@@ -93,7 +101,7 @@ class VehicleController extends Controller
                 'inspection_expiry' => $request->inspection_expiry,
                 'speed_gov_status' => $request->speed_gov_status,
                 'notes' => $request->notes,
-                'status' => 'active',
+                'active' => true,
                 'created_by' => Auth::id(),
                 'updated_by' => Auth::id(),
             ]);
@@ -102,7 +110,7 @@ class VehicleController extends Controller
                 'success' => true,
                 'message' => 'Vehicle created successfully',
                 'data' => [
-                    'vehicle' => $vehicle->load(['driver', 'createdBy'])
+                    'vehicle' => $vehicle->load(['currentAssignment.driver', 'createdBy'])
                 ]
             ], 201);
         } catch (\Exception $e) {
@@ -117,7 +125,7 @@ class VehicleController extends Controller
     public function show($id)
     {
         try {
-            $vehicle = Vehicle::with(['driver', 'createdBy'])->find($id);
+            $vehicle = Vehicle::with(['currentAssignment.driver', 'createdBy'])->find($id);
 
             if (!$vehicle) {
                 return response()->json([
@@ -164,7 +172,7 @@ class VehicleController extends Controller
                 'inspection_expiry' => 'sometimes|required|date',
                 'speed_gov_status' => 'sometimes|required|string|max:50',
                 'notes' => 'nullable|string|max:1000',
-                'status' => 'sometimes|required|string|max:50',
+                'active' => 'sometimes|boolean',
             ]);
 
             if ($validator->fails()) {
@@ -185,8 +193,8 @@ class VehicleController extends Controller
                 'insurance_expiry' => $request->insurance_expiry ?? $vehicle->insurance_expiry,
                 'inspection_expiry' => $request->inspection_expiry ?? $vehicle->inspection_expiry,
                 'speed_gov_status' => $request->speed_gov_status ?? $vehicle->speed_gov_status,
-                'notes' => $request->notes,
-                'status' => $request->status ?? $vehicle->status,
+                'notes' => $request->notes ?? $vehicle->notes,
+                'active' => $request->has('active') ? $request->boolean('active') : $vehicle->active,
                 'updated_by' => Auth::id(),
             ]);
 
@@ -194,7 +202,7 @@ class VehicleController extends Controller
                 'success' => true,
                 'message' => 'Vehicle updated successfully',
                 'data' => [
-                    'vehicle' => $vehicle->load(['driver', 'createdBy'])
+                    'vehicle' => $vehicle->load(['currentAssignment.driver', 'createdBy'])
                 ]
             ]);
         } catch (\Exception $e) {
@@ -219,7 +227,7 @@ class VehicleController extends Controller
             }
 
             // Check if vehicle is currently assigned to a driver
-            if ($vehicle->driver_id) {
+            if (DriverAssignment::open()->where('vehicle_id', $vehicle->id)->exists()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Cannot delete vehicle that is currently assigned to a driver'
@@ -267,10 +275,10 @@ class VehicleController extends Controller
                 ], 422);
             }
 
-            // Check if driver is already assigned to another vehicle
-            $existingAssignment = Vehicle::where('driver_id', $request->driver_id)
-                ->where('id', '!=', $id)
-                ->where('status', 'active')
+            // Check if this driver is already assigned to a different vehicle
+            $existingAssignment = DriverAssignment::open()
+                ->where('driver_id', $request->driver_id)
+                ->where('vehicle_id', '!=', $id)
                 ->first();
 
             if ($existingAssignment) {
@@ -280,18 +288,27 @@ class VehicleController extends Controller
                 ], 422);
             }
 
-            $vehicle->update([
-                'driver_id' => $request->driver_id,
-                'assignment_date' => $request->assignment_date,
-                'notes' => $request->notes,
+            // Close this vehicle's current assignment (if any) and open a new one.
+            DriverAssignment::open()->where('vehicle_id', $id)->update([
+                'end_date' => $request->assignment_date,
                 'updated_by' => Auth::id(),
             ]);
+
+            DriverAssignment::create([
+                'vehicle_id' => $id,
+                'driver_id' => $request->driver_id,
+                'start_date' => $request->assignment_date,
+                'created_by' => Auth::id(),
+                'updated_by' => Auth::id(),
+            ]);
+
+            $vehicle->touch();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Driver assigned to vehicle successfully',
                 'data' => [
-                    'vehicle' => $vehicle->load(['driver', 'createdBy'])
+                    'vehicle' => $vehicle->load(['currentAssignment.driver', 'createdBy'])
                 ]
             ]);
         } catch (\Exception $e) {
@@ -315,24 +332,25 @@ class VehicleController extends Controller
                 ], 404);
             }
 
-            if (!$vehicle->driver_id) {
+            $openAssignment = DriverAssignment::open()->where('vehicle_id', $id)->first();
+            if (!$openAssignment) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Vehicle is not assigned to any driver'
                 ], 422);
             }
 
-            $vehicle->update([
-                'driver_id' => null,
-                'assignment_date' => null,
+            $openAssignment->update([
+                'end_date' => now()->toDateString(),
                 'updated_by' => Auth::id(),
             ]);
+            $vehicle->touch();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Driver unassigned from vehicle successfully',
                 'data' => [
-                    'vehicle' => $vehicle->load(['driver', 'createdBy'])
+                    'vehicle' => $vehicle->load(['currentAssignment.driver', 'createdBy'])
                 ]
             ]);
         } catch (\Exception $e) {
@@ -351,13 +369,15 @@ class VehicleController extends Controller
 
             $stats = $query->selectRaw('
                 COUNT(*) as total_vehicles,
-                SUM(CASE WHEN status = "active" THEN 1 ELSE 0 END) as active_vehicles,
-                SUM(CASE WHEN status = "maintenance" THEN 1 ELSE 0 END) as maintenance_vehicles,
-                SUM(CASE WHEN status = "inactive" THEN 1 ELSE 0 END) as inactive_vehicles,
-                SUM(CASE WHEN driver_id IS NOT NULL THEN 1 ELSE 0 END) as assigned_vehicles,
-                SUM(CASE WHEN driver_id IS NULL THEN 1 ELSE 0 END) as unassigned_vehicles,
+                SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) as active_vehicles,
+                SUM(CASE WHEN speed_gov_status = "maintenance" THEN 1 ELSE 0 END) as maintenance_vehicles,
+                SUM(CASE WHEN active = 0 THEN 1 ELSE 0 END) as inactive_vehicles,
                 AVG(capacity) as avg_capacity
             ')->first();
+
+            $assignedVehicleIds = DriverAssignment::open()->pluck('vehicle_id')->unique();
+            $assignedVehicles = $assignedVehicleIds->count();
+            $unassignedVehicles = Vehicle::count() - $assignedVehicles;
 
             // Get vehicles by make
             $vehiclesByMake = $query->selectRaw('make, COUNT(*) as count')
@@ -388,8 +408,8 @@ class VehicleController extends Controller
                         'active_vehicles' => $stats->active_vehicles ?? 0,
                         'maintenance_vehicles' => $stats->maintenance_vehicles ?? 0,
                         'inactive_vehicles' => $stats->inactive_vehicles ?? 0,
-                        'assigned_vehicles' => $stats->assigned_vehicles ?? 0,
-                        'unassigned_vehicles' => $stats->unassigned_vehicles ?? 0,
+                        'assigned_vehicles' => $assignedVehicles,
+                        'unassigned_vehicles' => $unassignedVehicles,
                         'avg_capacity' => round($stats->avg_capacity ?? 0, 2),
                         'expiring_insurance_count' => $expiringInsurance,
                         'expiring_inspection_count' => $expiringInspection
@@ -413,7 +433,7 @@ class VehicleController extends Controller
             $days = $request->get('days', 30);
             $documentType = $request->get('type', 'both'); // insurance, inspection, both
 
-            $query = Vehicle::with(['driver']);
+            $query = Vehicle::with(['currentAssignment.driver']);
 
             if ($documentType === 'insurance') {
                 $query->where('insurance_expiry', '<=', now()->addDays($days))
@@ -463,7 +483,7 @@ class VehicleController extends Controller
     public function search(Request $request)
     {
         try {
-            $query = Vehicle::with(['driver', 'createdBy']);
+            $query = Vehicle::with(['currentAssignment.driver', 'createdBy']);
 
             if ($request->filled('search')) {
                 $search = $request->search;
