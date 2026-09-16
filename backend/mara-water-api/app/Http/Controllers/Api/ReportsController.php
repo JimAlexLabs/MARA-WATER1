@@ -464,13 +464,15 @@ class ReportsController extends Controller
                 ')->groupBy('move_type', 'item_type')
                   ->get();
 
-            // Low stock items
+            // Low stock items -- each item against its own reorder point
+            // (materials.min_level, skus.reorder_threshold), not one flat
+            // number for everything.
             $lowStockItems = StockItem::with(['material', 'sku', 'warehouse'])
                 ->whereHas('material', function($q) {
                     $q->whereRaw('stock_items.qty <= materials.min_level');
                 })
                 ->orWhereHas('sku', function($q) {
-                    $q->whereRaw('stock_items.qty <= 10'); // Assuming 10 is minimum for SKUs
+                    $q->whereRaw('stock_items.qty <= COALESCE(skus.reorder_threshold, 10)');
                 })
                 ->get();
 

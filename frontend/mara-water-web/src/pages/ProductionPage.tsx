@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  Download, 
-  BarChart3, 
+import {
+  Plus,
+  Search,
+  Filter,
+  Download,
+  BarChart3,
   Package,
   Settings,
   Clock,
@@ -19,9 +19,43 @@ import {
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 
+interface Sku {
+  id: string;
+  code: string;
+  name: string;
+  brand?: string | null;
+  size_liters: string;
+}
+
+interface Warehouse {
+  id: string;
+  code: string;
+  name: string;
+}
+
+interface Material {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+  uom: string;
+  min_level: string;
+  is_consumable: boolean;
+}
+
+interface BomItem {
+  id: string;
+  sku_id: string;
+  material_id: string;
+  qty_per_unit: string;
+  uom: string;
+  material: Material;
+}
+
 interface Batch {
   id: string;
   code: string;
+  sku_id: string;
   sku: {
     name: string;
     size_liters: number;
@@ -29,6 +63,7 @@ interface Batch {
   manufacture_date: string;
   expiry_date: string;
   planned_qty: number;
+  actual_qty?: number | null;
   status: 'open' | 'in_progress' | 'closed';
   opened_by: {
     first_name: string;
@@ -44,6 +79,9 @@ interface PackagingRun {
   sku: {
     name: string;
   };
+  warehouse?: {
+    name: string;
+  } | null;
   run_start: string;
   run_end: string;
   good_qty: number;
@@ -72,6 +110,13 @@ const ProductionPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('batches');
   const [showBatchForm, setShowBatchForm] = useState(false);
   const [showPackagingForm, setShowPackagingForm] = useState(false);
+  const [showMaterialForm, setShowMaterialForm] = useState(false);
+  const [skus, setSkus] = useState<Sku[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [bomItems, setBomItems] = useState<BomItem[]>([]);
+  const [bomSkuId, setBomSkuId] = useState('');
+  const [bomForm, setBomForm] = useState({ material_id: '', qty_per_unit: '1', uom: 'PCS' });
 
   // Batch Form State
   const [batchForm, setBatchForm] = useState({
@@ -85,6 +130,7 @@ const ProductionPage: React.FC = () => {
   const [packagingForm, setPackagingForm] = useState({
     batch_id: '',
     sku_id: '',
+    warehouse_id: '',
     run_start: '',
     run_end: '',
     good_qty: '',
@@ -93,9 +139,22 @@ const ProductionPage: React.FC = () => {
     notes: ''
   });
 
+  // Material Form State
+  const [materialForm, setMaterialForm] = useState({
+    code: '', name: '', category: '', uom: 'PCS', min_level: '0', lead_time_days: '0',
+  });
+
   useEffect(() => {
     fetchData();
+    api.get('/fleet/skus').then(res => setSkus(res.data.data)).catch(() => {});
+    api.get('/inventory/warehouses').then(res => setWarehouses(res.data.data)).catch(() => {});
+    api.get('/production/materials').then(res => setMaterials(res.data.data)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!bomSkuId) { setBomItems([]); return; }
+    api.get(`/production/bom?sku_id=${bomSkuId}`).then(res => setBomItems(res.data.data)).catch(() => {});
+  }, [bomSkuId]);
 
   const fetchData = async () => {
     try {
@@ -104,7 +163,7 @@ const ProductionPage: React.FC = () => {
         api.get('/qa/batches'),
         api.get('/production/packaging-runs')
       ]);
-      
+
       setBatches(batchesResponse.data.data);
       setPackagingRuns(packagingResponse.data.data);
     } catch (error) {
@@ -135,12 +194,15 @@ const ProductionPage: React.FC = () => {
   const handlePackagingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/production/packaging-runs', packagingForm);
+      const res = await api.post('/production/packaging-runs', packagingForm);
       toast.success('Packaging run created successfully');
+      const warnings = res.data?.data?.material_warnings || [];
+      warnings.forEach((w: { message: string }) => toast.error(w.message, { duration: 8000 }));
       setShowPackagingForm(false);
       setPackagingForm({
         batch_id: '',
         sku_id: '',
+        warehouse_id: '',
         run_start: '',
         run_end: '',
         good_qty: '',
@@ -149,8 +211,60 @@ const ProductionPage: React.FC = () => {
         notes: ''
       });
       fetchData();
-    } catch (error) {
-      toast.error('Failed to create packaging run');
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to create packaging run');
+    }
+  };
+
+  const handleMaterialSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await api.post('/production/materials', materialForm);
+      toast.success('Material created successfully');
+      setMaterials([...materials, res.data.data.material]);
+      setShowMaterialForm(false);
+      setMaterialForm({ code: '', name: '', category: '', uom: 'PCS', min_level: '0', lead_time_days: '0' });
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to create material');
+    }
+  };
+
+  const handleAddBomLine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bomSkuId) { toast.error('Select a product first'); return; }
+    try {
+      const res = await api.post('/production/bom', { sku_id: bomSkuId, ...bomForm });
+      setBomItems([...bomItems, res.data.data.bom_item]);
+      setBomForm({ material_id: '', qty_per_unit: '1', uom: 'PCS' });
+      toast.success('Added to bill of materials');
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to add BOM line');
+    }
+  };
+
+  const handleRemoveBomLine = async (id: string) => {
+    if (!window.confirm('Remove this material from the bill of materials?')) return;
+    try {
+      await api.delete(`/production/bom/${id}`);
+      setBomItems(bomItems.filter(b => b.id !== id));
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to remove BOM line');
+    }
+  };
+
+  const handleStartBatch = async (batchId: string) => {
+    try {
+      await api.put(`/qa/batches/${batchId}/status`, { status: 'in_progress' });
+      toast.success('Batch started -- ready for a packaging run');
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to start batch');
     }
   };
 
@@ -215,6 +329,15 @@ const ProductionPage: React.FC = () => {
             <Plus className="w-4 h-4 mr-2" />
             New Packaging Run
           </button>
+          {activeTab === 'materials' && (
+            <button
+              onClick={() => setShowMaterialForm(true)}
+              className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              New Material
+            </button>
+          )}
         </div>
       </div>
 
@@ -285,6 +408,26 @@ const ProductionPage: React.FC = () => {
               }`}
             >
               Packaging Runs ({packagingRuns.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('materials')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'materials'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Materials ({materials.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('bom')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'bom'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Bill of Materials
             </button>
           </nav>
         </div>
@@ -378,7 +521,8 @@ const ProductionPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {batch.planned_qty.toLocaleString()}
+                        <div>Planned: {batch.planned_qty.toLocaleString()}</div>
+                        {batch.actual_qty != null && <div className="text-gray-500 font-normal">Actual: {batch.actual_qty.toLocaleString()}</div>}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(batch.status)}`}>
@@ -387,17 +531,14 @@ const ProductionPage: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex items-center space-x-2">
-                          <button className="text-blue-600 hover:text-blue-900">
-                            <Eye className="w-4 h-4" />
+                        {batch.status === 'open' && (
+                          <button
+                            onClick={() => handleStartBatch(batch.id)}
+                            className="text-blue-600 hover:text-blue-900"
+                          >
+                            Start
                           </button>
-                          <button className="text-green-600 hover:text-green-900">
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button className="text-red-600 hover:text-red-900">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -417,6 +558,9 @@ const ProductionPage: React.FC = () => {
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Batch & Product
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Warehouse
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Duration
@@ -462,6 +606,9 @@ const ProductionPage: React.FC = () => {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {run.warehouse?.name || '—'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {duration} min
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -501,6 +648,125 @@ const ProductionPage: React.FC = () => {
               </table>
             </div>
           )}
+
+          {/* Materials Table */}
+          {activeTab === 'materials' && (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Material</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UoM</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reorder Level</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {materials.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()) || m.code.toLowerCase().includes(searchTerm.toLowerCase())).map((m) => (
+                    <tr key={m.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{m.name}</div>
+                        <div className="text-sm text-gray-500">{m.code}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{m.category}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{m.uom}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{parseFloat(m.min_level || '0').toLocaleString()}</td>
+                    </tr>
+                  ))}
+                  {materials.length === 0 && (
+                    <tr><td colSpan={4} className="px-6 py-4 text-sm text-gray-400">No materials yet -- add one to start tracking raw materials.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Bill of Materials */}
+          {activeTab === 'bom' && (
+            <div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700">Product</label>
+                <select
+                  value={bomSkuId}
+                  onChange={(e) => setBomSkuId(e.target.value)}
+                  className="mt-1 block w-full max-w-md border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a product to view/edit its recipe</option>
+                  {skus.map(s => <option key={s.id} value={s.id}>{s.brand ? `${s.brand} -- ` : ''}{s.name}</option>)}
+                </select>
+              </div>
+
+              {bomSkuId && (
+                <>
+                  <div className="overflow-x-auto mb-4">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Material</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty per unit</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UoM</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {bomItems.map((b) => (
+                          <tr key={b.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{b.material?.name}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{parseFloat(b.qty_per_unit).toLocaleString()}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{b.uom}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                              <button onClick={() => handleRemoveBomLine(b.id)} className="text-red-600 hover:text-red-900">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {bomItems.length === 0 && (
+                          <tr><td colSpan={4} className="px-6 py-4 text-sm text-gray-400">No recipe set for this product yet -- add a line below.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <form onSubmit={handleAddBomLine} className="flex items-end gap-3 bg-gray-50 p-4 rounded-lg">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Material</label>
+                      <select
+                        required
+                        value={bomForm.material_id}
+                        onChange={(e) => setBomForm({...bomForm, material_id: e.target.value})}
+                        className="mt-1 block border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Select material</option>
+                        {materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Qty per unit</label>
+                      <input
+                        required type="number" min={0.0001} step="0.0001"
+                        value={bomForm.qty_per_unit}
+                        onChange={(e) => setBomForm({...bomForm, qty_per_unit: e.target.value})}
+                        className="mt-1 block w-28 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">UoM</label>
+                      <input
+                        required type="text"
+                        value={bomForm.uom}
+                        onChange={(e) => setBomForm({...bomForm, uom: e.target.value})}
+                        className="mt-1 block w-24 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                      Add
+                    </button>
+                  </form>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -513,12 +779,15 @@ const ProductionPage: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700">SKU</label>
                 <select
+                  required
                   value={batchForm.sku_id}
                   onChange={(e) => setBatchForm({...batchForm, sku_id: e.target.value})}
                   className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select SKU</option>
-                  {/* Add SKU options here */}
+                  {skus.map(s => (
+                    <option key={s.id} value={s.id}>{s.brand ? `${s.brand} -- ` : ''}{s.name}</option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -579,16 +848,35 @@ const ProductionPage: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700">Batch</label>
                 <select
+                  required
                   value={packagingForm.batch_id}
-                  onChange={(e) => setPackagingForm({...packagingForm, batch_id: e.target.value})}
+                  onChange={(e) => {
+                    const batch = batches.find(b => b.id === e.target.value);
+                    setPackagingForm({...packagingForm, batch_id: e.target.value, sku_id: batch?.sku_id || ''});
+                  }}
                   className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">Select Batch</option>
-                  {batches.map(batch => (
+                  <option value="">Select Batch (in progress)</option>
+                  {batches.filter(b => b.status === 'in_progress').map(batch => (
                     <option key={batch.id} value={batch.id}>
                       {batch.code} - {batch.sku.name}
                     </option>
                   ))}
+                </select>
+                {batches.filter(b => b.status === 'in_progress').length === 0 && (
+                  <p className="mt-1 text-xs text-amber-600">No batches in progress -- start one from the Batches tab first.</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Outlet / Warehouse (finished goods land here)</label>
+                <select
+                  required
+                  value={packagingForm.warehouse_id}
+                  onChange={(e) => setPackagingForm({...packagingForm, warehouse_id: e.target.value})}
+                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select warehouse</option>
+                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -662,6 +950,90 @@ const ProductionPage: React.FC = () => {
                   className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
                 >
                   Create Run
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Material Form Modal */}
+      {showMaterialForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">New Material</h3>
+            <form onSubmit={handleMaterialSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Code</label>
+                  <input
+                    required type="text"
+                    value={materialForm.code}
+                    onChange={(e) => setMaterialForm({...materialForm, code: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Category</label>
+                  <input
+                    required type="text" placeholder="e.g. preform, label, cap, bailing paper"
+                    value={materialForm.category}
+                    onChange={(e) => setMaterialForm({...materialForm, category: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Name</label>
+                <input
+                  required type="text"
+                  value={materialForm.name}
+                  onChange={(e) => setMaterialForm({...materialForm, name: e.target.value})}
+                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Unit</label>
+                  <input
+                    required type="text"
+                    value={materialForm.uom}
+                    onChange={(e) => setMaterialForm({...materialForm, uom: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Reorder Level</label>
+                  <input
+                    type="number" min={0}
+                    value={materialForm.min_level}
+                    onChange={(e) => setMaterialForm({...materialForm, min_level: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Lead Time (days)</label>
+                  <input
+                    type="number" min={0}
+                    value={materialForm.lead_time_days}
+                    onChange={(e) => setMaterialForm({...materialForm, lead_time_days: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowMaterialForm(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+                >
+                  Create Material
                 </button>
               </div>
             </form>

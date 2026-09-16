@@ -14,6 +14,7 @@ class PackagingRun extends Model
     protected $fillable = [
         'batch_id',
         'sku_id',
+        'warehouse_id',
         'run_start',
         'run_end',
         'good_qty',
@@ -43,6 +44,11 @@ class PackagingRun extends Model
     public function sku()
     {
         return $this->belongsTo(Sku::class);
+    }
+
+    public function warehouse()
+    {
+        return $this->belongsTo(Warehouse::class);
     }
 
     public function runBy()

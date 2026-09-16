@@ -17,6 +17,7 @@ class Batch extends Model
         'manufacture_date',
         'expiry_date',
         'planned_qty',
+        'actual_qty',
         'status',
         'opened_by',
         'closed_by',
@@ -28,10 +29,16 @@ class Batch extends Model
         'manufacture_date' => 'date',
         'expiry_date' => 'date',
         'planned_qty' => 'integer',
+        'actual_qty' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
+
+    public function packagingRuns()
+    {
+        return $this->hasMany(PackagingRun::class);
+    }
 
     public function openedBy()
     {

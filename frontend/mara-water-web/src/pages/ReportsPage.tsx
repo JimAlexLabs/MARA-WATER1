@@ -36,6 +36,27 @@ interface SalesBreakdownRow {
   revenue: number;
 }
 
+interface ReconciliationRow {
+  sku_id: string;
+  sku: { code: string; name: string; brand: string | null };
+  opening_qty: number;
+  produced_qty: number;
+  issued_qty: number;
+  returned_qty: number;
+  closing_qty: number;
+  closing_value: number;
+}
+
+interface MaterialUsageRow {
+  material_id: string;
+  material: { code: string; name: string; category: string; uom: string };
+  opening_balance: number;
+  received: number;
+  used: number;
+  closing_balance: number;
+  below_min_level: boolean;
+}
+
 const ReportsPage: React.FC = () => {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,6 +65,10 @@ const ReportsPage: React.FC = () => {
   const [salesReportLoading, setSalesReportLoading] = useState(false);
   const [byOutlet, setByOutlet] = useState<SalesBreakdownRow[]>([]);
   const [bySku, setBySku] = useState<SalesBreakdownRow[]>([]);
+  const [showProductionReport, setShowProductionReport] = useState(false);
+  const [productionReportLoading, setProductionReportLoading] = useState(false);
+  const [reconciliation, setReconciliation] = useState<ReconciliationRow[]>([]);
+  const [materialsUsage, setMaterialsUsage] = useState<MaterialUsageRow[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -82,6 +107,30 @@ const ReportsPage: React.FC = () => {
     const next = !showSalesReport;
     setShowSalesReport(next);
     if (next && byOutlet.length === 0 && bySku.length === 0) fetchSalesReport();
+  };
+
+  const fetchProductionReport = async () => {
+    try {
+      setProductionReportLoading(true);
+      const dateTo = new Date().toISOString().slice(0, 10);
+      const dateFrom = new Date(Date.now() - Number(dateRange) * 86400000).toISOString().slice(0, 10);
+      const [reconRes, usageRes] = await Promise.all([
+        api.get(`/inventory/reconciliation?date_from=${dateFrom}&date_to=${dateTo}`),
+        api.get(`/inventory/materials-usage?date_from=${dateFrom}&date_to=${dateTo}`),
+      ]);
+      setReconciliation(reconRes.data.data.items || []);
+      setMaterialsUsage(usageRes.data.data.materials || []);
+    } catch (error) {
+      toast.error('Failed to fetch production report');
+    } finally {
+      setProductionReportLoading(false);
+    }
+  };
+
+  const toggleProductionReport = () => {
+    const next = !showProductionReport;
+    setShowProductionReport(next);
+    if (next && reconciliation.length === 0 && materialsUsage.length === 0) fetchProductionReport();
   };
 
   if (loading) {
@@ -319,11 +368,11 @@ const ReportsPage: React.FC = () => {
             </div>
           </button>
 
-          <button className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
+          <button onClick={toggleProductionReport} className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
             <Package className="w-6 h-6 text-green-600 mr-3" />
             <div className="text-left">
               <div className="font-medium text-gray-900">Production Report</div>
-              <div className="text-sm text-gray-600">Production efficiency metrics</div>
+              <div className="text-sm text-gray-600">Stock reconciliation & raw materials usage</div>
             </div>
           </button>
           
@@ -405,6 +454,94 @@ const ReportsPage: React.FC = () => {
                           <td className="py-2">{row.qty_returned}</td>
                           <td className="py-2">{row.qty_net_sold}</td>
                           <td className="py-2 text-right font-medium">{row.revenue.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Production Report -- stock reconciliation (opening/produced/
+          issued/returned/closing, in qty and value) and raw materials
+          usage (opening/received/used/closing), read straight from the
+          movement ledger instead of a manually re-entered table. */}
+      {showProductionReport && (
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-medium text-gray-900">Production Report — last {dateRange} days</h3>
+            <button onClick={() => setShowProductionReport(false)} className="text-sm text-gray-500 hover:text-gray-700">Hide</button>
+          </div>
+          {productionReportLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Stock Reconciliation (Finished Goods)</h4>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-500 uppercase border-b">
+                        <th className="py-2">Product</th>
+                        <th className="py-2">Opening</th>
+                        <th className="py-2">Produced</th>
+                        <th className="py-2">Issued</th>
+                        <th className="py-2">Returned</th>
+                        <th className="py-2">Closing</th>
+                        <th className="py-2 text-right">Closing Value (KES)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {reconciliation.filter(r => r.produced_qty || r.issued_qty || r.returned_qty || r.opening_qty || r.closing_qty).length === 0 && (
+                        <tr><td colSpan={7} className="py-3 text-gray-400">No production movement in this period</td></tr>
+                      )}
+                      {reconciliation.filter(r => r.produced_qty || r.issued_qty || r.returned_qty || r.opening_qty || r.closing_qty).map((row) => (
+                        <tr key={row.sku_id}>
+                          <td className="py-2">{row.sku?.brand ? `${row.sku.brand} — ` : ''}{row.sku?.name}</td>
+                          <td className="py-2">{row.opening_qty}</td>
+                          <td className="py-2">{row.produced_qty}</td>
+                          <td className="py-2">{row.issued_qty}</td>
+                          <td className="py-2">{row.returned_qty}</td>
+                          <td className="py-2">{row.closing_qty}</td>
+                          <td className="py-2 text-right font-medium">{row.closing_value.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Raw Materials Usage</h4>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-500 uppercase border-b">
+                        <th className="py-2">Material</th>
+                        <th className="py-2">Opening</th>
+                        <th className="py-2">Received</th>
+                        <th className="py-2">Used</th>
+                        <th className="py-2">Closing</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {materialsUsage.filter(m => m.received || m.used || m.opening_balance || m.closing_balance).length === 0 && (
+                        <tr><td colSpan={5} className="py-3 text-gray-400">No material movement in this period</td></tr>
+                      )}
+                      {materialsUsage.filter(m => m.received || m.used || m.opening_balance || m.closing_balance).map((row) => (
+                        <tr key={row.material_id}>
+                          <td className="py-2">{row.material?.name}</td>
+                          <td className="py-2">{row.opening_balance.toLocaleString()}</td>
+                          <td className="py-2">{row.received.toLocaleString()}</td>
+                          <td className="py-2">{row.used.toLocaleString()}</td>
+                          <td className={`py-2 font-medium ${row.below_min_level ? 'text-red-600' : ''}`}>
+                            {row.closing_balance.toLocaleString()}{row.below_min_level ? ' ⚠' : ''}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

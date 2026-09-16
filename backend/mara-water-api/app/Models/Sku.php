@@ -13,10 +13,12 @@ class Sku extends Model
     protected $fillable = [
         'code',
         'name',
+        'brand',
         'size_liters',
         'unit',
         'expiry_days',
         'active',
+        'reorder_threshold',
         'created_by',
         'updated_by',
     ];
@@ -25,6 +27,7 @@ class Sku extends Model
         'size_liters' => 'decimal:2',
         'expiry_days' => 'integer',
         'active' => 'boolean',
+        'reorder_threshold' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -32,5 +35,15 @@ class Sku extends Model
     public function batches()
     {
         return $this->hasMany(Batch::class);
+    }
+
+    public function bomItems()
+    {
+        return $this->hasMany(BomItem::class);
+    }
+
+    public function stockItems()
+    {
+        return $this->hasMany(StockItem::class);
     }
 }

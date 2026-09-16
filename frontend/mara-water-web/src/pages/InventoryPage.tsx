@@ -32,6 +32,7 @@ interface StockItem {
   sku?: {
     name?: string;
     code?: string;
+    reorder_threshold?: number | null;
   };
   warehouse?: {
     name?: string;
@@ -39,6 +40,22 @@ interface StockItem {
   };
   qty?: string;
 }
+
+interface RefItem {
+  id: string;
+  code: string;
+  name: string;
+}
+
+interface RefWarehouse {
+  id: string;
+  code: string;
+  name: string;
+}
+
+// SKUs don't always have a reorder_threshold set yet -- this is the same
+// fallback InventoryController::lowStock() uses server-side.
+const DEFAULT_SKU_REORDER_THRESHOLD = 10;
 
 interface StockMove {
   id?: string;
@@ -82,6 +99,9 @@ const InventoryPage: React.FC = () => {
   const [filterType, setFilterType] = useState('all');
   const [activeTab, setActiveTab] = useState('stock');
   const [showStockMoveForm, setShowStockMoveForm] = useState(false);
+  const [materials, setMaterials] = useState<RefItem[]>([]);
+  const [skus, setSkus] = useState<RefItem[]>([]);
+  const [warehouses, setWarehouses] = useState<RefWarehouse[]>([]);
 
   // Stock Move Form State
   const [stockMoveForm, setStockMoveForm] = useState({
@@ -101,6 +121,9 @@ const InventoryPage: React.FC = () => {
 
   useEffect(() => {
     fetchData();
+    api.get('/production/materials').then(res => setMaterials(res.data.data)).catch(() => {});
+    api.get('/fleet/skus').then(res => setSkus(res.data.data)).catch(() => {});
+    api.get('/inventory/warehouses').then(res => setWarehouses(res.data.data)).catch(() => {});
   }, []);
 
   const fetchData = async () => {
@@ -166,6 +189,17 @@ const InventoryPage: React.FC = () => {
       case 'transfer': return 'text-purple-600 bg-purple-100';
       default: return 'text-gray-600 bg-gray-100';
     }
+  };
+
+  // Each item's own reorder point -- materials.min_level, or
+  // skus.reorder_threshold (falling back to the old flat default for
+  // SKUs that haven't had one set). Matches the server-side logic in
+  // InventoryController::lowStock().
+  const getReorderLevel = (item: StockItem): number => {
+    if (item.item_type === 'material') {
+      return parseFloat(item.material?.min_level || '0');
+    }
+    return item.sku?.reorder_threshold ?? DEFAULT_SKU_REORDER_THRESHOLD;
   };
 
   const getStockLevelColor = (qty: number, minLevel: number) => {
@@ -235,7 +269,7 @@ const InventoryPage: React.FC = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Low Stock Items</p>
               <p className="text-2xl font-bold text-gray-900">
-                {stockItems.filter(item => parseFloat(item.qty || '0') <= parseFloat(item.material?.min_level || '0')).length}
+                {stockItems.filter(item => parseFloat(item.qty || '0') <= getReorderLevel(item)).length}
               </p>
             </div>
           </div>
@@ -368,16 +402,15 @@ const InventoryPage: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
-                          <div>Min: {parseFloat(item.material?.min_level || '0').toLocaleString()}</div>
-                          <div>Max: N/A</div>
+                          Reorder at: {getReorderLevel(item).toLocaleString()}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStockLevelColor(parseFloat(item.qty || '0'), parseFloat(item.material?.min_level || '0'))}`}>
-                          {getStockLevelIcon(parseFloat(item.qty || '0'), parseFloat(item.material?.min_level || '0'))}
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStockLevelColor(parseFloat(item.qty || '0'), getReorderLevel(item))}`}>
+                          {getStockLevelIcon(parseFloat(item.qty || '0'), getReorderLevel(item))}
                           <span className="ml-1">
-                            {parseFloat(item.qty || '0') <= parseFloat(item.material?.min_level || '0') ? 'Low Stock' : 
-                             parseFloat(item.qty || '0') <= parseFloat(item.material?.min_level || '0') * 1.5 ? 'Warning' : 'Good'}
+                            {parseFloat(item.qty || '0') <= getReorderLevel(item) ? 'Low Stock' :
+                             parseFloat(item.qty || '0') <= getReorderLevel(item) * 1.5 ? 'Warning' : 'Good'}
                           </span>
                         </span>
                       </td>
@@ -530,7 +563,9 @@ const InventoryPage: React.FC = () => {
                   className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select Item</option>
-                  {/* Add item options here */}
+                  {(stockMoveForm.item_type === 'material' ? materials : skus).map(i => (
+                    <option key={i.id} value={i.id}>{i.name} ({i.code})</option>
+                  ))}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -541,8 +576,8 @@ const InventoryPage: React.FC = () => {
                     onChange={(e) => setStockMoveForm({...stockMoveForm, warehouse_from_id: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">Select Warehouse</option>
-                    {/* Add warehouse options here */}
+                    <option value="">None (stock-in only)</option>
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
                   </select>
                 </div>
                 <div>
@@ -552,8 +587,8 @@ const InventoryPage: React.FC = () => {
                     onChange={(e) => setStockMoveForm({...stockMoveForm, warehouse_to_id: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">Select Warehouse</option>
-                    {/* Add warehouse options here */}
+                    <option value="">None (stock-out only)</option>
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
                   </select>
                 </div>
               </div>

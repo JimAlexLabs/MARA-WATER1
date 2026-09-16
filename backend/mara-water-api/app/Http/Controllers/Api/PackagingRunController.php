@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Validator;
 use App\Models\PackagingRun;
 use App\Models\Batch;
 use App\Models\Sku;
+use App\Models\BomItem;
 
 class PackagingRunController extends Controller
 {
@@ -63,6 +64,7 @@ class PackagingRunController extends Controller
             $validator = Validator::make($request->all(), [
                 'batch_id' => 'required|exists:batches,id',
                 'sku_id' => 'required|exists:skus,id',
+                'warehouse_id' => 'required_with:run_end|nullable|exists:warehouses,id',
                 'run_start' => 'required|date',
                 'run_end' => 'nullable|date|after:run_start',
                 'good_qty' => 'required|integer|min:0',
@@ -99,9 +101,12 @@ class PackagingRunController extends Controller
             $totalQty = $request->good_qty + $request->scrap_qty;
             $yieldPercentage = $totalQty > 0 ? ($request->good_qty / $totalQty) * 100 : 0;
 
+            DB::beginTransaction();
+
             $packagingRun = PackagingRun::create([
                 'batch_id' => $request->batch_id,
                 'sku_id' => $request->sku_id,
+                'warehouse_id' => $request->warehouse_id,
                 'run_start' => $request->run_start,
                 'run_end' => $request->run_end,
                 'good_qty' => $request->good_qty,
@@ -113,20 +118,27 @@ class PackagingRunController extends Controller
                 'updated_by' => Auth::id(),
             ]);
 
+            $materialWarnings = [];
+
             // Update batch if run is completed
             if ($request->run_end) {
                 $this->updateBatchStatus($batch, $request->good_qty);
+                $materialWarnings = $this->postProductionStockMoves($packagingRun, $request->warehouse_id);
             }
+
+            DB::commit();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Packaging run created successfully',
                 'data' => [
-                    'packaging_run' => $packagingRun->load(['batch', 'sku', 'runBy']),
-                    'yield_percentage' => round($yieldPercentage, 2)
+                    'packaging_run' => $packagingRun->load(['batch', 'sku', 'warehouse', 'runBy']),
+                    'yield_percentage' => round($yieldPercentage, 2),
+                    'material_warnings' => $materialWarnings,
                 ]
             ], 201);
         } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create packaging run',
@@ -181,6 +193,7 @@ class PackagingRunController extends Controller
 
             $validator = Validator::make($request->all(), [
                 'run_end' => 'nullable|date|after:run_start',
+                'warehouse_id' => 'required_with:run_end|nullable|exists:warehouses,id',
                 'good_qty' => 'sometimes|required|integer|min:0',
                 'scrap_qty' => 'sometimes|required|integer|min:0',
                 'downtime_minutes' => 'nullable|integer|min:0',
@@ -195,8 +208,16 @@ class PackagingRunController extends Controller
                 ], 422);
             }
 
+            // Capture BEFORE update() mutates the in-memory model -- this is
+            // what makes "just got completed" detectable at all (see the
+            // comment above the fixed pre-existing bug this replaces).
+            $wasIncomplete = !$packagingRun->run_end;
+
+            DB::beginTransaction();
+
             $packagingRun->update([
                 'run_end' => $request->run_end,
+                'warehouse_id' => $request->warehouse_id ?? $packagingRun->warehouse_id,
                 'good_qty' => $request->good_qty ?? $packagingRun->good_qty,
                 'scrap_qty' => $request->scrap_qty ?? $packagingRun->scrap_qty,
                 'downtime_minutes' => $request->downtime_minutes,
@@ -204,19 +225,28 @@ class PackagingRunController extends Controller
                 'updated_by' => Auth::id(),
             ]);
 
-            // Update batch if run is completed
-            if ($request->run_end && !$packagingRun->run_end) {
+            $materialWarnings = [];
+
+            // Update batch (and post stock moves) only the moment this run
+            // actually transitions from incomplete to completed -- not on
+            // every subsequent edit, which would double-post the movements.
+            if ($request->run_end && $wasIncomplete) {
                 $this->updateBatchStatus($packagingRun->batch, $packagingRun->good_qty);
+                $materialWarnings = $this->postProductionStockMoves($packagingRun, $packagingRun->warehouse_id);
             }
+
+            DB::commit();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Packaging run updated successfully',
                 'data' => [
-                    'packaging_run' => $packagingRun->load(['batch', 'sku', 'runBy'])
+                    'packaging_run' => $packagingRun->load(['batch', 'sku', 'warehouse', 'runBy']),
+                    'material_warnings' => $materialWarnings,
                 ]
             ]);
         } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update packaging run',
@@ -280,6 +310,7 @@ class PackagingRunController extends Controller
             }
 
             $validator = Validator::make($request->all(), [
+                'warehouse_id' => 'required|exists:warehouses,id',
                 'good_qty' => 'required|integer|min:0',
                 'scrap_qty' => 'required|integer|min:0',
                 'downtime_minutes' => 'nullable|integer|min:0',
@@ -294,8 +325,11 @@ class PackagingRunController extends Controller
                 ], 422);
             }
 
+            DB::beginTransaction();
+
             $packagingRun->update([
                 'run_end' => now(),
+                'warehouse_id' => $request->warehouse_id,
                 'good_qty' => $request->good_qty,
                 'scrap_qty' => $request->scrap_qty,
                 'downtime_minutes' => $request->downtime_minutes,
@@ -306,6 +340,10 @@ class PackagingRunController extends Controller
             // Update batch status
             $this->updateBatchStatus($packagingRun->batch, $request->good_qty);
 
+            $materialWarnings = $this->postProductionStockMoves($packagingRun, $request->warehouse_id);
+
+            DB::commit();
+
             // Calculate yield percentage
             $totalQty = $request->good_qty + $request->scrap_qty;
             $yieldPercentage = $totalQty > 0 ? ($request->good_qty / $totalQty) * 100 : 0;
@@ -314,11 +352,13 @@ class PackagingRunController extends Controller
                 'success' => true,
                 'message' => 'Packaging run completed successfully',
                 'data' => [
-                    'packaging_run' => $packagingRun->load(['batch', 'sku', 'runBy']),
-                    'yield_percentage' => round($yieldPercentage, 2)
+                    'packaging_run' => $packagingRun->load(['batch', 'sku', 'warehouse', 'runBy']),
+                    'yield_percentage' => round($yieldPercentage, 2),
+                    'material_warnings' => $materialWarnings,
                 ]
             ]);
         } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to complete packaging run',
@@ -438,5 +478,74 @@ class PackagingRunController extends Controller
             'closed_by' => Auth::id(),
             'updated_by' => Auth::id(),
         ]);
+    }
+
+    /**
+     * The Phase 8 wiring: a completed run posts the finished-goods
+     * stock-in itself (never blocked -- it's a pure increment), then
+     * auto-deducts every raw material on that SKU's bill of materials.
+     * Material deduction is allowed to go negative (never blocks the
+     * run) because stock_items for materials starts out empty pre-launch
+     * -- no GRN has ever been logged -- so refusing to record real
+     * consumption against non-existent opening stock would make this
+     * feature dead on arrival. A negative balance is then a true,
+     * visible signal that opening stock/GRNs need entering, not silent
+     * data loss. Returns the list of materials that went negative so the
+     * caller can surface it.
+     */
+    private function postProductionStockMoves(PackagingRun $packagingRun, string $warehouseId): array
+    {
+        $inventory = new InventoryController();
+
+        if ($packagingRun->good_qty > 0) {
+            $inventory->recordMove([
+                'move_type' => 'produce',
+                'item_type' => 'sku',
+                'sku_id' => $packagingRun->sku_id,
+                'batch_id' => $packagingRun->batch_id,
+                'warehouse_to_id' => $warehouseId,
+                'qty' => $packagingRun->good_qty,
+                'uom' => $packagingRun->sku->unit ?? 'BOTTLE',
+                'ref_entity' => 'packaging_run',
+                'ref_id' => $packagingRun->id,
+            ]);
+        }
+
+        $warnings = [];
+        if ($packagingRun->good_qty > 0) {
+            $bomItems = BomItem::with('material')->where('sku_id', $packagingRun->sku_id)->whereNull('deleted_at')->get();
+
+            foreach ($bomItems as $bomItem) {
+                $qtyNeeded = (float) $bomItem->qty_per_unit * $packagingRun->good_qty;
+
+                $inventory->recordMove([
+                    'move_type' => 'issue',
+                    'item_type' => 'material',
+                    'material_id' => $bomItem->material_id,
+                    'warehouse_from_id' => $warehouseId,
+                    'qty' => $qtyNeeded,
+                    'uom' => $bomItem->uom,
+                    'ref_entity' => 'packaging_run',
+                    'ref_id' => $packagingRun->id,
+                ], allowNegative: true);
+
+                $balance = \App\Models\StockItem::where('item_type', 'material')
+                    ->where('material_id', $bomItem->material_id)
+                    ->where('warehouse_id', $warehouseId)
+                    ->whereNull('deleted_at')
+                    ->value('qty');
+
+                if ($balance !== null && $balance < 0) {
+                    $warnings[] = [
+                        'material_id' => $bomItem->material_id,
+                        'material_name' => $bomItem->material->name ?? 'Material',
+                        'balance' => (float) $balance,
+                        'message' => ($bomItem->material->name ?? 'Material') . " balance is now {$balance} {$bomItem->uom} -- opening stock/GRN likely needs entering",
+                    ];
+                }
+            }
+        }
+
+        return $warnings;
     }
 }

@@ -214,10 +214,19 @@ class InventoryController extends Controller
     /**
      * Create a stock move and apply its effect to stock levels. Shared by
      * the HTTP endpoint above and by other modules (e.g. Sales logging a
-     * return) that need to post a movement as part of their own flow --
-     * callers are expected to wrap this in their own DB transaction.
+     * return, Production consuming raw materials) that need to post a
+     * movement as part of their own flow -- callers are expected to wrap
+     * this in their own DB transaction.
+     *
+     * $allowNegative: raw-material consumption during production needs to
+     * post even when no opening stock was ever recorded for that material
+     * (true pre-launch, before any GRN has been logged) -- rather than
+     * blocking every production run on a shortage that isn't real, this
+     * lets the balance go negative and the caller surface it as a warning.
+     * Sales/returns/GRNs never pass this -- a real stock-out there should
+     * still block.
      */
-    public function recordMove(array $data): StockMove
+    public function recordMove(array $data, bool $allowNegative = false): StockMove
     {
         $stockMove = StockMove::create([
             'move_type' => $data['move_type'],
@@ -237,7 +246,7 @@ class InventoryController extends Controller
             'updated_by' => Auth::id(),
         ]);
 
-        $this->updateStockLevels($stockMove);
+        $this->updateStockLevels($stockMove, $allowNegative);
 
         return $stockMove;
     }
@@ -384,16 +393,309 @@ class InventoryController extends Controller
     }
 
     /**
-     * Get low stock items
+     * Warehouse stock card -- replaces "MAIN STOCK WARE HOUSE": one item,
+     * one warehouse, opening/in/out/returns/closing per day, read straight
+     * off the movement ledger rather than kept as a separately maintained
+     * number.
+     */
+    public function stockCard(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'item_type' => 'required|in:sku,material',
+                'item_id' => 'required|string',
+                'warehouse_id' => 'required|exists:warehouses,id',
+                'date_from' => 'required|date',
+                'date_to' => 'required|date|after_or_equal:date_from',
+            ]);
+            if ($validator->fails()) {
+                return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+            }
+
+            $itemType = $request->item_type;
+            $itemId = $request->item_id;
+            $warehouseId = $request->warehouse_id;
+            $idColumn = $itemType === 'sku' ? 'sku_id' : 'material_id';
+            $dateFrom = $request->date_from;
+            $dateTo = $request->date_to;
+
+            $baseQuery = fn () => StockMove::whereNull('deleted_at')
+                ->where('item_type', $itemType)
+                ->where($idColumn, $itemId);
+
+            // Opening balance: net effect of every move before this period.
+            $openingIn = (clone $baseQuery())->where('warehouse_to_id', $warehouseId)
+                ->where('moved_at', '<', $dateFrom)->sum('qty');
+            $openingOut = (clone $baseQuery())->where('warehouse_from_id', $warehouseId)
+                ->where('moved_at', '<', $dateFrom)->sum('qty');
+            $opening = (float) $openingIn - (float) $openingOut;
+
+            $moves = (clone $baseQuery())
+                ->where(function ($q) use ($warehouseId) {
+                    $q->where('warehouse_to_id', $warehouseId)->orWhere('warehouse_from_id', $warehouseId);
+                })
+                ->whereBetween('moved_at', ["{$dateFrom} 00:00:00", "{$dateTo} 23:59:59"])
+                ->orderBy('moved_at')
+                ->get();
+
+            $byDay = [];
+            $running = $opening;
+            $cursor = \Carbon\Carbon::parse($dateFrom);
+            $end = \Carbon\Carbon::parse($dateTo);
+            while ($cursor->lte($end)) {
+                $byDay[$cursor->toDateString()] = ['opening' => $running, 'in' => 0.0, 'out' => 0.0, 'returns' => 0.0, 'closing' => $running];
+                $cursor->addDay();
+            }
+
+            foreach ($moves as $move) {
+                $day = \Carbon\Carbon::parse($move->moved_at)->toDateString();
+                if (!isset($byDay[$day])) {
+                    continue;
+                }
+                $qty = (float) $move->qty;
+                if ($move->warehouse_to_id === $warehouseId) {
+                    if ($move->move_type === 'return') {
+                        $byDay[$day]['returns'] += $qty;
+                    } else {
+                        $byDay[$day]['in'] += $qty;
+                    }
+                }
+                if ($move->warehouse_from_id === $warehouseId) {
+                    $byDay[$day]['out'] += $qty;
+                }
+            }
+
+            // Roll opening/closing forward day to day now that each day's
+            // in/out/returns are known.
+            $running = $opening;
+            foreach ($byDay as $day => &$row) {
+                $row['opening'] = $running;
+                $row['closing'] = $running + $row['in'] - $row['out'] + $row['returns'];
+                $running = $row['closing'];
+            }
+            unset($row);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'item_type' => $itemType,
+                    'item_id' => $itemId,
+                    'warehouse_id' => $warehouseId,
+                    'opening_balance' => round($opening, 3),
+                    'days' => collect($byDay)->map(fn ($row, $date) => array_merge(['date' => $date], array_map(fn ($v) => round($v, 3), $row)))->values(),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Failed to build stock card', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Stock reconciliation -- per SKU: opening qty, produced, issued
+     * (sold), returned, closing qty, and the same in value terms using
+     * the default price list's unit price. Generated on demand from the
+     * movement ledger + price list, never a manually re-entered table.
+     */
+    public function reconciliation(Request $request)
+    {
+        try {
+            $dateFrom = $request->get('date_from', now()->startOfMonth()->toDateString());
+            $dateTo = $request->get('date_to', now()->toDateString());
+            $warehouseId = $request->get('warehouse_id');
+
+            $prices = \App\Models\PriceListItem::whereHas('priceList', fn ($q) => $q->where('is_default', true))
+                ->pluck('unit_price', 'sku_id');
+
+            $skus = Sku::where('active', true)->orderBy('brand')->orderBy('name')->get();
+
+            $rows = $skus->map(function ($sku) use ($dateFrom, $dateTo, $warehouseId, $prices) {
+                $moves = StockMove::whereNull('deleted_at')
+                    ->where('item_type', 'sku')->where('sku_id', $sku->id)
+                    ->when($warehouseId, fn ($q) => $q->where(function ($w) use ($warehouseId) {
+                        $w->where('warehouse_to_id', $warehouseId)->orWhere('warehouse_from_id', $warehouseId);
+                    }));
+
+                $openingIn = (clone $moves)->where('moved_at', '<', $dateFrom)->sum(DB::raw('CASE WHEN warehouse_to_id IS NOT NULL THEN qty ELSE 0 END'));
+                $openingOut = (clone $moves)->where('moved_at', '<', $dateFrom)->sum(DB::raw('CASE WHEN warehouse_from_id IS NOT NULL THEN qty ELSE 0 END'));
+                $opening = (float) $openingIn - (float) $openingOut;
+
+                $periodMoves = (clone $moves)->whereBetween('moved_at', ["{$dateFrom} 00:00:00", "{$dateTo} 23:59:59"]);
+                $produced = (clone $periodMoves)->where('move_type', 'produce')->sum('qty');
+                $issued = (clone $periodMoves)->where('move_type', 'issue')->sum('qty');
+                $returned = (clone $periodMoves)->where('move_type', 'return')->sum('qty');
+
+                $closing = $opening + (float) $produced - (float) $issued + (float) $returned;
+                $unitPrice = (float) ($prices[$sku->id] ?? 0);
+
+                return [
+                    'sku_id' => $sku->id,
+                    'sku' => ['id' => $sku->id, 'code' => $sku->code, 'name' => $sku->name, 'brand' => $sku->brand],
+                    'unit_price' => $unitPrice,
+                    'opening_qty' => round($opening, 3),
+                    'produced_qty' => round((float) $produced, 3),
+                    'issued_qty' => round((float) $issued, 3),
+                    'returned_qty' => round((float) $returned, 3),
+                    'closing_qty' => round($closing, 3),
+                    'opening_value' => round($opening * $unitPrice, 2),
+                    'closing_value' => round($closing * $unitPrice, 2),
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'period' => ['from' => $dateFrom, 'to' => $dateTo],
+                    'items' => $rows,
+                    'total_closing_value' => round($rows->sum('closing_value'), 2),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Failed to build reconciliation', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Raw materials usage -- replaces "RAW MATERIAL REAL": per material,
+     * opening balance, received (GRN), used (production issue), closing
+     * balance -- the same opening-used-balance pattern, automated.
+     */
+    public function materialsUsage(Request $request)
+    {
+        try {
+            $dateFrom = $request->get('date_from', now()->startOfMonth()->toDateString());
+            $dateTo = $request->get('date_to', now()->toDateString());
+            $warehouseId = $request->get('warehouse_id');
+
+            $materials = Material::orderBy('category')->orderBy('name')->get();
+
+            $rows = $materials->map(function ($material) use ($dateFrom, $dateTo, $warehouseId) {
+                $moves = StockMove::whereNull('deleted_at')
+                    ->where('item_type', 'material')->where('material_id', $material->id)
+                    ->when($warehouseId, fn ($q) => $q->where(function ($w) use ($warehouseId) {
+                        $w->where('warehouse_to_id', $warehouseId)->orWhere('warehouse_from_id', $warehouseId);
+                    }));
+
+                $openingIn = (clone $moves)->where('moved_at', '<', $dateFrom)->sum(DB::raw('CASE WHEN warehouse_to_id IS NOT NULL THEN qty ELSE 0 END'));
+                $openingOut = (clone $moves)->where('moved_at', '<', $dateFrom)->sum(DB::raw('CASE WHEN warehouse_from_id IS NOT NULL THEN qty ELSE 0 END'));
+                $opening = (float) $openingIn - (float) $openingOut;
+
+                $periodMoves = (clone $moves)->whereBetween('moved_at', ["{$dateFrom} 00:00:00", "{$dateTo} 23:59:59"]);
+                $received = (clone $periodMoves)->where('move_type', 'grn')->sum('qty');
+                $used = (clone $periodMoves)->where('move_type', 'issue')->sum('qty');
+
+                $closing = $opening + (float) $received - (float) $used;
+
+                return [
+                    'material_id' => $material->id,
+                    'material' => ['id' => $material->id, 'code' => $material->code, 'name' => $material->name, 'category' => $material->category, 'uom' => $material->uom],
+                    'opening_balance' => round($opening, 3),
+                    'received' => round((float) $received, 3),
+                    'used' => round((float) $used, 3),
+                    'closing_balance' => round($closing, 3),
+                    'below_min_level' => $closing < (float) $material->min_level,
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'period' => ['from' => $dateFrom, 'to' => $dateTo],
+                    'materials' => $rows,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Failed to build materials usage report', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Refills tracking -- not a fifth separate sheet, just a filtered
+     * slice of production (and sales, from Phase 7) by product type
+     * "Refill", by size, by day.
+     */
+    public function refills(Request $request)
+    {
+        try {
+            $dateFrom = $request->get('date_from', now()->subDays(30)->toDateString());
+            $dateTo = $request->get('date_to', now()->toDateString());
+
+            $refillSkuIds = Sku::where('brand', 'Refill')->pluck('id');
+
+            $production = \App\Models\PackagingRun::with('sku')
+                ->whereIn('sku_id', $refillSkuIds)
+                ->whereNotNull('run_end')
+                ->whereDate('run_end', '>=', $dateFrom)
+                ->whereDate('run_end', '<=', $dateTo)
+                ->selectRaw('sku_id, DATE(run_end) as date, SUM(good_qty) as qty_produced')
+                ->groupBy('sku_id', 'date')
+                ->orderBy('date')
+                ->get()
+                ->map(fn ($r) => [
+                    'sku_id' => $r->sku_id,
+                    'sku' => $r->sku,
+                    'date' => $r->date,
+                    'qty_produced' => (int) $r->qty_produced,
+                ]);
+
+            $sales = \App\Models\OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
+                ->whereIn('order_items.sku_id', $refillSkuIds)
+                ->whereNull('orders.deleted_at')->whereNull('order_items.deleted_at')
+                ->whereDate('orders.order_date', '>=', $dateFrom)
+                ->whereDate('orders.order_date', '<=', $dateTo)
+                ->selectRaw('order_items.sku_id, orders.order_date as date, SUM(order_items.qty) as qty_dispatched, SUM(order_items.qty_returned) as qty_returned')
+                ->groupBy('order_items.sku_id', 'orders.order_date')
+                ->orderBy('date')
+                ->with('sku')
+                ->get()
+                ->map(fn ($r) => [
+                    'sku_id' => $r->sku_id,
+                    'sku' => $r->sku,
+                    'date' => $r->date,
+                    'qty_dispatched' => (int) $r->qty_dispatched,
+                    'qty_returned' => (int) $r->qty_returned,
+                    'qty_net_sold' => (int) $r->qty_dispatched - (int) $r->qty_returned,
+                ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'period' => ['from' => $dateFrom, 'to' => $dateTo],
+                    'sizes' => Sku::where('brand', 'Refill')->orderBy('size_liters')->get(['id', 'name', 'size_liters']),
+                    'production_by_day' => $production,
+                    'sales_by_day' => $sales,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Failed to build refills report', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Get low stock items. Without an explicit ?threshold=, this compares
+     * each item against ITS OWN reorder point -- materials.min_level or
+     * skus.reorder_threshold (falling back to the old flat 10 for SKUs
+     * that haven't had one set yet) -- rather than one number for every
+     * item regardless of what it is.
      */
     public function lowStock(Request $request)
     {
         try {
-            $threshold = $request->get('threshold', 10);
+            $threshold = $request->filled('threshold') ? (float) $request->threshold : null;
 
             $query = StockItem::with(['material', 'sku', 'warehouse'])
-                ->where('qty', '<=', $threshold)
                 ->whereNull('deleted_at');
+
+            if ($threshold !== null) {
+                $query->where('qty', '<=', $threshold);
+            } else {
+                $query->where(function ($q) {
+                    $q->whereHas('material', function ($m) {
+                        $m->whereColumn('stock_items.qty', '<=', 'materials.min_level');
+                    })->orWhereHas('sku', function ($s) {
+                        $s->whereRaw('stock_items.qty <= COALESCE(skus.reorder_threshold, 10)');
+                    });
+                });
+            }
 
             // Apply filters
             if ($request->filled('item_type')) {
@@ -416,7 +718,7 @@ class InventoryController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'threshold' => $threshold,
+                    'threshold' => $threshold, // null means "per-item reorder threshold", not a single number
                     'stock_items' => $stockItems->items(),
                     'pagination' => [
                         'current_page' => $stockItems->currentPage(),
@@ -439,7 +741,7 @@ class InventoryController extends Controller
     /**
      * Update stock levels based on stock move
      */
-    private function updateStockLevels($stockMove)
+    private function updateStockLevels($stockMove, bool $allowNegative = false)
     {
         // Handle outgoing stock (from warehouse)
         if ($stockMove->warehouse_from_id) {
@@ -449,7 +751,8 @@ class InventoryController extends Controller
                 $stockMove->sku_id,
                 $stockMove->batch_id,
                 $stockMove->warehouse_from_id,
-                -$stockMove->qty
+                -$stockMove->qty,
+                $allowNegative
             );
         }
 
@@ -461,7 +764,8 @@ class InventoryController extends Controller
                 $stockMove->sku_id,
                 $stockMove->batch_id,
                 $stockMove->warehouse_to_id,
-                $stockMove->qty
+                $stockMove->qty,
+                $allowNegative
             );
         }
     }
@@ -469,7 +773,7 @@ class InventoryController extends Controller
     /**
      * Update specific stock item
      */
-    private function updateStockItem($itemType, $materialId, $skuId, $batchId, $warehouseId, $qtyChange)
+    private function updateStockItem($itemType, $materialId, $skuId, $batchId, $warehouseId, $qtyChange, bool $allowNegative = false)
     {
         $stockItem = StockItem::where('item_type', $itemType)
             ->where('warehouse_id', $warehouseId)
@@ -487,17 +791,17 @@ class InventoryController extends Controller
         if ($stockItem) {
             // Update existing stock item
             $newQty = $stockItem->qty + $qtyChange;
-            if ($newQty < 0) {
+            if ($newQty < 0 && !$allowNegative) {
                 throw new \Exception('Insufficient stock for this operation');
             }
-            
+
             $stockItem->update([
                 'qty' => $newQty,
                 'updated_by' => Auth::id(),
             ]);
         } else {
             // Create new stock item if it doesn't exist and we're adding stock
-            if ($qtyChange > 0) {
+            if ($qtyChange > 0 || $allowNegative) {
                 StockItem::create([
                     'item_type' => $itemType,
                     'material_id' => $materialId,

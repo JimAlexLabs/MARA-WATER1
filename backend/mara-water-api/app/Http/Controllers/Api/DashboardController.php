@@ -48,9 +48,25 @@ class DashboardController extends Controller
         ]);
     }
 
-    // Below this stock quantity an item counts as "low stock" -- matches
-    // InventoryController::lowStock()'s own default threshold.
+    // Fallback for SKUs that haven't had a reorder_threshold set yet --
+    // matches InventoryController::lowStock()'s own fallback. Materials
+    // always use their own min_level.
     private const LOW_STOCK_THRESHOLD = 10;
+
+    /**
+     * "Low stock" per item's own reorder point (materials.min_level,
+     * skus.reorder_threshold) instead of one flat number for everything.
+     */
+    private function lowStockItemsQuery()
+    {
+        return StockItem::whereNull('deleted_at')->where(function ($q) {
+            $q->whereHas('material', function ($m) {
+                $m->whereColumn('stock_items.qty', '<=', 'materials.min_level');
+            })->orWhereHas('sku', function ($s) {
+                $s->whereRaw('stock_items.qty <= COALESCE(skus.reorder_threshold, ' . self::LOW_STOCK_THRESHOLD . ')');
+            });
+        });
+    }
 
     // A vehicle document counts as "expiring soon" inside this window.
     private const DOC_EXPIRY_WINDOW_DAYS = 14;
@@ -86,7 +102,7 @@ class DashboardController extends Controller
             $staffPresentToday = Attendance::whereDate('date', $today)
                 ->distinct('user_id')->count('user_id');
 
-            $lowStockCount = StockItem::where('qty', '<=', self::LOW_STOCK_THRESHOLD)->count();
+            $lowStockCount = $this->lowStockItemsQuery()->count();
             $debtorBalanceOutstanding = (float) Debt::sum('balance');
             $pendingOrders = Order::whereNotIn('status', ['delivered', 'cancelled', 'partially_returned'])->count();
             $activeVehicles = Vehicle::where('active', true)->count();
@@ -117,8 +133,8 @@ class DashboardController extends Controller
             // --- Alerts, ranked by what actually blocks the business ---
             $alerts = [];
 
-            $lowStockItems = StockItem::with(['material', 'sku'])
-                ->where('qty', '<=', self::LOW_STOCK_THRESHOLD)
+            $lowStockItems = $this->lowStockItemsQuery()
+                ->with(['material', 'sku'])
                 ->orderBy('qty')
                 ->limit(5)->get();
             foreach ($lowStockItems as $item) {

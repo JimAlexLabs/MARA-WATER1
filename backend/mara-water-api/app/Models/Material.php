@@ -56,6 +56,14 @@ class Material extends Model
     }
 
     /**
+     * Bill-of-materials lines that consume this material.
+     */
+    public function bomItems()
+    {
+        return $this->hasMany(BomItem::class);
+    }
+
+    /**
      * Get the user who created the material
      */
     public function createdBy()

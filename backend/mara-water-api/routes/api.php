@@ -22,6 +22,9 @@ use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\DriverTripController;
+use App\Http\Controllers\Api\MaterialController;
+use App\Http\Controllers\Api\BomController;
+use App\Http\Controllers\Api\SkuController;
 
 /*
 |--------------------------------------------------------------------------
@@ -101,6 +104,23 @@ Route::prefix('v1')->group(function () {
             Route::put('/packaging-runs/{id}', [PackagingRunController::class, 'update']);
             Route::delete('/packaging-runs/{id}', [PackagingRunController::class, 'destroy']);
             Route::post('/packaging-runs/{id}/complete', [PackagingRunController::class, 'complete']);
+
+            // SKU catalog (Phase 8) -- fixed segments before /{id}.
+            Route::get('/skus', [SkuController::class, 'index']);
+            Route::put('/skus/{id}', [SkuController::class, 'update']);
+
+            // Raw materials (Phase 8) -- fixed segments before /{id}.
+            Route::get('/materials', [MaterialController::class, 'index']);
+            Route::post('/materials', [MaterialController::class, 'store']);
+            Route::get('/materials/{id}', [MaterialController::class, 'show']);
+            Route::put('/materials/{id}', [MaterialController::class, 'update']);
+            Route::delete('/materials/{id}', [MaterialController::class, 'destroy']);
+
+            // Bill of materials (Phase 8) -- what production auto-deducts.
+            Route::get('/bom', [BomController::class, 'index']);
+            Route::post('/bom', [BomController::class, 'store']);
+            Route::put('/bom/{id}', [BomController::class, 'update']);
+            Route::delete('/bom/{id}', [BomController::class, 'destroy']);
         });
 
         // Inventory routes
@@ -112,6 +132,12 @@ Route::prefix('v1')->group(function () {
             Route::get('/statistics', [InventoryController::class, 'statistics']);
             Route::get('/warehouse/{warehouseId}/stock', [InventoryController::class, 'stockByWarehouse']);
             Route::get('/low-stock', [InventoryController::class, 'lowStock']);
+
+            // Phase 8 reports -- live views recreating the old Excel sheets.
+            Route::get('/stock-card', [InventoryController::class, 'stockCard']);
+            Route::get('/reconciliation', [InventoryController::class, 'reconciliation']);
+            Route::get('/materials-usage', [InventoryController::class, 'materialsUsage']);
+            Route::get('/refills', [InventoryController::class, 'refills']);
         });
 
         // Sales routes
