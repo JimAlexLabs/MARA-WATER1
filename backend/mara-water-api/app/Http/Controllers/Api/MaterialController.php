@@ -61,6 +61,7 @@ class MaterialController extends Controller
             'name' => 'required|string|max:200',
             'category' => 'required|string|max:50',
             'uom' => 'required|string|max:10',
+            'unit_cost' => 'nullable|numeric|min:0',
             'is_consumable' => 'nullable|boolean',
             'min_level' => 'nullable|numeric|min:0',
             'lead_time_days' => 'nullable|integer|min:0',
@@ -80,6 +81,7 @@ class MaterialController extends Controller
             'name' => $request->name,
             'category' => $request->category,
             'uom' => $request->uom,
+            'unit_cost' => $request->unit_cost ?? 0,
             'is_consumable' => $request->is_consumable ?? true,
             'min_level' => $request->min_level ?? 0,
             'lead_time_days' => $request->lead_time_days ?? 0,
@@ -117,6 +119,7 @@ class MaterialController extends Controller
             'name' => 'sometimes|required|string|max:200',
             'category' => 'sometimes|required|string|max:50',
             'uom' => 'sometimes|required|string|max:10',
+            'unit_cost' => 'nullable|numeric|min:0',
             'is_consumable' => 'nullable|boolean',
             'min_level' => 'nullable|numeric|min:0',
             'lead_time_days' => 'nullable|integer|min:0',
@@ -132,7 +135,7 @@ class MaterialController extends Controller
         }
 
         $material->update(array_merge(
-            $request->only(['code', 'name', 'category', 'uom', 'is_consumable', 'min_level', 'lead_time_days', 'supplier_id']),
+            $request->only(['code', 'name', 'category', 'uom', 'unit_cost', 'is_consumable', 'min_level', 'lead_time_days', 'supplier_id']),
             ['updated_by' => Auth::id()]
         ));
 

@@ -326,11 +326,28 @@ class OrderController extends Controller
                 // step the spec calls out as the biggest one to eliminate.
                 // days_overdue isn't set here: a BEFORE INSERT trigger on
                 // debts computes it from the linked invoice's due_date.
-                Debt::create([
+                $debt = Debt::create([
                     'customer_id' => $request->customer_id,
                     'invoice_id' => $invoice->id,
                     'principal' => $totalAmount,
                     'balance' => $totalAmount,
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+
+                // Phase 9's debtors ledger reads this, not the debts table
+                // directly -- the ledger is the full transaction history
+                // (this debit, plus every later payment credit); debts.balance
+                // is just the current running total DebtorLedgerController
+                // keeps in sync with it.
+                \App\Models\DebtorLedgerEntry::create([
+                    'customer_id' => $request->customer_id,
+                    'debt_id' => $debt->id,
+                    'entry_date' => $orderDate,
+                    'details' => "Credit sale - Invoice {$invoice->invoice_no}",
+                    'reference_no' => $invoice->invoice_no,
+                    'debit' => $totalAmount,
+                    'credit' => 0,
                     'created_by' => Auth::id(),
                     'updated_by' => Auth::id(),
                 ]);

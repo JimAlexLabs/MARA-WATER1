@@ -25,6 +25,10 @@ use App\Http\Controllers\Api\DriverTripController;
 use App\Http\Controllers\Api\MaterialController;
 use App\Http\Controllers\Api\BomController;
 use App\Http\Controllers\Api\SkuController;
+use App\Http\Controllers\Api\ChartOfAccountController;
+use App\Http\Controllers\Api\PettyCashController;
+use App\Http\Controllers\Api\DebtorLedgerController;
+use App\Http\Controllers\Api\CostingController;
 
 /*
 |--------------------------------------------------------------------------
@@ -180,6 +184,27 @@ Route::prefix('v1')->group(function () {
             Route::delete('/invoices/{id}', [InvoiceController::class, 'destroy']);
             Route::post('/invoices/{id}/send', [InvoiceController::class, 'send']);
             Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markAsPaid']);
+
+            // Chart of Accounts (Phase 9) -- reference table petty cash codes against.
+            Route::get('/accounts', [ChartOfAccountController::class, 'index']);
+            Route::post('/accounts', [ChartOfAccountController::class, 'store']);
+            Route::put('/accounts/{id}', [ChartOfAccountController::class, 'update']);
+
+            // Petty cash journal (Phase 9). Fixed segments before /{id}.
+            Route::get('/petty-cash/utilization', [PettyCashController::class, 'utilization']);
+            Route::get('/petty-cash', [PettyCashController::class, 'index']);
+            Route::post('/petty-cash', [PettyCashController::class, 'store']);
+            Route::delete('/petty-cash/{id}', [PettyCashController::class, 'destroy']);
+
+            // Debtors ledger (Phase 9).
+            Route::get('/debtors/{customerId}/ledger', [DebtorLedgerController::class, 'index']);
+            Route::get('/debtors/{customerId}/open-debts', [DebtorLedgerController::class, 'openDebts']);
+            Route::post('/debtors/ledger', [DebtorLedgerController::class, 'store']);
+            Route::post('/debtors/debts/{debtId}/pay', [DebtorLedgerController::class, 'recordPayment']);
+
+            // Costing & P&L (Phase 9).
+            Route::get('/costing/per-bottle', [CostingController::class, 'perBottleCost']);
+            Route::get('/costing/profit-loss', [CostingController::class, 'profitAndLoss']);
         });
 
         // Fleet routes
