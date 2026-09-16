@@ -25,13 +25,30 @@ interface DashboardStats {
   employee_productivity: number;
 }
 
+interface SalesBreakdownRow {
+  warehouse_id?: string;
+  sku_id?: string;
+  warehouse?: { name: string; code: string };
+  sku?: { name: string; code: string };
+  qty_dispatched: number;
+  qty_returned: number;
+  qty_net_sold: number;
+  revenue: number;
+}
+
 const ReportsPage: React.FC = () => {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState('30');
+  const [showSalesReport, setShowSalesReport] = useState(false);
+  const [salesReportLoading, setSalesReportLoading] = useState(false);
+  const [byOutlet, setByOutlet] = useState<SalesBreakdownRow[]>([]);
+  const [bySku, setBySku] = useState<SalesBreakdownRow[]>([]);
 
   useEffect(() => {
     fetchData();
+    if (showSalesReport) fetchSalesReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange]);
 
   const fetchData = async () => {
@@ -44,6 +61,27 @@ const ReportsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchSalesReport = async () => {
+    try {
+      setSalesReportLoading(true);
+      const dateTo = new Date().toISOString().slice(0, 10);
+      const dateFrom = new Date(Date.now() - Number(dateRange) * 86400000).toISOString().slice(0, 10);
+      const response = await api.get(`/reports/sales?date_from=${dateFrom}&date_to=${dateTo}`);
+      setByOutlet(response.data.data.by_outlet || []);
+      setBySku(response.data.data.by_sku || []);
+    } catch (error) {
+      toast.error('Failed to fetch sales report');
+    } finally {
+      setSalesReportLoading(false);
+    }
+  };
+
+  const toggleSalesReport = () => {
+    const next = !showSalesReport;
+    setShowSalesReport(next);
+    if (next && byOutlet.length === 0 && bySku.length === 0) fetchSalesReport();
   };
 
   if (loading) {
@@ -273,14 +311,14 @@ const ReportsPage: React.FC = () => {
       <div className="bg-white p-6 rounded-lg shadow">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Reports</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
+          <button onClick={toggleSalesReport} className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
             <BarChart3 className="w-6 h-6 text-blue-600 mr-3" />
             <div className="text-left">
               <div className="font-medium text-gray-900">Sales Report</div>
-              <div className="text-sm text-gray-600">Monthly sales analysis</div>
+              <div className="text-sm text-gray-600">By outlet & product, dispatched vs returned vs net</div>
             </div>
           </button>
-          
+
           <button className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
             <Package className="w-6 h-6 text-green-600 mr-3" />
             <div className="text-left">
@@ -298,6 +336,85 @@ const ReportsPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Sales Report -- replaces the 31-tabs-per-month-per-outlet Excel
+          pattern with a live report, grouped by outlet and by product. */}
+      {showSalesReport && (
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-medium text-gray-900">Sales Report — last {dateRange} days</h3>
+            <button onClick={() => setShowSalesReport(false)} className="text-sm text-gray-500 hover:text-gray-700">Hide</button>
+          </div>
+          {salesReportLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">By Outlet / Branch</h4>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-500 uppercase border-b">
+                        <th className="py-2">Outlet</th>
+                        <th className="py-2">Dispatched</th>
+                        <th className="py-2">Returned</th>
+                        <th className="py-2">Net Sold</th>
+                        <th className="py-2 text-right">Revenue (KES)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {byOutlet.length === 0 && (
+                        <tr><td colSpan={5} className="py-3 text-gray-400">No sales in this period</td></tr>
+                      )}
+                      {byOutlet.map((row, i) => (
+                        <tr key={row.warehouse_id || i}>
+                          <td className="py-2">{row.warehouse?.name || 'Unassigned'}</td>
+                          <td className="py-2">{row.qty_dispatched}</td>
+                          <td className="py-2">{row.qty_returned}</td>
+                          <td className="py-2">{row.qty_net_sold}</td>
+                          <td className="py-2 text-right font-medium">{row.revenue.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">By Product (Brand & Size)</h4>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-500 uppercase border-b">
+                        <th className="py-2">Product</th>
+                        <th className="py-2">Dispatched</th>
+                        <th className="py-2">Returned</th>
+                        <th className="py-2">Net Sold</th>
+                        <th className="py-2 text-right">Revenue (KES)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {bySku.length === 0 && (
+                        <tr><td colSpan={5} className="py-3 text-gray-400">No sales in this period</td></tr>
+                      )}
+                      {bySku.map((row, i) => (
+                        <tr key={row.sku_id || i}>
+                          <td className="py-2">{row.sku?.name || 'Unknown'}</td>
+                          <td className="py-2">{row.qty_dispatched}</td>
+                          <td className="py-2">{row.qty_returned}</td>
+                          <td className="py-2">{row.qty_net_sold}</td>
+                          <td className="py-2 text-right font-medium">{row.revenue.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

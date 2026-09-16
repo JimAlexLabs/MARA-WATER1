@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\WaterTestController;
 use App\Http\Controllers\Api\BatchController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\CustomerController;
+use App\Http\Controllers\Api\PriceListController;
 use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\PackagingRunController;
 use App\Http\Controllers\Api\InvoiceController;
@@ -104,6 +105,7 @@ Route::prefix('v1')->group(function () {
 
         // Inventory routes
         Route::prefix('inventory')->group(function () {
+            Route::get('/warehouses', [InventoryController::class, 'warehouses']);
             Route::get('/stock-items', [InventoryController::class, 'stockItems']);
             Route::get('/stock-moves', [InventoryController::class, 'stockMoves']);
             Route::post('/stock-moves', [InventoryController::class, 'createStockMove']);
@@ -116,12 +118,18 @@ Route::prefix('v1')->group(function () {
         Route::prefix('sales')->group(function () {
             Route::get('/orders/statistics', [OrderController::class, 'statistics']);
             Route::get('/orders/customer/{customerId}', [OrderController::class, 'byCustomer']);
+            Route::post('/orders/log-sale', [OrderController::class, 'logSale']);
             Route::get('/orders', [OrderController::class, 'index']);
             Route::post('/orders', [OrderController::class, 'store']);
             Route::get('/orders/{id}', [OrderController::class, 'show']);
             Route::put('/orders/{id}', [OrderController::class, 'update']);
             Route::delete('/orders/{id}', [OrderController::class, 'destroy']);
             Route::put('/orders/{id}/status', [OrderController::class, 'updateStatus']);
+
+            // Reference lists the Log-a-Sale form reads from. Fixed
+            // segments before /{id}, same reason as everywhere else here.
+            Route::get('/price-lists', [PriceListController::class, 'index']);
+            Route::get('/price-lists/{id}/items', [PriceListController::class, 'items']);
 
             Route::get('/customers/statistics', [CustomerController::class, 'statistics']);
             Route::get('/customers/route/{routeId}', [CustomerController::class, 'byRoute']);

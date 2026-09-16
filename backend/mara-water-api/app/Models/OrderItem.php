@@ -15,7 +15,10 @@ class OrderItem extends Model
         'order_id',
         'sku_id',
         'qty',
+        'qty_returned',
         'unit_price',
+        'unit_price_overridden',
+        'override_reason',
         'discount',
         'created_by',
         'updated_by',
@@ -23,16 +26,28 @@ class OrderItem extends Model
 
     protected $casts = [
         'qty' => 'integer',
+        'qty_returned' => 'integer',
         'unit_price' => 'decimal:2',
+        'unit_price_overridden' => 'boolean',
         'discount' => 'decimal:2',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
 
+    protected $appends = ['net_qty', 'line_total'];
+
+    /**
+     * What actually stayed sold once returns are netted out.
+     */
+    public function getNetQtyAttribute()
+    {
+        return $this->qty - $this->qty_returned;
+    }
+
     public function getLineTotalAttribute()
     {
-        return ($this->qty * $this->unit_price) - $this->discount;
+        return ($this->net_qty * $this->unit_price) - $this->discount;
     }
 
     public function order()

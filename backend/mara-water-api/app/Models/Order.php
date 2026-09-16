@@ -15,12 +15,15 @@ class Order extends Model
         'order_no',
         'customer_id',
         'route_id',
+        'warehouse_id',
         'sales_officer_id',
         'status',
         'order_date',
         'requested_date',
         'price_list_id',
         'total_amount',
+        'payment_method',
+        'payment_reference',
         'created_by',
         'updated_by',
     ];
@@ -42,6 +45,16 @@ class Order extends Model
     public function customer()
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function warehouse()
+    {
+        return $this->belongsTo(Warehouse::class);
+    }
+
+    public function priceList()
+    {
+        return $this->belongsTo(PriceList::class);
     }
 
     public function items()

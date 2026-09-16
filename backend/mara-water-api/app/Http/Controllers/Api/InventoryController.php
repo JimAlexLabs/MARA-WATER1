@@ -16,6 +16,18 @@ use Illuminate\Support\Facades\DB;
 class InventoryController extends Controller
 {
     /**
+     * Outlet/branch reference list -- the "Log a Sale" form's warehouse
+     * picker (and anything else that just needs the plain list) reads it.
+     */
+    public function warehouses()
+    {
+        return response()->json([
+            'success' => true,
+            'data' => Warehouse::orderBy('name')->get(),
+        ]);
+    }
+
+    /**
      * Display a listing of stock items
      */
     public function stockItems(Request $request)
@@ -171,27 +183,11 @@ class InventoryController extends Controller
 
             DB::beginTransaction();
 
-            // Create stock move
-            $stockMove = StockMove::create([
-                'move_type' => $request->move_type,
-                'item_type' => $request->item_type,
-                'material_id' => $request->material_id,
-                'sku_id' => $request->sku_id,
-                'batch_id' => $request->batch_id,
-                'warehouse_from_id' => $request->warehouse_from_id,
-                'warehouse_to_id' => $request->warehouse_to_id,
-                'qty' => $request->qty,
-                'uom' => $request->uom,
-                'unit_cost' => $request->unit_cost,
-                'ref_entity' => $request->ref_entity,
-                'ref_id' => $request->ref_id,
-                'moved_by' => Auth::id(),
-                'created_by' => Auth::id(),
-                'updated_by' => Auth::id(),
-            ]);
-
-            // Update stock levels
-            $this->updateStockLevels($stockMove);
+            $stockMove = $this->recordMove($request->only([
+                'move_type', 'item_type', 'material_id', 'sku_id', 'batch_id',
+                'warehouse_from_id', 'warehouse_to_id', 'qty', 'uom', 'unit_cost',
+                'ref_entity', 'ref_id',
+            ]));
 
             $stockMove->load(['material', 'sku', 'batch', 'warehouseFrom', 'warehouseTo', 'movedBy']);
 
@@ -213,6 +209,37 @@ class InventoryController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Create a stock move and apply its effect to stock levels. Shared by
+     * the HTTP endpoint above and by other modules (e.g. Sales logging a
+     * return) that need to post a movement as part of their own flow --
+     * callers are expected to wrap this in their own DB transaction.
+     */
+    public function recordMove(array $data): StockMove
+    {
+        $stockMove = StockMove::create([
+            'move_type' => $data['move_type'],
+            'item_type' => $data['item_type'],
+            'material_id' => $data['material_id'] ?? null,
+            'sku_id' => $data['sku_id'] ?? null,
+            'batch_id' => $data['batch_id'] ?? null,
+            'warehouse_from_id' => $data['warehouse_from_id'] ?? null,
+            'warehouse_to_id' => $data['warehouse_to_id'] ?? null,
+            'qty' => $data['qty'],
+            'uom' => $data['uom'],
+            'unit_cost' => $data['unit_cost'] ?? null,
+            'ref_entity' => $data['ref_entity'] ?? null,
+            'ref_id' => $data['ref_id'] ?? null,
+            'moved_by' => Auth::id(),
+            'created_by' => Auth::id(),
+            'updated_by' => Auth::id(),
+        ]);
+
+        $this->updateStockLevels($stockMove);
+
+        return $stockMove;
     }
 
     /**

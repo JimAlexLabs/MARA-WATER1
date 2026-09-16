@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  Download, 
-  BarChart3, 
+import {
+  Plus,
+  Search,
+  Filter,
+  Download,
   Users,
   ShoppingCart,
   DollarSign,
   TrendingUp,
   Eye,
   Edit,
-  Trash2
+  Trash2,
+  X,
+  PackageMinus
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
@@ -52,18 +53,89 @@ const EMPTY_CUSTOMER_FORM = {
   typical_order_size: '', payment_terms: '', notes: '', status: 'active',
 };
 
+interface Sku {
+  id: string;
+  code: string;
+  name: string;
+  size_liters: string;
+  unit: string;
+}
+
+interface Warehouse {
+  id: string;
+  code: string;
+  name: string;
+}
+
+interface PriceList {
+  id: string;
+  name: string;
+  is_default: boolean;
+}
+
+interface PriceListItem {
+  sku_id: string;
+  unit_price: string;
+}
+
+interface OrderItemRow {
+  id: string;
+  sku_id: string;
+  qty: number;
+  qty_returned: number;
+  unit_price: string;
+  unit_price_overridden: boolean;
+  override_reason: string | null;
+  net_qty: number;
+  line_total: number;
+  sku: Sku;
+}
+
 interface Order {
   id: string;
   order_no: string;
-  customer: Customer;
-  status: 'draft' | 'confirmed' | 'dispatched' | 'delivered' | 'cancelled';
+  customer: Customer | null;
+  status: 'draft' | 'confirmed' | 'dispatched' | 'delivered' | 'partially_returned' | 'cancelled';
   order_date: string;
-  total_amount: number;
+  // Laravel serializes decimal-cast columns as JSON strings, not numbers.
+  total_amount: string;
+  payment_method?: 'cash' | 'mpesa' | 'credit' | null;
+  payment_reference?: string | null;
+  warehouse?: Warehouse | null;
+  items?: OrderItemRow[];
+  invoice?: { invoice_no: string; due_date: string } | null;
   sales_officer: {
     first_name: string;
     last_name: string;
   };
 }
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cash: 'Cash',
+  mpesa: 'M-Pesa',
+  credit: 'Credit',
+};
+
+// New empty line item for the Log a Sale form.
+const newSaleItem = () => ({
+  id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  sku_id: '',
+  qty: 1,
+  qty_returned: 0,
+  unit_price: '',
+  override_reason: '',
+});
+
+const EMPTY_SALE_FORM = {
+  warehouse_id: '',
+  customer_id: '',
+  price_list_id: '',
+  payment_method: 'cash' as 'cash' | 'mpesa' | 'credit',
+  payment_reference: '',
+  order_date: '',
+  notes: '',
+  items: [newSaleItem()],
+};
 
 const SalesPage: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -81,24 +153,50 @@ const SalesPage: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [activeTab, setActiveTab] = useState('orders');
   const [showCustomerForm, setShowCustomerForm] = useState(false);
-  const [showOrderForm, setShowOrderForm] = useState(false);
+  const [showSaleForm, setShowSaleForm] = useState(false);
+  const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const [routes, setRoutes] = useState<{ id: string; name: string }[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [skus, setSkus] = useState<Sku[]>([]);
+  const [priceLists, setPriceLists] = useState<PriceList[]>([]);
+  const [priceListPrices, setPriceListPrices] = useState<Record<string, string>>({});
+  const [saleSubmitting, setSaleSubmitting] = useState(false);
 
   // Customer Form State
   const [customerForm, setCustomerForm] = useState(EMPTY_CUSTOMER_FORM);
 
-  // Order Form State
-  const [orderForm, setOrderForm] = useState({
-    customer_id: '',
-    requested_date: '',
-    notes: ''
-  });
+  // Log a Sale Form State
+  const [saleForm, setSaleForm] = useState(EMPTY_SALE_FORM);
 
   useEffect(() => {
     fetchData();
     api.get('/fleet/routes').then(res => setRoutes(res.data.data)).catch(() => {});
+    api.get('/inventory/warehouses').then(res => setWarehouses(res.data.data)).catch(() => {});
+    api.get('/fleet/skus').then(res => setSkus(res.data.data)).catch(() => {});
+    api.get('/sales/price-lists').then(res => {
+      const lists: PriceList[] = res.data.data;
+      setPriceLists(lists);
+      const defaultList = lists.find(l => l.is_default) || lists[0];
+      if (defaultList) {
+        setSaleForm(f => ({ ...f, price_list_id: defaultList.id }));
+      }
+    }).catch(() => {});
   }, []);
+
+  // Keep the price-list lookup map in sync with whichever list is selected
+  // on the sale form, so line items can auto-fill and flag overrides.
+  useEffect(() => {
+    if (!saleForm.price_list_id) {
+      setPriceListPrices({});
+      return;
+    }
+    api.get(`/sales/price-lists/${saleForm.price_list_id}/items`).then(res => {
+      const map: Record<string, string> = {};
+      (res.data.data as PriceListItem[]).forEach(item => { map[item.sku_id] = item.unit_price; });
+      setPriceListPrices(map);
+    }).catch(() => {});
+  }, [saleForm.price_list_id]);
 
   const fetchData = async () => {
     try {
@@ -165,25 +263,79 @@ const SalesPage: React.FC = () => {
     }
   };
 
-  const handleOrderSubmit = async (e: React.FormEvent) => {
+  const openLogSale = () => {
+    const defaultList = priceLists.find(l => l.is_default) || priceLists[0];
+    setSaleForm({ ...EMPTY_SALE_FORM, price_list_id: defaultList?.id || '', items: [newSaleItem()] });
+    setShowSaleForm(true);
+  };
+
+  const addSaleItem = () => {
+    setSaleForm(f => ({ ...f, items: [...f.items, newSaleItem()] }));
+  };
+
+  const removeSaleItem = (id: string) => {
+    setSaleForm(f => ({ ...f, items: f.items.length > 1 ? f.items.filter(i => i.id !== id) : f.items }));
+  };
+
+  const updateSaleItem = (id: string, patch: Partial<ReturnType<typeof newSaleItem>>) => {
+    setSaleForm(f => ({
+      ...f,
+      items: f.items.map(i => i.id === id ? { ...i, ...patch } : i)
+    }));
+  };
+
+  // What each line's price would be if left at the price list default --
+  // used both to pre-fill the input and to tell whether it's been overridden.
+  const listPriceFor = (skuId: string) => priceListPrices[skuId] || '';
+
+  const saleLineTotal = (item: ReturnType<typeof newSaleItem>) => {
+    const price = parseFloat(item.unit_price || listPriceFor(item.sku_id) || '0');
+    const netQty = Math.max(0, (item.qty || 0) - (item.qty_returned || 0));
+    return netQty * price;
+  };
+
+  const saleTotal = saleForm.items.reduce((sum, i) => sum + saleLineTotal(i), 0);
+
+  const handleSaleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saleForm.payment_method === 'credit' && !saleForm.customer_id) {
+      toast.error('Select a customer for a credit sale');
+      return;
+    }
+    setSaleSubmitting(true);
     try {
-      await api.post('/sales/orders', orderForm);
-      toast.success('Order created successfully');
-      setShowOrderForm(false);
-      setOrderForm({
-        customer_id: '',
-        requested_date: '',
-        notes: ''
-      });
+      const payload = {
+        warehouse_id: saleForm.warehouse_id,
+        customer_id: saleForm.customer_id || null,
+        price_list_id: saleForm.price_list_id || null,
+        payment_method: saleForm.payment_method,
+        payment_reference: saleForm.payment_reference || null,
+        order_date: saleForm.order_date || null,
+        notes: saleForm.notes || null,
+        items: saleForm.items.map(i => ({
+          sku_id: i.sku_id,
+          qty: i.qty,
+          qty_returned: i.qty_returned || 0,
+          unit_price: i.unit_price ? parseFloat(i.unit_price) : undefined,
+          override_reason: i.override_reason || undefined,
+        })),
+      };
+      const res = await api.post('/sales/orders/log-sale', payload);
+      const orderNo = res.data?.data?.order?.order_no;
+      toast.success(`Sale logged${orderNo ? ` (${orderNo})` : ''}`);
+      setShowSaleForm(false);
       fetchData();
-    } catch (error) {
-      toast.error('Failed to create order');
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to log sale');
+    } finally {
+      setSaleSubmitting(false);
     }
   };
 
   const filteredOrders = orders.filter(order => {
-    const matchesSearch = order.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    const matchesSearch = (order.customer?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                          order.order_no.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === 'all' || order.status === filterStatus;
     return matchesSearch && matchesStatus;
@@ -240,11 +392,11 @@ const SalesPage: React.FC = () => {
             New Customer
           </button>
           <button
-            onClick={() => setShowOrderForm(true)}
+            onClick={openLogSale}
             className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
           >
             <Plus className="w-4 h-4 mr-2" />
-            New Order
+            Log a Sale
           </button>
         </div>
       </div>
@@ -266,7 +418,7 @@ const SalesPage: React.FC = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Revenue</p>
               <p className="text-2xl font-bold text-gray-900">
-                KES {orders.reduce((sum, order) => sum + order.total_amount, 0).toLocaleString()}
+                KES {orders.reduce((sum, order) => sum + Number(order.total_amount), 0).toLocaleString()}
               </p>
             </div>
           </div>
@@ -286,7 +438,7 @@ const SalesPage: React.FC = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Avg Order Value</p>
               <p className="text-2xl font-bold text-gray-900">
-                KES {orders.length > 0 ? (orders.reduce((sum, order) => sum + order.total_amount, 0) / orders.length).toFixed(0) : 0}
+                KES {orders.length > 0 ? (orders.reduce((sum, order) => sum + Number(order.total_amount), 0) / orders.length).toFixed(0) : 0}
               </p>
             </div>
           </div>
@@ -347,6 +499,7 @@ const SalesPage: React.FC = () => {
                   <option value="confirmed">Confirmed</option>
                   <option value="dispatched">Dispatched</option>
                   <option value="delivered">Delivered</option>
+                  <option value="partially_returned">Partially Returned</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
               )}
@@ -371,11 +524,17 @@ const SalesPage: React.FC = () => {
                       Order Details
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Outlet
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Customer
                     </th>
-                                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Amount (KES)
-                  </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Amount (KES)
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Payment
+                    </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
@@ -398,14 +557,26 @@ const SalesPage: React.FC = () => {
                           </div>
                         </div>
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {order.warehouse?.name || '—'}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{order.customer.name}</div>
-                          <div className="text-sm text-gray-500">{order.customer.code}</div>
+                          <div className="text-sm font-medium text-gray-900">{order.customer?.name || 'Walk-in'}</div>
+                          <div className="text-sm text-gray-500">{order.customer?.code || ''}</div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        KES {order.total_amount.toLocaleString()}
+                        KES {Number(order.total_amount).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {order.payment_method ? (
+                          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            order.payment_method === 'credit' ? 'text-red-600 bg-red-100' : 'text-green-600 bg-green-100'
+                          }`}>
+                            {PAYMENT_METHOD_LABELS[order.payment_method] || order.payment_method}
+                          </span>
+                        ) : <span className="text-gray-400 text-sm">—</span>}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
@@ -417,14 +588,8 @@ const SalesPage: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center space-x-2">
-                          <button className="text-blue-600 hover:text-blue-900">
+                          <button onClick={() => setViewingOrder(order)} className="text-blue-600 hover:text-blue-900">
                             <Eye className="w-4 h-4" />
-                          </button>
-                          <button className="text-green-600 hover:text-green-900">
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button className="text-red-600 hover:text-red-900">
-                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
@@ -693,61 +858,265 @@ const SalesPage: React.FC = () => {
         </div>
       )}
 
-      {/* Order Form Modal */}
-      {showOrderForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">New Order</h3>
-            <form onSubmit={handleOrderSubmit} className="space-y-4">
+      {/* Log a Sale Modal */}
+      {showSaleForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium text-gray-900">Log a Sale</h3>
+              <button onClick={() => setShowSaleForm(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Outlet / Branch</label>
+                  <select
+                    required
+                    value={saleForm.warehouse_id}
+                    onChange={(e) => setSaleForm({...saleForm, warehouse_id: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select outlet</option>
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Date</label>
+                  <input
+                    type="date"
+                    value={saleForm.order_date}
+                    onChange={(e) => setSaleForm({...saleForm, order_date: e.target.value})}
+                    placeholder="Today"
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Payment Method</label>
+                  <select
+                    value={saleForm.payment_method}
+                    onChange={(e) => setSaleForm({...saleForm, payment_method: e.target.value as any})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="mpesa">M-Pesa</option>
+                    <option value="credit">Credit (to customer account)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Customer {saleForm.payment_method === 'credit' ? '(required)' : '(optional)'}
+                  </label>
+                  <select
+                    required={saleForm.payment_method === 'credit'}
+                    value={saleForm.customer_id}
+                    onChange={(e) => setSaleForm({...saleForm, customer_id: e.target.value})}
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">{saleForm.payment_method === 'credit' ? 'Select customer' : 'Walk-in / none'}</option>
+                    {customers.map(customer => (
+                      <option key={customer.id} value={customer.id}>{customer.name} ({customer.code})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Reference / Receipt No.</label>
+                  <input
+                    type="text"
+                    value={saleForm.payment_reference}
+                    onChange={(e) => setSaleForm({...saleForm, payment_reference: e.target.value})}
+                    placeholder="e.g. M-Pesa code"
+                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700">Customer</label>
+                <label className="block text-sm font-medium text-gray-700">Price List</label>
                 <select
-                  value={orderForm.customer_id}
-                  onChange={(e) => setOrderForm({...orderForm, customer_id: e.target.value})}
+                  value={saleForm.price_list_id}
+                  onChange={(e) => setSaleForm({...saleForm, price_list_id: e.target.value})}
                   className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">Select Customer</option>
-                  {customers.map(customer => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.name} ({customer.code})
-                    </option>
-                  ))}
+                  {priceLists.map(pl => <option key={pl.id} value={pl.id}>{pl.name}{pl.is_default ? ' (default)' : ''}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Requested Date</label>
-                <input
-                  type="date"
-                  value={orderForm.requested_date}
-                  onChange={(e) => setOrderForm({...orderForm, requested_date: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+
+              {/* Line items */}
+              <div className="border border-gray-200 rounded-md">
+                <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 text-xs font-medium text-gray-500 uppercase">
+                  <div className="col-span-4">Product</div>
+                  <div className="col-span-2">Qty Dispatched</div>
+                  <div className="col-span-2">Qty Returned</div>
+                  <div className="col-span-2">Unit Price</div>
+                  <div className="col-span-1">Total</div>
+                  <div className="col-span-1"></div>
+                </div>
+                {saleForm.items.map(item => {
+                  const listPrice = listPriceFor(item.sku_id);
+                  const overridden = !!item.sku_id && !!item.unit_price && !!listPrice &&
+                    parseFloat(item.unit_price) !== parseFloat(listPrice);
+                  return (
+                    <div key={item.id} className="px-3 py-2 border-t border-gray-100">
+                      <div className="grid grid-cols-12 gap-2 items-start">
+                        <div className="col-span-4">
+                          <select
+                            required
+                            value={item.sku_id}
+                            onChange={(e) => {
+                              const sku_id = e.target.value;
+                              updateSaleItem(item.id, { sku_id, unit_price: listPriceFor(sku_id) || item.unit_price });
+                            }}
+                            className="block w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">Select product</option>
+                            {skus.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="col-span-2">
+                          <input
+                            type="number" min={1} required
+                            value={item.qty}
+                            onChange={(e) => updateSaleItem(item.id, { qty: parseInt(e.target.value) || 0 })}
+                            className="block w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <input
+                            type="number" min={0} max={item.qty}
+                            value={item.qty_returned}
+                            onChange={(e) => updateSaleItem(item.id, { qty_returned: parseInt(e.target.value) || 0 })}
+                            className="block w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <input
+                            type="number" min={0} step="0.01"
+                            value={item.unit_price}
+                            onChange={(e) => updateSaleItem(item.id, { unit_price: e.target.value })}
+                            placeholder={listPrice || '0.00'}
+                            className="block w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div className="col-span-1 text-sm text-gray-700 pt-2">
+                          {saleLineTotal(item).toLocaleString()}
+                        </div>
+                        <div className="col-span-1 pt-1">
+                          <button type="button" onClick={() => removeSaleItem(item.id)} className="text-red-500 hover:text-red-700">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                      {overridden && (
+                        <input
+                          type="text" required
+                          value={item.override_reason}
+                          onChange={(e) => updateSaleItem(item.id, { override_reason: e.target.value })}
+                          placeholder="Reason for overriding the price list price (required)"
+                          className="mt-2 block w-full border border-amber-300 bg-amber-50 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        />
+                      )}
+                      {item.qty_returned > 0 && (
+                        <p className="mt-1 text-xs text-blue-600 flex items-center">
+                          <PackageMinus className="w-3 h-3 mr-1" />
+                          {item.qty_returned} will be logged back into {warehouses.find(w => w.id === saleForm.warehouse_id)?.name || 'the outlet'}'s stock
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+                <div className="px-3 py-2 border-t border-gray-100">
+                  <button type="button" onClick={addSaleItem} className="text-sm text-blue-600 hover:text-blue-800 flex items-center">
+                    <Plus className="w-4 h-4 mr-1" /> Add product
+                  </button>
+                </div>
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700">Notes</label>
                 <textarea
-                  value={orderForm.notes}
-                  onChange={(e) => setOrderForm({...orderForm, notes: e.target.value})}
+                  value={saleForm.notes}
+                  onChange={(e) => setSaleForm({...saleForm, notes: e.target.value})}
                   className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={3}
+                  rows={2}
                 />
               </div>
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowOrderForm(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-                >
-                  Create Order
-                </button>
+
+              <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+                <div className="text-lg font-semibold text-gray-900">
+                  Total: KES {saleTotal.toLocaleString()}
+                </div>
+                <div className="flex space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowSaleForm(false)}
+                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saleSubmitting}
+                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {saleSubmitting ? 'Logging...' : 'Log Sale'}
+                  </button>
+                </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Order Detail Modal */}
+      {viewingOrder && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium text-gray-900">{viewingOrder.order_no}</h3>
+              <button onClick={() => setViewingOrder(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-1 text-sm text-gray-700 mb-4">
+              <p><span className="text-gray-500">Outlet:</span> {viewingOrder.warehouse?.name || '—'}</p>
+              <p><span className="text-gray-500">Customer:</span> {viewingOrder.customer?.name || 'Walk-in'}</p>
+              <p><span className="text-gray-500">Payment:</span> {viewingOrder.payment_method ? (PAYMENT_METHOD_LABELS[viewingOrder.payment_method] || viewingOrder.payment_method) : '—'}
+                {viewingOrder.payment_reference ? ` (${viewingOrder.payment_reference})` : ''}</p>
+              <p><span className="text-gray-500">Date:</span> {new Date(viewingOrder.order_date).toLocaleDateString()}</p>
+              {viewingOrder.invoice && (
+                <p><span className="text-gray-500">Invoice:</span> {viewingOrder.invoice.invoice_no} (due {new Date(viewingOrder.invoice.due_date).toLocaleDateString()})</p>
+              )}
+            </div>
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-500 uppercase">
+                  <th className="pb-2">Product</th>
+                  <th className="pb-2">Dispatched</th>
+                  <th className="pb-2">Returned</th>
+                  <th className="pb-2">Unit Price</th>
+                  <th className="pb-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {(viewingOrder.items || []).map(item => (
+                  <tr key={item.id}>
+                    <td className="py-1.5">{item.sku?.name}</td>
+                    <td className="py-1.5">{item.qty}</td>
+                    <td className="py-1.5">{item.qty_returned}</td>
+                    <td className="py-1.5">{Number(item.unit_price).toLocaleString()}</td>
+                    <td className="py-1.5 text-right">{Number(item.line_total).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="flex justify-end mt-4 pt-3 border-t border-gray-200 text-lg font-semibold text-gray-900">
+              Total: KES {Number(viewingOrder.total_amount).toLocaleString()}
+            </div>
           </div>
         </div>
       )}

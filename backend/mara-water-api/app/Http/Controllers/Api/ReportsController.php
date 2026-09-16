@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Attendance;
@@ -200,6 +201,63 @@ class ReportsController extends Controller
                 ->groupBy('status')
                 ->get();
 
+            // By outlet/branch and by product (brand+size) -- replaces the
+            // 31-tabs-per-month-per-outlet Excel pattern with a live report,
+            // with dispatched vs returned vs net sold per the spec.
+            $byOutlet = OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
+                ->whereBetween('orders.order_date', [$dateFrom, $dateTo])
+                ->whereNull('orders.deleted_at')
+                ->whereNull('order_items.deleted_at')
+                ->selectRaw('
+                    orders.warehouse_id,
+                    SUM(order_items.qty) as qty_dispatched,
+                    SUM(order_items.qty_returned) as qty_returned,
+                    SUM(order_items.qty - order_items.qty_returned) as qty_net_sold,
+                    SUM((order_items.qty - order_items.qty_returned) * order_items.unit_price) as revenue
+                ')
+                ->groupBy('orders.warehouse_id')
+                ->get();
+
+            $warehouses = \App\Models\Warehouse::whereIn('id', $byOutlet->pluck('warehouse_id')->filter())
+                ->get()->keyBy('id');
+
+            $byOutlet = $byOutlet->map(function ($row) use ($warehouses) {
+                return [
+                    'warehouse_id' => $row->warehouse_id,
+                    'warehouse' => $row->warehouse_id ? ($warehouses->get($row->warehouse_id)) : null,
+                    'qty_dispatched' => (int) $row->qty_dispatched,
+                    'qty_returned' => (int) $row->qty_returned,
+                    'qty_net_sold' => (int) $row->qty_net_sold,
+                    'revenue' => round((float) $row->revenue, 2),
+                ];
+            });
+
+            $bySku = OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
+                ->whereBetween('orders.order_date', [$dateFrom, $dateTo])
+                ->whereNull('orders.deleted_at')
+                ->whereNull('order_items.deleted_at')
+                ->selectRaw('
+                    order_items.sku_id,
+                    SUM(order_items.qty) as qty_dispatched,
+                    SUM(order_items.qty_returned) as qty_returned,
+                    SUM(order_items.qty - order_items.qty_returned) as qty_net_sold,
+                    SUM((order_items.qty - order_items.qty_returned) * order_items.unit_price) as revenue
+                ')
+                ->groupBy('order_items.sku_id')
+                ->orderByDesc('revenue')
+                ->with('sku')
+                ->get()
+                ->map(function ($row) {
+                    return [
+                        'sku_id' => $row->sku_id,
+                        'sku' => $row->sku,
+                        'qty_dispatched' => (int) $row->qty_dispatched,
+                        'qty_returned' => (int) $row->qty_returned,
+                        'qty_net_sold' => (int) $row->qty_net_sold,
+                        'revenue' => round((float) $row->revenue, 2),
+                    ];
+                });
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -210,7 +268,9 @@ class ReportsController extends Controller
                     ],
                     'sales_data' => $salesData,
                     'top_customers' => $topCustomers,
-                    'sales_by_status' => $salesByStatus
+                    'sales_by_status' => $salesByStatus,
+                    'by_outlet' => $byOutlet,
+                    'by_sku' => $bySku,
                 ]
             ]);
         } catch (\Exception $e) {

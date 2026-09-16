@@ -7,6 +7,10 @@ use App\Models\Order;
 use App\Models\Customer;
 use App\Models\User;
 use App\Models\Sku;
+use App\Models\PriceList;
+use App\Models\PriceListItem;
+use App\Models\Invoice;
+use App\Models\Debt;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
@@ -148,6 +152,208 @@ class OrderController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create order',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Log a Sale -- the single-flow POS-style replacement for the old
+     * "one Excel tab per day per outlet" process. Unlike store() (which
+     * creates a draft order that has to be walked through confirm ->
+     * dispatch -> deliver by hand), this captures a completed transaction
+     * in one call: what left the outlet, what came back, how it was paid
+     * for, and who owes what -- and posts the knock-on effects itself
+     * (a stock-in movement for returns, an invoice + debtor entry for
+     * credit sales) instead of leaving them as separate manual steps.
+     */
+    public function logSale(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'warehouse_id' => 'required|exists:warehouses,id',
+                'customer_id' => 'nullable|exists:customers,id',
+                'order_date' => 'nullable|date',
+                'price_list_id' => 'nullable|exists:price_lists,id',
+                'payment_method' => 'required|in:cash,mpesa,credit',
+                'payment_reference' => 'nullable|string|max:255',
+                'notes' => 'nullable|string|max:1000',
+                'items' => 'required|array|min:1',
+                'items.*.sku_id' => 'required|exists:skus,id',
+                'items.*.qty' => 'required|integer|min:1',
+                'items.*.qty_returned' => 'nullable|integer|min:0',
+                'items.*.unit_price' => 'nullable|numeric|min:0',
+                'items.*.override_reason' => 'nullable|string|max:255',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            if ($request->payment_method === 'credit' && !$request->customer_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'A customer is required for credit sales',
+                    'errors' => ['customer_id' => ['Required when payment method is credit']]
+                ], 422);
+            }
+
+            // Resolve the price list once: the one picked, else whichever is
+            // flagged default, so unlisted SKUs have somewhere to fall back to.
+            $priceList = $request->price_list_id
+                ? PriceList::find($request->price_list_id)
+                : PriceList::where('is_default', true)->first();
+            $listPrices = $priceList
+                ? PriceListItem::where('price_list_id', $priceList->id)->pluck('unit_price', 'sku_id')
+                : collect();
+
+            $errors = [];
+            foreach ($request->items as $i => $item) {
+                $qtyReturned = $item['qty_returned'] ?? 0;
+                if ($qtyReturned > $item['qty']) {
+                    $errors["items.{$i}.qty_returned"] = ['Cannot return more than was dispatched'];
+                }
+                $listPrice = $listPrices->get($item['sku_id']);
+                $overridden = isset($item['unit_price']) && $listPrice !== null
+                    && bccomp((string) $item['unit_price'], (string) $listPrice, 2) !== 0;
+                if ($overridden && empty($item['override_reason'])) {
+                    $errors["items.{$i}.override_reason"] = ['Required when the price list price is overridden'];
+                }
+                if (!isset($item['unit_price']) && $listPrice === null) {
+                    $errors["items.{$i}.unit_price"] = ['No price list has a price for this product -- enter one'];
+                }
+            }
+            if (!empty($errors)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $errors
+                ], 422);
+            }
+
+            DB::beginTransaction();
+
+            $orderDate = $request->order_date ?? now()->toDateString();
+
+            $order = Order::create([
+                'order_no' => $this->generateOrderNumber(),
+                'customer_id' => $request->customer_id,
+                'warehouse_id' => $request->warehouse_id,
+                'sales_officer_id' => Auth::id(),
+                'price_list_id' => $priceList?->id,
+                'status' => 'delivered',
+                'order_date' => $orderDate,
+                'requested_date' => $orderDate,
+                'payment_method' => $request->payment_method,
+                'payment_reference' => $request->payment_reference,
+                'created_by' => Auth::id(),
+                'updated_by' => Auth::id(),
+            ]);
+
+            $totalAmount = 0;
+            $inventoryController = new InventoryController();
+
+            foreach ($request->items as $item) {
+                $sku = Sku::find($item['sku_id']);
+                $qtyReturned = $item['qty_returned'] ?? 0;
+                $listPrice = $listPrices->get($item['sku_id']);
+                $unitPrice = $item['unit_price'] ?? $listPrice;
+                $overridden = isset($item['unit_price']) && $listPrice !== null
+                    && bccomp((string) $item['unit_price'], (string) $listPrice, 2) !== 0;
+
+                $orderItem = $order->items()->create([
+                    'sku_id' => $item['sku_id'],
+                    'qty' => $item['qty'],
+                    'qty_returned' => $qtyReturned,
+                    'unit_price' => $unitPrice,
+                    'unit_price_overridden' => $overridden,
+                    'override_reason' => $overridden ? ($item['override_reason'] ?? null) : null,
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+
+                $totalAmount += $orderItem->line_total;
+
+                // Returns feed straight back into inventory as a stock-in
+                // movement against the outlet the sale was logged at.
+                if ($qtyReturned > 0) {
+                    $inventoryController->recordMove([
+                        'move_type' => 'return',
+                        'item_type' => 'sku',
+                        'sku_id' => $item['sku_id'],
+                        'warehouse_to_id' => $request->warehouse_id,
+                        'qty' => $qtyReturned,
+                        'uom' => $sku->unit ?? 'BOTTLE',
+                        'ref_entity' => 'order',
+                        'ref_id' => $order->id,
+                    ]);
+                }
+            }
+
+            $order->update(['total_amount' => $totalAmount]);
+
+            $invoice = null;
+            if ($request->payment_method === 'credit') {
+                $invoice = Invoice::create([
+                    'invoice_no' => $this->generateInvoiceNumber(),
+                    'order_id' => $order->id,
+                    'customer_id' => $request->customer_id,
+                    'invoice_date' => $orderDate,
+                    // No per-customer credit term is captured yet (Customer's
+                    // payment_terms from Phase 6 is a payment-method
+                    // preference, not a day count) -- Net 30 is a standard
+                    // KES trade-credit default; Phase 9 can make this
+                    // configurable per customer if that turns out to matter.
+                    'due_date' => \Carbon\Carbon::parse($orderDate)->addDays(30)->toDateString(),
+                    'subtotal' => $totalAmount,
+                    'tax_amount' => 0,
+                    'discount_amount' => 0,
+                    'total_amount' => $totalAmount,
+                    'payment_terms' => 'Net 30',
+                    'notes' => $request->notes,
+                    'status' => 'sent',
+                    'payment_status' => 'pending',
+                    'sent_at' => now(),
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+
+                // Posts straight to the debtor ledger -- this is the manual
+                // step the spec calls out as the biggest one to eliminate.
+                // days_overdue isn't set here: a BEFORE INSERT trigger on
+                // debts computes it from the linked invoice's due_date.
+                Debt::create([
+                    'customer_id' => $request->customer_id,
+                    'invoice_id' => $invoice->id,
+                    'principal' => $totalAmount,
+                    'balance' => $totalAmount,
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+            }
+
+            $order->load(['customer', 'salesOfficer', 'warehouse', 'priceList', 'items.sku', 'invoice']);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Sale logged successfully',
+                'data' => [
+                    'order' => $order,
+                    'invoice' => $invoice,
+                ]
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to log sale',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -469,6 +675,28 @@ class OrderController extends Controller
         // This would typically come from price lists or SKU pricing
         // For now, return a default value
         return 50.00;
+    }
+
+    /**
+     * Generate unique invoice number. Same INV-YYYYMM-#### pattern as
+     * InvoiceController::generateInvoiceNumber() -- duplicated rather than
+     * shared because that one is private on a different controller, same
+     * as generateOrderNumber() above already duplicates OrderController's
+     * own numbering convention.
+     */
+    private function generateInvoiceNumber()
+    {
+        $prefix = 'INV';
+        $year = date('Y');
+        $month = date('m');
+
+        $lastInvoice = Invoice::where('invoice_no', 'like', "{$prefix}-{$year}{$month}-%")
+            ->orderBy('invoice_no', 'desc')
+            ->first();
+
+        $newNumber = $lastInvoice ? ((int) substr($lastInvoice->invoice_no, -4)) + 1 : 1;
+
+        return "{$prefix}-{$year}{$month}-" . str_pad($newNumber, 4, '0', STR_PAD_LEFT);
     }
 
     /**
