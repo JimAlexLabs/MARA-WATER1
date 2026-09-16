@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use App\Models\Backup;
 use App\Models\ResetLog;
 use App\Models\Setting;
+use App\Services\BackupService;
 
 class AdminController extends Controller
 {
@@ -27,34 +28,29 @@ class AdminController extends Controller
      * it's worth double-checking against how the business actually wants
      * "fresh production start" to behave (e.g. should customers really be
      * wiped, or are they reference data too?).
+     *
+     * Phase 11: audited against a live `SHOW TABLES` on production and found
+     * six real tables missing from these two lists entirely --
+     * chart_of_accounts, equipment_items (reference/asset data), and
+     * driver_trips, driver_trip_items, petty_cash_entries,
+     * debtor_ledger_entries (transactional data) -- added in Phases 5, 9,
+     * and 10 but never back-filled into this list when those phases
+     * shipped. Until this fix, every backup since Phase 5 silently
+     * omitted whichever of these existed at the time, and a real reset
+     * would have left driver trips and petty cash/debtor ledger entries
+     * behind instead of clearing them. Whoever adds a table in a future
+     * phase needs to add it to BackupService::PRESERVE_TABLES/
+     * WIPE_TABLES in the same change -- nothing catches this
+     * automatically. The two lists now live in BackupService, the single
+     * shared source both this controller and the scheduled backup
+     * command use, specifically so they can't drift apart like this again.
      */
-    private const PRESERVE_TABLES = [
-        'departments', 'roles', 'permissions', 'role_permissions', 'users',
-        'user_sessions', 'audits', 'api_keys', 'director_handover_logs',
-        'suppliers', 'materials', 'skus', 'bom_items', 'warehouses', 'routes',
-        'vehicles', 'price_lists', 'price_list_items', 'qa_thresholds',
-        'cleaning_tasks', 'bank_accounts', 'taxes', 'shifts',
-        'insurance_policies', 'settings',
-    ];
-
-    private const WIPE_TABLES = [
-        'customers', 'price_agreements', 'water_tests', 'instrument_calibrations',
-        'batches', 'packaging_checks', 'non_conformances', 'corrective_actions',
-        'production_plans', 'production_plan_items', 'packaging_runs',
-        'cleaning_logs', 'stock_items', 'stock_moves', 'purchase_orders',
-        'po_items', 'goods_receipts', 'grn_items', 'stock_counts',
-        'stock_count_items', 'orders', 'order_items', 'manifests',
-        'manifest_items', 'manifest_signatures', 'deliveries', 'returns',
-        'return_items', 'invoices', 'invoice_items', 'receipts',
-        'bank_statements', 'bank_lines', 'reconciliations', 'recon_items',
-        'debts', 'expenses', 'attendances', 'uniform_checks', 'safety_checks',
-        'disciplinary_actions', 'leave_requests', 'vehicle_checks', 'services',
-        'fuel_logs', 'driver_assignments', 'ntsa_inspections',
-        'speed_governor_logs', 'files', 'voice_notes', 'media_albums',
-        'album_items', 'tasks', 'task_comments', 'notifications', 'slas',
-    ];
-
     private const CONFIRMATION_PHRASE = 'DELETE ALL DATA';
+    private const RESTORE_CONFIRMATION_PHRASE = 'RESTORE THIS BACKUP';
+
+    public function __construct(private BackupService $backups)
+    {
+    }
 
     private function requireAdmin(Request $request)
     {
@@ -71,9 +67,11 @@ class AdminController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'preserved' => self::PRESERVE_TABLES,
-                'wiped' => self::WIPE_TABLES,
+                'preserved' => BackupService::PRESERVE_TABLES,
+                'wiped' => BackupService::WIPE_TABLES,
                 'confirmation_phrase' => self::CONFIRMATION_PHRASE,
+                'restore_confirmation_phrase' => self::RESTORE_CONFIRMATION_PHRASE,
+                'retention_days' => BackupService::RETENTION_DAYS,
             ],
         ]);
     }
@@ -100,7 +98,8 @@ class AdminController extends Controller
     {
         $this->requireAdmin($request);
 
-        $backup = $this->snapshotAllData('manual', $request->user()->id);
+        $backup = $this->backups->snapshot('manual', $request->user()->id);
+        $this->backups->cleanup();
 
         return response()->json([
             'success' => true,
@@ -152,16 +151,17 @@ class AdminController extends Controller
         $user = $request->user();
 
         // 1. Back up everything, unconditionally, before touching anything.
-        $backup = $this->snapshotAllData('pre_reset', $user->id);
+        $backup = $this->backups->snapshot('pre_reset', $user->id);
         $rowCountsBefore = collect($backup->table_row_counts)
-            ->only(self::WIPE_TABLES)->toArray();
+            ->only(BackupService::WIPE_TABLES)->toArray();
 
         // 2. Wipe the operational/transactional tables only -- see
-        // PRESERVE_TABLES/WIPE_TABLES above. Logins, product catalog,
-        // pricing, fleet registry, and system settings are untouched.
+        // BackupService::PRESERVE_TABLES/WIPE_TABLES. Logins, product
+        // catalog, pricing, fleet registry, and system settings are
+        // untouched.
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
         try {
-            foreach (self::WIPE_TABLES as $table) {
+            foreach (BackupService::WIPE_TABLES as $table) {
                 DB::table($table)->delete();
             }
         } finally {
@@ -174,7 +174,7 @@ class AdminController extends Controller
             'performed_by' => $user->id,
             'performed_by_email' => $user->email,
             'backup_id' => $backup->id,
-            'tables_wiped' => self::WIPE_TABLES,
+            'tables_wiped' => BackupService::WIPE_TABLES,
             'row_counts_before' => $rowCountsBefore,
         ]);
 
@@ -187,7 +187,7 @@ class AdminController extends Controller
             'data' => [
                 'backup_id' => $backup->id,
                 'reset_log_id' => $log->id,
-                'tables_wiped' => self::WIPE_TABLES,
+                'tables_wiped' => BackupService::WIPE_TABLES,
                 'row_counts_before' => $rowCountsBefore,
             ],
         ]);
@@ -202,26 +202,55 @@ class AdminController extends Controller
         return response()->json(['success' => true, 'data' => $logs]);
     }
 
-    private function snapshotAllData(string $reason, ?string $userId): Backup
+    /**
+     * Restore the database to exactly the state captured in a given
+     * backup. Same three-check pattern as resetAllData() (admin +
+     * Danger Zone unlocked + typed confirmation) since this is just as
+     * destructive to whatever the CURRENT data is -- and it takes a
+     * fresh "pre_restore" safety backup of that current state first,
+     * so a restore is itself always undoable.
+     */
+    public function restoreBackup(Request $request, $id)
     {
-        $allTables = array_merge(self::PRESERVE_TABLES, self::WIPE_TABLES);
-        $snapshot = [];
-        $rowCounts = [];
+        $this->requireAdmin($request);
 
-        foreach ($allTables as $table) {
-            $rows = DB::table($table)->get();
-            $snapshot[$table] = $rows;
-            $rowCounts[$table] = $rows->count();
+        $backup = Backup::find($id);
+        if (!$backup) {
+            return response()->json(['success' => false, 'message' => 'Backup not found'], 404);
         }
 
-        $payload = json_encode($snapshot);
+        if (!(Setting::allAsMap()['danger_zone_unlocked'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Danger Zone is locked. Unlock it in Settings first.',
+            ], 403);
+        }
 
-        return Backup::create([
-            'created_by' => $userId,
-            'reason' => $reason,
-            'table_row_counts' => $rowCounts,
-            'size_bytes' => strlen($payload),
-            'payload' => $payload,
+        if ($request->input('confirmation') !== self::RESTORE_CONFIRMATION_PHRASE) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Confirmation text did not match "' . self::RESTORE_CONFIRMATION_PHRASE . '".',
+            ], 422);
+        }
+
+        $user = $request->user();
+
+        // Safety backup of whatever's about to be overwritten -- so
+        // restoring the wrong backup by mistake is itself recoverable.
+        $preRestoreBackup = $this->backups->snapshot('pre_restore', $user->id);
+
+        $restoredCounts = $this->backups->restore($backup);
+
+        Setting::putMany(['danger_zone_unlocked' => false]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Database restored to the ' . $backup->created_at->toDateTimeString() . ' backup. A safety backup of the prior state was taken first.',
+            'data' => [
+                'restored_from_backup_id' => $backup->id,
+                'pre_restore_backup_id' => $preRestoreBackup->id,
+                'restored_row_counts' => $restoredCounts,
+            ],
         ]);
     }
 }

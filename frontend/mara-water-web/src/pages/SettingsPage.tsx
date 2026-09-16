@@ -12,6 +12,8 @@ import {
   Unlock,
   Download,
   DatabaseBackup,
+  History,
+  X,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
@@ -108,7 +110,7 @@ const SettingsPage: React.FC = () => {
   };
 
   // --- Danger Zone tab (backups + guarded full-data reset) ---
-  const [dangerInfo, setDangerInfo] = useState<{ preserved: string[]; wiped: string[]; confirmation_phrase: string } | null>(null);
+  const [dangerInfo, setDangerInfo] = useState<{ preserved: string[]; wiped: string[]; confirmation_phrase: string; restore_confirmation_phrase: string; retention_days: number } | null>(null);
   const [backups, setBackups] = useState<any[]>([]);
   const [resetLogs, setResetLogs] = useState<any[]>([]);
   const [dangerLoading, setDangerLoading] = useState(false);
@@ -195,6 +197,32 @@ const SettingsPage: React.FC = () => {
       toast.error(error.response?.data?.message || 'Reset failed');
     } finally {
       setResetting(false);
+    }
+  };
+
+  // --- Restore a backup ---
+  const [restoringBackup, setRestoringBackup] = useState<{ id: string; created_at: string } | null>(null);
+  const [restoreConfirmText, setRestoreConfirmText] = useState('');
+  const [restoring, setRestoring] = useState(false);
+
+  const runRestore = async () => {
+    if (!restoringBackup || !dangerInfo || restoreConfirmText !== dangerInfo.restore_confirmation_phrase) return;
+    setRestoring(true);
+    try {
+      const res = await api.post(`/admin/backups/${restoringBackup.id}/restore`, { confirmation: restoreConfirmText });
+      toast.success(res.data.message || 'Backup restored');
+      setRestoringBackup(null);
+      setRestoreConfirmText('');
+      setSettings((prev) => ({ ...prev, danger_zone_unlocked: false }));
+      loadDangerZoneData();
+    } catch (error: any) {
+      if (error.response?.status === 403) {
+        toast.error('Danger Zone is locked. Unlock it first, then try Restore again.');
+      } else {
+        toast.error(error.response?.data?.message || 'Restore failed');
+      }
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -521,7 +549,10 @@ const SettingsPage: React.FC = () => {
                     <h3 className="text-lg font-medium text-gray-900">Backups</h3>
                     <p className="text-sm text-gray-500 mt-1">
                       A full snapshot of every business table, downloadable as JSON. Take one any
-                      time — this doesn't touch any data.
+                      time — this doesn't touch any data. Kept for
+                      {dangerInfo ? ` ${dangerInfo.retention_days} days` : ' 400 days'} (a full financial
+                      year plus margin); the most recent backup is never auto-deleted regardless of age.
+                      A backup is also taken automatically before a reset and before a restore.
                     </p>
                     <button
                       onClick={createBackupNow}
@@ -548,12 +579,20 @@ const SettingsPage: React.FC = () => {
                                 </p>
                                 <p className="text-xs text-gray-500">{b.total_rows.toLocaleString()} rows · {(b.size_bytes / 1024).toFixed(0)} KB{b.created_by ? ` · by ${b.created_by}` : ''}</p>
                               </div>
-                              <button
-                                onClick={() => downloadBackup(b.id)}
-                                className="flex items-center text-sm text-blue-600 hover:text-blue-800 font-medium"
-                              >
-                                <Download className="w-4 h-4 mr-1" /> Download
-                              </button>
+                              <div className="flex items-center space-x-4">
+                                <button
+                                  onClick={() => setRestoringBackup({ id: b.id, created_at: b.created_at })}
+                                  className="flex items-center text-sm text-amber-600 hover:text-amber-800 font-medium"
+                                >
+                                  <History className="w-4 h-4 mr-1" /> Restore
+                                </button>
+                                <button
+                                  onClick={() => downloadBackup(b.id)}
+                                  className="flex items-center text-sm text-blue-600 hover:text-blue-800 font-medium"
+                                >
+                                  <Download className="w-4 h-4 mr-1" /> Download
+                                </button>
+                              </div>
                             </div>
                           ))
                         )}
@@ -646,6 +685,54 @@ const SettingsPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Restore Backup Modal */}
+      {restoringBackup && dangerInfo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium text-red-700 flex items-center">
+                <History className="w-5 h-5 mr-2" /> Restore Backup
+              </h3>
+              <button onClick={() => { setRestoringBackup(null); setRestoreConfirmText(''); }} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              This overwrites the current database with exactly what it looked like on{' '}
+              <span className="font-medium text-gray-900">{new Date(restoringBackup.created_at).toLocaleString()}</span>.
+              A safety backup of the current state is taken automatically first, so this can itself be
+              undone by restoring that one if you pick the wrong backup.
+            </p>
+            {!dangerUnlocked ? (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
+                Danger Zone is locked. Close this, unlock it below, then click Restore again.
+              </div>
+            ) : (
+              <div className="border border-red-200 bg-red-50 rounded-lg p-4 space-y-3">
+                <label className="block text-sm font-medium text-gray-900">
+                  Type <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-gray-300">{dangerInfo.restore_confirmation_phrase}</span> to confirm
+                </label>
+                <input
+                  type="text"
+                  value={restoreConfirmText}
+                  onChange={(e) => setRestoreConfirmText(e.target.value)}
+                  className="block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  placeholder={dangerInfo.restore_confirmation_phrase}
+                />
+                <button
+                  onClick={runRestore}
+                  disabled={restoring || restoreConfirmText !== dangerInfo.restore_confirmation_phrase}
+                  className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <AlertTriangle className="w-4 h-4 mr-2" />
+                  {restoring ? 'Restoring…' : 'Overwrite Current Data With This Backup'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

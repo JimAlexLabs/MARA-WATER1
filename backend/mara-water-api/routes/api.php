@@ -72,6 +72,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/backups', [AdminController::class, 'listBackups']);
             Route::post('/backups', [AdminController::class, 'createBackup']);
             Route::get('/backups/{id}/download', [AdminController::class, 'downloadBackup']);
+            Route::post('/backups/{id}/restore', [AdminController::class, 'restoreBackup']);
             Route::post('/reset', [AdminController::class, 'resetAllData']);
             Route::get('/reset-logs', [AdminController::class, 'listResetLogs']);
         });
