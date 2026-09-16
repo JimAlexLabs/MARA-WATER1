@@ -29,6 +29,8 @@ use App\Http\Controllers\Api\ChartOfAccountController;
 use App\Http\Controllers\Api\PettyCashController;
 use App\Http\Controllers\Api\DebtorLedgerController;
 use App\Http\Controllers\Api\CostingController;
+use App\Http\Controllers\Api\EquipmentController;
+use App\Http\Controllers\Api\WarehouseAuditController;
 
 /*
 |--------------------------------------------------------------------------
@@ -96,6 +98,20 @@ Route::prefix('v1')->group(function () {
             Route::put('/batches/{id}', [BatchController::class, 'update']);
             Route::delete('/batches/{id}', [BatchController::class, 'destroy']);
             Route::put('/batches/{id}/status', [BatchController::class, 'updateStatus']);
+
+            // Warehouse & Equipment Audit (Phase 10).
+            Route::get('/audit/packaging', [WarehouseAuditController::class, 'packagingWatch']);
+            Route::get('/audit/stationery', [WarehouseAuditController::class, 'stationeryWatch']);
+            Route::get('/audit/chemicals', [WarehouseAuditController::class, 'chemicalsWatch']);
+            Route::get('/audit/ppe', [WarehouseAuditController::class, 'ppeWatch']);
+            Route::get('/audit/equipment', [WarehouseAuditController::class, 'equipmentStatus']);
+            Route::get('/audit/test-equipment', [WarehouseAuditController::class, 'testEquipmentStatus']);
+            Route::get('/audit/critical-gaps', [WarehouseAuditController::class, 'criticalGaps']);
+
+            Route::get('/equipment', [EquipmentController::class, 'index']);
+            Route::post('/equipment', [EquipmentController::class, 'store']);
+            Route::put('/equipment/{id}', [EquipmentController::class, 'update']);
+            Route::delete('/equipment/{id}', [EquipmentController::class, 'destroy']);
         });
 
         // Production routes

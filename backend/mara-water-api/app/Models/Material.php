@@ -17,6 +17,7 @@ class Material extends Model
         'category',
         'uom',
         'unit_cost',
+        'expiry_date',
         'is_consumable',
         'min_level',
         'lead_time_days',
@@ -28,6 +29,7 @@ class Material extends Model
     protected $casts = [
         'is_consumable' => 'boolean',
         'unit_cost' => 'decimal:4',
+        'expiry_date' => 'date',
         'min_level' => 'decimal:3',
         'lead_time_days' => 'integer',
         'deleted_at' => 'datetime',
