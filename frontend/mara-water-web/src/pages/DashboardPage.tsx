@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
+import { toast } from 'react-hot-toast';
 import {
   Droplets,
   Package,
@@ -18,7 +19,16 @@ import {
   AlertTriangle,
   UserPlus,
   Loader2,
+  LogIn,
+  LogOut,
 } from 'lucide-react';
+
+interface MyAttendanceToday {
+  id: string;
+  clock_in_time: string;
+  clock_out_time: string | null;
+  total_hours: number | null;
+}
 
 interface Overview {
   today: {
@@ -89,6 +99,51 @@ const DashboardPage: React.FC = () => {
       .finally(() => setLoading(false));
   }, []);
 
+  // --- Round 2 Phase 5: self-service clock in/out ---
+  const [myAttendance, setMyAttendance] = useState<MyAttendanceToday | null>(null);
+  const [attendanceLoading, setAttendanceLoading] = useState(true);
+  const [clockActionLoading, setClockActionLoading] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const fetchMyAttendanceToday = () => {
+    if (!user?.id) return;
+    api.get('/hr/attendance', { params: { user_id: user.id, date_from: today, date_to: today } })
+      .then((res) => setMyAttendance((res.data.data || [])[0] ?? null))
+      .catch(() => setMyAttendance(null))
+      .finally(() => setAttendanceLoading(false));
+  };
+
+  useEffect(() => {
+    fetchMyAttendanceToday();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  const handleClockIn = async () => {
+    setClockActionLoading(true);
+    try {
+      await api.post('/hr/attendance/clock-in', { user_id: user?.id });
+      toast.success('Clocked in');
+      fetchMyAttendanceToday();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to clock in');
+    } finally {
+      setClockActionLoading(false);
+    }
+  };
+
+  const handleClockOut = async () => {
+    setClockActionLoading(true);
+    try {
+      const res = await api.post('/hr/attendance/clock-out', { user_id: user?.id });
+      toast.success(`Clocked out -- ${res.data.data?.total_hours ?? ''}h worked`);
+      fetchMyAttendanceToday();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to clock out');
+    } finally {
+      setClockActionLoading(false);
+    }
+  };
+
   const quickActions = [
     { name: 'Log a Sale', description: 'Create a customer order', icon: Truck, color: 'bg-purple-600 hover:bg-purple-700', route: '/sales?tab=orders' },
     { name: 'Add a Customer', description: 'Register a new customer', icon: UserPlus, color: 'bg-blue-600 hover:bg-blue-700', route: '/sales?tab=customers' },
@@ -123,6 +178,43 @@ const DashboardPage: React.FC = () => {
           <div className="text-xs text-gray-500 dark:text-gray-400">{currentTime.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
         </div>
       </div>
+
+      {/* Round 2 Phase 5: self-service clock in/out -- deliberately just
+          one big button at a time, no typing, so this works from a phone
+          the same way a future dedicated mobile app would. */}
+      {!attendanceLoading && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 px-4 py-4 sm:px-6 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              {!myAttendance
+                ? "You haven't clocked in today"
+                : myAttendance.clock_out_time
+                  ? `Clocked out at ${myAttendance.clock_out_time} -- ${myAttendance.total_hours ?? 0}h worked`
+                  : `Clocked in at ${myAttendance.clock_in_time}`}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Today's attendance</p>
+          </div>
+          {!myAttendance ? (
+            <button
+              onClick={handleClockIn}
+              disabled={clockActionLoading}
+              className="flex items-center px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
+            >
+              <LogIn className="w-4 h-4 mr-2" /> Clock In
+            </button>
+          ) : !myAttendance.clock_out_time ? (
+            <button
+              onClick={handleClockOut}
+              disabled={clockActionLoading}
+              className="flex items-center px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
+            >
+              <LogOut className="w-4 h-4 mr-2" /> Clock Out
+            </button>
+          ) : (
+            <CheckCircle className="w-6 h-6 text-green-600" />
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>

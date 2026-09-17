@@ -147,6 +147,13 @@ const HRPage: React.FC = () => {
     if (q) setSearchTerm(q);
   }, [searchParams]);
   const [filterStatus, setFilterStatus] = useState('all');
+  // Round 2 Phase 5: "give managers a daily/weekly attendance view per
+  // department" -- period + department filters, applied server-side
+  // (AttendanceController::index() already supported date_from/date_to/
+  // department_id, just nothing in the UI used them yet).
+  const [periodFilter, setPeriodFilter] = useState<'today' | 'week' | 'all'>('today');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -160,17 +167,45 @@ const HRPage: React.FC = () => {
   });
 
   useEffect(() => {
-    fetchData();
     fetchEmployees();
     fetchPayrollRuns();
     fetchLoans();
     fetchTemplates();
+    api.get('/users/departments').then(res => setDepartments(res.data.data || [])).catch(() => {});
   }, []);
+
+  const periodDates = (): { date_from?: string; date_to?: string } => {
+    const now = new Date();
+    if (periodFilter === 'today') {
+      const d = now.toISOString().slice(0, 10);
+      return { date_from: d, date_to: d };
+    }
+    if (periodFilter === 'week') {
+      const day = now.getDay(); // 0 = Sunday
+      const monday = new Date(now);
+      monday.setDate(now.getDate() - ((day + 6) % 7));
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      return { date_from: monday.toISOString().slice(0, 10), date_to: sunday.toISOString().slice(0, 10) };
+    }
+    return {};
+  };
+
+  useEffect(() => {
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodFilter, departmentFilter]);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/hr/attendance');
+      const response = await api.get('/hr/attendance', {
+        params: {
+          ...periodDates(),
+          department_id: departmentFilter || undefined,
+          limit: 100,
+        },
+      });
       setAttendances(response.data.data || []);
     } catch (error) {
       toast.error('Failed to fetch HR data');
@@ -589,6 +624,23 @@ const HRPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <select
+                    value={periodFilter}
+                    onChange={(e) => setPeriodFilter(e.target.value as 'today' | 'week' | 'all')}
+                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="today">Today</option>
+                    <option value="week">This Week</option>
+                    <option value="all">All Time</option>
+                  </select>
+                  <select
+                    value={departmentFilter}
+                    onChange={(e) => setDepartmentFilter(e.target.value)}
+                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">All Departments</option>
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
                   <select
                     value={filterStatus}
                     onChange={(e) => setFilterStatus(e.target.value)}

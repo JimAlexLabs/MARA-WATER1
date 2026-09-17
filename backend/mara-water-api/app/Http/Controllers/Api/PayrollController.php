@@ -77,11 +77,17 @@ class PayrollController extends Controller
             ]);
 
             $staff = User::where('status', 'active')->whereNotNull('salary')->get();
+            $monthCarbon = \Carbon\Carbon::parse($month);
 
             foreach ($staff as $user) {
                 $inputs = [
                     'basic_pay' => (float) $user->salary,
                     'house_allowance' => (float) $user->house_allowance,
+                    // Round 2 Phase 5: fed automatically from real attendance
+                    // records now, instead of being hand-entered (Phase 4
+                    // left this at 0 since attendance auto-linking was
+                    // explicitly this phase's job).
+                    'absentism_hours' => $this->calculateAbsenteeismHours($user, $monthCarbon),
                 ];
                 $this->applyActiveLoanDeductions($user, $inputs);
 
@@ -131,6 +137,57 @@ class PayrollController extends Controller
             $amount = min((float) $loan->monthly_deduction, (float) $loan->balance);
             $inputs[$field] = ($inputs[$field] ?? 0) + $amount;
         }
+    }
+
+    /**
+     * Round 2 Phase 5: missed working days x a standard 8-hour day (the
+     * same "8 hours = one full day" convention this app already uses
+     * elsewhere -- Attendance::getIsLateAttribute()/getWorkEfficiencyAttribute()
+     * both hardcode it). Working days are Monday-Friday; a business
+     * running a 6-day week would need this adjusted, flagging that as a
+     * assumption worth confirming, not a verified fact.
+     *
+     * Only counts days from the later of (month start, the employee's
+     * employment_date) through the earlier of (month end, today) -- never
+     * penalizes a day before someone was hired or a day that hasn't
+     * happened yet. 'present'/'late' count as attended, 'half_day' counts
+     * as half a missed day, and 'absent' or no record at all counts as a
+     * full missed day.
+     */
+    private function calculateAbsenteeismHours(User $user, \Carbon\Carbon $month): float
+    {
+        $periodStart = $month->copy()->startOfMonth();
+        if ($user->employment_date && $user->employment_date->gt($periodStart)) {
+            $periodStart = $user->employment_date->copy();
+        }
+        $periodEnd = $month->copy()->endOfMonth();
+        $today = now()->startOfDay();
+        if ($today->lt($periodEnd)) {
+            $periodEnd = $today;
+        }
+        if ($periodStart->gt($periodEnd)) {
+            return 0.0;
+        }
+
+        $attendanceByDate = \App\Models\Attendance::where('user_id', $user->id)
+            ->whereBetween('date', [$periodStart->toDateString(), $periodEnd->toDateString()])
+            ->get()
+            ->keyBy(fn ($a) => $a->date->toDateString());
+
+        $missedDays = 0.0;
+        for ($day = $periodStart->copy(); $day->lte($periodEnd); $day->addDay()) {
+            if ($day->isWeekend()) {
+                continue;
+            }
+            $record = $attendanceByDate->get($day->toDateString());
+            if (!$record || $record->status === 'absent') {
+                $missedDays += 1.0;
+            } elseif ($record->status === 'half_day') {
+                $missedDays += 0.5;
+            }
+        }
+
+        return round($missedDays * 8.0, 2);
     }
 
     public function updatePayslip(Request $request, $runId, $payslipId)
