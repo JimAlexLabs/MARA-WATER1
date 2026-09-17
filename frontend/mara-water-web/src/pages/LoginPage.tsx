@@ -20,11 +20,16 @@ const LoginPage: React.FC = () => {
     }
 
     setIsLoading(true);
-    const success = await login(email, password);
+    const loggedInUser = await login(email, password);
     setIsLoading(false);
-    
-    if (success) {
-      navigate('/dashboard');
+
+    // Round 2 Phase 11: "each login should land the user on the
+    // dashboard appropriate to their role."
+    if (loggedInUser) {
+      const tier = loggedInUser.role?.access_tier;
+      if (tier === 'driver') navigate('/driver');
+      else if (tier === 'investor') navigate('/investor');
+      else navigate('/dashboard');
     }
   };
 

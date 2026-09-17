@@ -13,7 +13,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Round 2 Phase 11: real role-based access control, checked
+        // server-side on every request that carries it.
+        $middleware->alias([
+            'tier' => \App\Http\Middleware\EnsureAccessTier::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // This is an API-only backend: always answer /api/* with JSON, so an

@@ -15,6 +15,8 @@ import './index.css';
 // by deferring them, and it avoids a loading flash on the most common path.
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'));
 const PricingPage = lazy(() => import('./pages/PricingPage'));
+const DriverPage = lazy(() => import('./pages/DriverPage'));
+const InvestorPage = lazy(() => import('./pages/InvestorPage'));
 const QAPage = lazy(() => import('./pages/QAPage'));
 const ProductionPage = lazy(() => import('./pages/ProductionPage'));
 const InventoryPage = lazy(() => import('./pages/InventoryPage'));
@@ -32,10 +34,22 @@ const PageLoading: React.FC = () => (
   </div>
 );
 
-// Protected Route Component
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+// Round 2 Phase 11: "each login should land the user on the dashboard
+// appropriate to their role" -- also used to bounce a tier away from a
+// route it can't use, and as the catch-all/root redirect target.
+const homeRouteFor = (tier?: string | null): string => {
+  if (tier === 'driver') return '/driver';
+  if (tier === 'investor') return '/investor';
+  return '/dashboard';
+};
+
+// Protected Route Component. `tiers`, when given, restricts the route to
+// those access tiers -- this is a UX convenience (redirect to the user's
+// own home instead of a page that will just 403 every request); the
+// real enforcement is server-side (EnsureAccessTier), not this.
+const ProtectedRoute: React.FC<{ children: React.ReactNode; tiers?: string[] }> = ({ children, tiers }) => {
   const { user, loading } = useAuth();
-  
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -46,8 +60,14 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
       </div>
     );
   }
-  
-  return user ? <>{children}</> : <Navigate to="/login" replace />;
+
+  if (!user) return <Navigate to="/login" replace />;
+
+  if (tiers && !tiers.includes(user.role?.access_tier || '')) {
+    return <Navigate to={homeRouteFor(user.role?.access_tier)} replace />;
+  }
+
+  return <>{children}</>;
 };
 
 // Public Route Component (redirects to dashboard if already logged in)
@@ -65,7 +85,15 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     );
   }
   
-  return user ? <Navigate to="/dashboard" replace /> : <>{children}</>;
+  return user ? <Navigate to={homeRouteFor(user.role?.access_tier)} replace /> : <>{children}</>;
+};
+
+// "/" and any unmatched path -- send a logged-in user to their own tier's
+// home, or an anonymous visitor to login.
+const HomeRedirect: React.FC = () => {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  return <Navigate to={user ? homeRouteFor(user.role?.access_tier) : '/login'} replace />;
 };
 
 function App() {
@@ -93,18 +121,40 @@ function App() {
               </PublicRoute>
             } />
             
-            {/* Protected Routes */}
+            {/* Protected Routes -- Round 2 Phase 11: each gated to the
+                access tiers the spec grants it. The `tiers` prop is a UX
+                convenience (redirect to the user's own home instead of a
+                page that will just 403); the real enforcement is
+                server-side (EnsureAccessTier). */}
             <Route path="/dashboard" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <DashboardPage />
                 </Layout>
               </ProtectedRoute>
             } />
-            
+
+            {/* A driver's own dashboard/login. */}
+            <Route path="/driver" element={
+              <ProtectedRoute tiers={['driver']}>
+                <Layout>
+                  <DriverPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
+            {/* Investor's own deliberately limited, read-only summary. */}
+            <Route path="/investor" element={
+              <ProtectedRoute tiers={['investor']}>
+                <Layout>
+                  <InvestorPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
             {/* Analytics Routes */}
             <Route path="/analytics" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <AnalyticsPage />
                 </Layout>
@@ -113,7 +163,7 @@ function App() {
 
             {/* Products & Prices Routes */}
             <Route path="/pricing" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <PricingPage />
                 </Layout>
@@ -122,98 +172,100 @@ function App() {
 
             {/* QA & Production Routes */}
             <Route path="/qa" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <QAPage />
                 </Layout>
               </ProtectedRoute>
             } />
-            
+
             <Route path="/production" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <ProductionPage />
                 </Layout>
               </ProtectedRoute>
             } />
-            
+
             {/* Inventory Routes */}
             <Route path="/inventory" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <InventoryPage />
                 </Layout>
               </ProtectedRoute>
             } />
-            
+
             {/* Sales Routes */}
             <Route path="/sales" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <SalesPage />
                 </Layout>
               </ProtectedRoute>
             } />
-            
+
             {/* Finance Routes */}
             <Route path="/finance" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <FinancePage />
                 </Layout>
               </ProtectedRoute>
             } />
-            
-            {/* Fleet Routes */}
+
+            {/* Fleet Routes -- Manager/Director's fleet-wide tool; a
+                driver's own trip logging lives at /driver instead. */}
             <Route path="/fleet" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <FleetPage />
                 </Layout>
               </ProtectedRoute>
             } />
-            
+
             {/* HR Routes */}
             <Route path="/hr" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <HRPage />
                 </Layout>
               </ProtectedRoute>
             } />
-            
+
             {/* Reports Routes */}
             <Route path="/reports" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <ReportsPage />
                 </Layout>
               </ProtectedRoute>
             } />
-            
-            {/* Settings Routes */}
+
+            {/* Settings Routes -- Director only, per the spec's own
+                suggested default. */}
             <Route path="/settings" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['director']}>
                 <Layout>
                   <SettingsPage />
                 </Layout>
               </ProtectedRoute>
             } />
-            
-            {/* Users Routes */}
+
+            {/* Users Routes -- user management/role assignment, Director only. */}
             <Route path="/users" element={
-              <ProtectedRoute>
+              <ProtectedRoute tiers={['director']}>
                 <Layout>
                   <UsersPage />
                 </Layout>
               </ProtectedRoute>
             } />
-            
-            {/* Default redirect */}
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            
-            {/* Catch all route - redirect to dashboard */}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+
+            {/* Default redirect -- each tier's own landing page. */}
+            <Route path="/" element={<HomeRedirect />} />
+
+            {/* Catch all route */}
+            <Route path="*" element={<HomeRedirect />} />
           </Routes>
           </Suspense>
         </div>

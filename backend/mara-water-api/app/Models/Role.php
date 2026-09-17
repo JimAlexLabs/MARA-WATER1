@@ -11,8 +11,18 @@ class Role extends Model
 {
     use HasFactory, HasUuids;
 
+    /**
+     * Round 2 Phase 11: the four access tiers real authorization is
+     * enforced against (EnsureAccessTier middleware) -- every one of the
+     * existing granular job-title roles (QA, RIC, BP, SMM, SO, FO, STK,
+     * AUD) maps onto 'manager', keeping the job titles for HR purposes
+     * while collapsing them to one tier for access control.
+     */
+    public const TIERS = ['driver', 'manager', 'investor', 'director'];
+
     protected $fillable = [
         'code',
+        'access_tier',
         'name',
         'description',
         'is_system',

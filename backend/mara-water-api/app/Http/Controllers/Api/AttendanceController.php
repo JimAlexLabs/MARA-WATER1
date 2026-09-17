@@ -269,6 +269,13 @@ class AttendanceController extends Controller
 
     public function clockIn(Request $request)
     {
+        // Round 2 Phase 11 finding: this is meant to be self-service
+        // ("check-in/check-out") but trusted whatever user_id the request
+        // body carried -- any authenticated user could clock a different
+        // person in. Forced to the requester's own id, same as everywhere
+        // else "log my own X" is enforced this session.
+        $request->merge(['user_id' => $request->user()->id]);
+
         try {
             $validator = Validator::make($request->all(), [
                 'user_id' => 'required|exists:users,id',
@@ -333,6 +340,9 @@ class AttendanceController extends Controller
 
     public function clockOut(Request $request)
     {
+        // Round 2 Phase 11: same self-service fix as clockIn() above.
+        $request->merge(['user_id' => $request->user()->id]);
+
         try {
             $validator = Validator::make($request->all(), [
                 'user_id' => 'required|exists:users,id',

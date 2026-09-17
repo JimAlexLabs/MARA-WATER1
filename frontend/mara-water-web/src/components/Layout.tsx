@@ -203,6 +203,23 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     },
   ];
 
+  // Round 2 Phase 11: "not just hiding UI elements client-side, a hidden
+  // button is not real security" -- every one of these is also blocked
+  // server-side (EnsureAccessTier). This is just so the sidebar doesn't
+  // offer a link that would 403, and matches the spec's "distinct,
+  // deliberately limited dashboard, not the full app with buttons
+  // hidden" for Driver/Investor -- they get a single link back to their
+  // own dashboard, not the full 12-item list minus a few.
+  const tier = user?.role?.access_tier;
+  const DIRECTOR_ONLY = ['/users', '/settings'];
+  const visibleNavigation = tier === 'driver'
+    ? [{ name: 'My Dashboard', href: '/driver', icon: Home, description: 'Trips, attendance' }]
+    : tier === 'investor'
+    ? [{ name: 'Summary', href: '/investor', icon: Home, description: 'Daily performance summary' }]
+    : tier === 'director'
+    ? navigation
+    : navigation.filter((item) => !DIRECTOR_ONLY.includes(item.href));
+
   const isActive = (href: string) => {
     return location.pathname === href || location.pathname.startsWith(href + '/');
   };
@@ -237,7 +254,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </button>
           </div>
           <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
-            {navigation.map((item) => {
+            {visibleNavigation.map((item) => {
               const Icon = item.icon;
               return (
                 <Link
@@ -276,7 +293,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <span className="ml-3 text-xl font-bold text-gray-900 dark:text-gray-100">MARA-WATER</span>
           </div>
           <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
-            {navigation.map((item) => {
+            {visibleNavigation.map((item) => {
               const Icon = item.icon;
               return (
                 <Link
@@ -336,7 +353,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </button>
 
           <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6">
-            {/* Search */}
+            {/* Search -- Manager/Director only (/search is server-side
+                gated the same way; a driver/investor typing here would
+                just get a 403, so the box doesn't even show). */}
+            {tier !== 'manager' && tier !== 'director' ? (
+              <div className="flex-1" />
+            ) : (
             <div className="relative flex flex-1 items-center" ref={searchBoxRef}>
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                 {searchLoading ? (
@@ -378,6 +400,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </div>
               )}
             </div>
+            )}
 
             {/* Right side */}
             <div className="flex items-center gap-x-4 lg:gap-x-6">

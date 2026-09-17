@@ -20,6 +20,11 @@ interface User {
     id: string;
     code: string;
     name: string;
+    // Round 2 Phase 11: which of the four access tiers this role maps
+    // to. The real enforcement is server-side (EnsureAccessTier); this
+    // just lets the UI land the user on the right dashboard and avoid
+    // showing a link that would 403.
+    access_tier?: 'driver' | 'manager' | 'investor' | 'director' | null;
   };
   department: {
     id: string;
@@ -37,7 +42,7 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   loading: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<User | null>;
   logout: () => void;
   updateProfile: (data: Partial<User>) => Promise<boolean>;
   theme: 'light' | 'dark';
@@ -160,8 +165,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     checkAuth();
   }, []);
 
-  // Login function
-  const login = async (email: string, password: string): Promise<boolean> => {
+  // Login function -- returns the logged-in user (so the caller can
+  // redirect based on role.access_tier immediately, without waiting on
+  // this component's own state to propagate) or null on failure.
+  const login = async (email: string, password: string): Promise<User | null> => {
     try {
       setLoading(true);
       const response = await axios.post('/auth/login', {
@@ -175,15 +182,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         localStorage.setItem('auth_token', token);
         setUser(user);
         toast.success('Login successful!');
-        return true;
+        return user;
       } else {
         toast.error(response.data.message || 'Login failed');
-        return false;
+        return null;
       }
     } catch (error: any) {
       const message = error.response?.data?.message || 'Login failed. Please try again.';
       toast.error(message);
-      return false;
+      return null;
     } finally {
       setLoading(false);
     }
@@ -266,10 +273,19 @@ export const usePermissions = () => {
     return user?.role?.code === 'ADMIN';
   };
 
+  const accessTier = () => user?.role?.access_tier ?? null;
+  const isDriverTier = () => accessTier() === 'driver';
+  const isManagerTier = () => accessTier() === 'manager';
+  const isInvestorTier = () => accessTier() === 'investor';
+
   return {
     hasPermission,
     hasModulePermission,
     isDirector,
+    accessTier,
+    isDriverTier,
+    isManagerTier,
+    isInvestorTier,
     permissions: user?.permissions || [],
   };
 };

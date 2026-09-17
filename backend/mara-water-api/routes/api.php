@@ -59,34 +59,100 @@ Route::prefix('v1')->group(function () {
 
     // Protected routes
     Route::middleware('auth:sanctum')->group(function () {
-        // Dashboard routes
+        // Dashboard health check -- harmless, no business data, open to
+        // any authenticated tier.
         Route::get('/dashboard/health', [DashboardController::class, 'health']);
-        Route::get('/dashboard/overview', [DashboardController::class, 'overview']);
 
-        // Round 2 Phase 9: dedicated analytics view, separate from the
-        // dashboard above.
-        Route::get('/analytics/overview', [AnalyticsController::class, 'overview']);
+        // Round 2 Phase 11: every route below now carries a real,
+        // server-side access_tier check (EnsureAccessTier / 'tier:...'
+        // middleware) -- "not just hiding UI elements client-side, a
+        // hidden button is not real security." Manager here means the
+        // spec's "Manager / Accountant / Financier" bucket, which in
+        // this app's existing role catalog is every job-title role
+        // except Director and Driver (QA, RIC, BP, SMM, SO, FO, STK,
+        // AUD -- see the access_tier migration).
 
-        // Global top-bar search
-        Route::get('/search', [SearchController::class, 'index']);
-
-        // System settings
-        Route::get('/settings', [SettingsController::class, 'index']);
-        Route::put('/settings', [SettingsController::class, 'update']);
-
-        // Admin: backups + danger-zone reset (all admin-gated inside the controller)
-        Route::prefix('admin')->group(function () {
-            Route::get('/danger-zone/tables', [AdminController::class, 'tableGroups']);
-            Route::get('/backups', [AdminController::class, 'listBackups']);
-            Route::post('/backups', [AdminController::class, 'createBackup']);
-            Route::get('/backups/{id}/download', [AdminController::class, 'downloadBackup']);
-            Route::post('/backups/{id}/restore', [AdminController::class, 'restoreBackup']);
-            Route::post('/reset', [AdminController::class, 'resetAllData']);
-            Route::get('/reset-logs', [AdminController::class, 'listResetLogs']);
+        // The full company dashboard/analytics/search surface financial,
+        // debtor, and staff detail -- Manager/Director only. Drivers get
+        // their own dedicated summary instead (see /driver below);
+        // Investors get their own deliberately limited one (/investor).
+        Route::middleware('tier:manager,director')->group(function () {
+            Route::get('/dashboard/overview', [DashboardController::class, 'overview']);
+            Route::get('/analytics/overview', [AnalyticsController::class, 'overview']);
+            Route::get('/search', [SearchController::class, 'index']);
         });
 
-        // QA routes
-        Route::prefix('qa')->group(function () {
+        // Round 2 Phase 11: Investor's own deliberately limited, read-
+        // only summary -- explicitly not line-level detail (no
+        // individual salaries, debtor names, or petty cash lines).
+        Route::middleware('tier:investor,director')->group(function () {
+            Route::get('/investor/summary', [\App\Http\Controllers\Api\InvestorController::class, 'summary']);
+        });
+
+        // Round 2 Phase 11: a driver's own dashboard -- their own trip
+        // history and stats only (DriverTripController enforces the
+        // "own trips only" scoping itself once tier=driver).
+        Route::middleware('tier:driver,manager,director')->group(function () {
+            Route::get('/driver/summary', [\App\Http\Controllers\Api\DriverSummaryController::class, 'summary']);
+        });
+
+        // Round 2 Phase 11: a plain staff directory (name/role/department,
+        // sensitive fields already redacted in-controller for non-
+        // directors) -- Manager needs this to pick a driver/officer on the
+        // Fleet trip form and staff on the HR page, not just Director.
+        // Registered before the Director-only /users/{id} wildcard below --
+        // Laravel matches routes in registration order, so /users/roles
+        // and /users/departments have to come first or they'd match
+        // /users/{id} (with id="roles") instead, under the wrong middleware.
+        Route::middleware('tier:manager,director')->prefix('users')->group(function () {
+            Route::get('/', [UserController::class, 'index']);
+            Route::get('/roles', [UserController::class, 'roles']);
+            Route::get('/departments', [UserController::class, 'departments']);
+        });
+
+        // System settings -- Director only, per the spec's own suggested
+        // default (flagged in the Phase 11 report if Manager should get
+        // this too).
+        Route::middleware('tier:director')->group(function () {
+            Route::get('/settings', [SettingsController::class, 'index']);
+            Route::put('/settings', [SettingsController::class, 'update']);
+
+            // Admin: backups + danger-zone reset. AdminController already
+            // checks isDirector() itself (Phase 1) -- the middleware here
+            // is just the same declarative gate every other route now
+            // has, not a replacement for that check.
+            Route::prefix('admin')->group(function () {
+                Route::get('/danger-zone/tables', [AdminController::class, 'tableGroups']);
+                Route::get('/backups', [AdminController::class, 'listBackups']);
+                Route::post('/backups', [AdminController::class, 'createBackup']);
+                Route::get('/backups/{id}/download', [AdminController::class, 'downloadBackup']);
+                Route::post('/backups/{id}/restore', [AdminController::class, 'restoreBackup']);
+                Route::post('/reset', [AdminController::class, 'resetAllData']);
+                Route::get('/reset-logs', [AdminController::class, 'listResetLogs']);
+            });
+
+            // Users routes -- user management, role assignment, salary/
+            // bank detail editing, deletion, and password resets are
+            // explicitly Director-only in the spec. (Round 2 Phase 11
+            // finding: update()/destroy()/changePassword()/updateStatus()
+            // had no authorization check at all before this -- any
+            // authenticated user could edit anyone's role, salary, or
+            // password. This middleware is the actual fix, not just
+            // defense in depth.)
+            Route::prefix('users')->group(function () {
+                Route::post('/', [UserController::class, 'store']);
+                Route::post('/bulk', [UserController::class, 'bulkStore']);
+                Route::get('/statistics', [UserController::class, 'statistics']);
+                Route::get('/{id}', [UserController::class, 'show']);
+                Route::put('/{id}', [UserController::class, 'update']);
+                Route::delete('/{id}', [UserController::class, 'destroy']);
+                Route::post('/{id}/change-password', [UserController::class, 'changePassword']);
+                Route::put('/{id}/status', [UserController::class, 'updateStatus']);
+            });
+        });
+
+        // QA routes -- Manager/Director operational access.
+        Route::middleware('tier:manager,director')->prefix('qa')->group(function () {
             // Fixed-segment routes (statistics, etc.) must be registered
             // before /{id} wildcards of the same length, or e.g.
             // "GET /water-tests/statistics" matches show('statistics')
@@ -123,8 +189,8 @@ Route::prefix('v1')->group(function () {
             Route::delete('/equipment/{id}', [EquipmentController::class, 'destroy']);
         });
 
-        // Production routes
-        Route::prefix('production')->group(function () {
+        // Production routes -- Manager/Director operational access.
+        Route::middleware('tier:manager,director')->prefix('production')->group(function () {
             Route::get('/packaging-runs/statistics', [PackagingRunController::class, 'statistics']);
             Route::get('/packaging-runs/batch/{batchId}', [PackagingRunController::class, 'byBatch']);
             Route::get('/packaging-runs', [PackagingRunController::class, 'index']);
@@ -153,8 +219,8 @@ Route::prefix('v1')->group(function () {
             Route::delete('/bom/{id}', [BomController::class, 'destroy']);
         });
 
-        // Inventory routes
-        Route::prefix('inventory')->group(function () {
+        // Inventory routes -- Manager/Director operational access.
+        Route::middleware('tier:manager,director')->prefix('inventory')->group(function () {
             Route::get('/warehouses', [InventoryController::class, 'warehouses']);
             Route::get('/stock-items', [InventoryController::class, 'stockItems']);
             Route::get('/stock-moves', [InventoryController::class, 'stockMoves']);
@@ -170,8 +236,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/refills', [InventoryController::class, 'refills']);
         });
 
-        // Sales routes
-        Route::prefix('sales')->group(function () {
+        // Sales routes -- Manager/Director operational access.
+        Route::middleware('tier:manager,director')->prefix('sales')->group(function () {
             Route::get('/orders/statistics', [OrderController::class, 'statistics']);
             Route::get('/orders/customer/{customerId}', [OrderController::class, 'byCustomer']);
             Route::post('/orders/log-sale', [OrderController::class, 'logSale']);
@@ -199,8 +265,9 @@ Route::prefix('v1')->group(function () {
             Route::delete('/customers/{id}', [CustomerController::class, 'destroy']);
         });
 
-        // Finance routes
-        Route::prefix('finance')->group(function () {
+        // Finance routes -- Manager/Director operational access (Petty
+        // Cash, Debtors -- explicitly Manager's per the spec).
+        Route::middleware('tier:manager,director')->prefix('finance')->group(function () {
             Route::get('/invoices/statistics', [InvoiceController::class, 'statistics']);
             Route::get('/invoices/customer/{customerId}', [InvoiceController::class, 'byCustomer']);
             Route::get('/invoices/overdue', [InvoiceController::class, 'overdue']);
@@ -234,8 +301,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/costing/profit-loss', [CostingController::class, 'profitAndLoss']);
         });
 
-        // Fleet routes
-        Route::prefix('fleet')->group(function () {
+        // Fleet routes -- vehicle management is Manager/Director; the
+        // route/SKU reference lists and driver trips themselves are also
+        // open to Driver (their own trip logging), with DriverTripController
+        // itself enforcing "own trips only" once tier=driver.
+        Route::middleware('tier:manager,director')->prefix('fleet')->group(function () {
             Route::get('/vehicles/statistics', [VehicleController::class, 'statistics']);
             Route::get('/vehicles/expiring-documents', [VehicleController::class, 'expiringDocuments']);
             Route::get('/vehicles/search', [VehicleController::class, 'search']);
@@ -247,17 +317,26 @@ Route::prefix('v1')->group(function () {
             Route::post('/vehicles/{id}/assign-driver', [VehicleController::class, 'assignDriver']);
             Route::post('/vehicles/{id}/unassign-driver', [VehicleController::class, 'unassignDriver']);
 
+            // Fleet-wide trip statistics/trend/export -- aggregate across
+            // every driver, so Manager/Director only (a driver's own trip
+            // list below is scoped to just their own trips).
+            Route::get('/trips/statistics', [DriverTripController::class, 'statistics']);
+            Route::get('/trips/mileage-trend', [DriverTripController::class, 'mileageTrend']);
+            Route::get('/trips/export', [DriverTripController::class, 'export']);
+        });
+
+        Route::middleware('tier:driver,manager,director')->prefix('fleet')->group(function () {
             // Route/zone reference list drivers pick from on the trip form.
             Route::get('/routes', [DriverTripController::class, 'routes']);
             Route::post('/routes', [DriverTripController::class, 'storeRoute']);
             Route::get('/skus', [DriverTripController::class, 'skus']);
+            Route::get('/vehicles-list', [DriverTripController::class, 'vehicles']);
+            Route::get('/warehouses', [DriverTripController::class, 'warehouses']);
 
-            // Driver trips (the worksheet replacement). Fixed segments first,
-            // same reason as everywhere else in this file: /{id} is a
-            // wildcard and would otherwise capture "statistics" etc.
-            Route::get('/trips/statistics', [DriverTripController::class, 'statistics']);
-            Route::get('/trips/mileage-trend', [DriverTripController::class, 'mileageTrend']);
-            Route::get('/trips/export', [DriverTripController::class, 'export']);
+            // Driver trips (the worksheet replacement) -- index/show/update/
+            // destroy are scoped to "own trips only" inside the controller
+            // itself when tier=driver, so a driver can't see or touch
+            // another driver's trip just by knowing its id.
             Route::get('/trips', [DriverTripController::class, 'index']);
             Route::post('/trips', [DriverTripController::class, 'store']);
             Route::get('/trips/{id}', [DriverTripController::class, 'show']);
@@ -265,10 +344,17 @@ Route::prefix('v1')->group(function () {
             Route::delete('/trips/{id}', [DriverTripController::class, 'destroy']);
         });
 
-        // HR routes
-        Route::prefix('hr')->group(function () {
+        // HR routes -- clock-in/out is every employee's own action
+        // (Driver included, per the spec's explicit "check-in/check-out"
+        // grant); everything else here (viewing/managing attendance
+        // records, payroll, loans, salary templates) is Manager/Director
+        // "HR/Payroll entry and processing".
+        Route::middleware('tier:driver,manager,director')->prefix('hr')->group(function () {
             Route::post('/attendance/clock-in', [AttendanceController::class, 'clockIn']);
             Route::post('/attendance/clock-out', [AttendanceController::class, 'clockOut']);
+        });
+
+        Route::middleware('tier:manager,director')->prefix('hr')->group(function () {
             Route::get('/attendance/statistics', [AttendanceController::class, 'statistics']);
             Route::get('/attendance/user/{userId}', [AttendanceController::class, 'byUser']);
             Route::get('/attendance/today', [AttendanceController::class, 'today']);
@@ -301,8 +387,9 @@ Route::prefix('v1')->group(function () {
             Route::delete('/salary-templates/{id}', [SalaryTemplateController::class, 'destroy']);
         });
 
-        // Reports routes
-        Route::prefix('reports')->group(function () {
+        // Reports routes (legacy -- Round 2 Phase 9's report noted most of
+        // these are still placeholder scaffolding) -- Manager/Director.
+        Route::middleware('tier:manager,director')->prefix('reports')->group(function () {
             Route::get('/dashboard', [ReportsController::class, 'dashboard']);
             Route::get('/sales', [ReportsController::class, 'salesReport']);
             Route::get('/production', [ReportsController::class, 'productionReport']);
@@ -312,39 +399,28 @@ Route::prefix('v1')->group(function () {
             Route::get('/financial', [ReportsController::class, 'financialReport']);
         });
 
-        // File upload routes
-        Route::prefix('files')->group(function () {
+        // File upload routes -- not currently called from anywhere in the
+        // frontend (verified before this phase); Manager/Director default
+        // rather than open to every tier for something unused today.
+        Route::middleware('tier:manager,director')->prefix('files')->group(function () {
             Route::post('/upload', [FileUploadController::class, 'upload']);
             Route::delete('/{id}', [FileUploadController::class, 'delete']);
             Route::get('/by-entity', [FileUploadController::class, 'getByEntity']);
         });
 
-        // Notification routes
+        // Notification routes -- personal to whoever's logged in, so open
+        // to every tier. 'send' is unused by the frontend today; kept
+        // Manager/Director-only rather than open to every tier for
+        // something that currently lets you notify arbitrary users.
         Route::prefix('notifications')->group(function () {
             Route::get('/', [NotificationController::class, 'index']);
             Route::post('/mark-read', [NotificationController::class, 'markAsRead']);
             Route::post('/mark-all-read', [NotificationController::class, 'markAllAsRead']);
             Route::delete('/{id}', [NotificationController::class, 'delete']);
-            Route::post('/send', [NotificationController::class, 'send']);
             Route::get('/unread-count', [NotificationController::class, 'getUnreadCount']);
         });
-
-        // Users routes (Admin only)
-        Route::prefix('users')->group(function () {
-            Route::get('/', [UserController::class, 'index']);
-            Route::post('/', [UserController::class, 'store']);
-            // These fixed-segment routes must come before the /{id} wildcard,
-            // or e.g. "GET /users/roles" matches show('roles') and 404s
-            // looking for a user literally named "roles".
-            Route::post('/bulk', [UserController::class, 'bulkStore']);
-            Route::get('/statistics', [UserController::class, 'statistics']);
-            Route::get('/roles', [UserController::class, 'roles']);
-            Route::get('/departments', [UserController::class, 'departments']);
-            Route::get('/{id}', [UserController::class, 'show']);
-            Route::put('/{id}', [UserController::class, 'update']);
-            Route::delete('/{id}', [UserController::class, 'destroy']);
-            Route::post('/{id}/change-password', [UserController::class, 'changePassword']);
-            Route::put('/{id}/status', [UserController::class, 'updateStatus']);
+        Route::middleware('tier:manager,director')->prefix('notifications')->group(function () {
+            Route::post('/send', [NotificationController::class, 'send']);
         });
     });
 });

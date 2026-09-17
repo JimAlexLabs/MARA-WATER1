@@ -21,11 +21,18 @@ class DriverTripController extends Controller
         try {
             $query = DriverTrip::with(self::WITH);
 
+            // Round 2 Phase 11: "view their own trip history ... no
+            // visibility into other drivers" -- enforced here, not just a
+            // hidden filter client-side, so a driver can't see another
+            // driver's trips by passing a different driver_id either.
+            if ($request->user()->hasAccessTier('driver')) {
+                $query->where('driver_id', $request->user()->id);
+            } elseif ($request->filled('driver_id')) {
+                $query->where('driver_id', $request->driver_id);
+            }
+
             if ($request->filled('vehicle_id')) {
                 $query->where('vehicle_id', $request->vehicle_id);
-            }
-            if ($request->filled('driver_id')) {
-                $query->where('driver_id', $request->driver_id);
             }
             if ($request->filled('date_from')) {
                 $query->whereDate('trip_date', '>=', $request->date_from);
@@ -68,6 +75,14 @@ class DriverTripController extends Controller
 
     public function store(Request $request)
     {
+        // Round 2 Phase 11: a driver logs their own trip, full stop -- not
+        // whatever driver_id the request happens to carry. Forced here
+        // rather than merely defaulted, so a driver-tier user can't log a
+        // trip against another driver even by editing the request body.
+        if ($request->user()->hasAccessTier('driver')) {
+            $request->merge(['driver_id' => $request->user()->id]);
+        }
+
         $validator = Validator::make($request->all(), [
             'trip_date' => 'required|date',
             'driver_id' => 'required|exists:users,id',
@@ -293,11 +308,28 @@ class DriverTripController extends Controller
         }
     }
 
-    public function show($id)
+    /**
+     * Round 2 Phase 11: a driver can't view, edit, or delete another
+     * driver's trip just by knowing its id -- the route-level 'tier'
+     * middleware only checks that the requester is *some* driver, not
+     * which one, so ownership has to be checked once the trip is loaded.
+     */
+    private function denyIfNotOwnTrip(Request $request, DriverTrip $trip)
+    {
+        if ($request->user()->hasAccessTier('driver') && $trip->driver_id !== $request->user()->id) {
+            return response()->json(['success' => false, 'message' => 'You do not have access to this trip.'], 403);
+        }
+        return null;
+    }
+
+    public function show(Request $request, $id)
     {
         $trip = DriverTrip::with(self::WITH)->find($id);
         if (!$trip) {
             return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
+        }
+        if ($deny = $this->denyIfNotOwnTrip($request, $trip)) {
+            return $deny;
         }
         return response()->json(['success' => true, 'data' => $trip]);
     }
@@ -315,6 +347,9 @@ class DriverTripController extends Controller
         $trip = DriverTrip::find($id);
         if (!$trip) {
             return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
+        }
+        if ($deny = $this->denyIfNotOwnTrip($request, $trip)) {
+            return $deny;
         }
 
         $validator = Validator::make($request->all(), [
@@ -345,11 +380,14 @@ class DriverTripController extends Controller
         ]);
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         $trip = DriverTrip::find($id);
         if (!$trip) {
             return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
+        }
+        if ($deny = $this->denyIfNotOwnTrip($request, $trip)) {
+            return $deny;
         }
 
         DB::transaction(function () use ($trip) {
@@ -618,6 +656,34 @@ class DriverTripController extends Controller
         });
 
         return response()->json(['success' => true, 'data' => $skus]);
+    }
+
+    /**
+     * Round 2 Phase 11: a plain vehicle picker for the trip form -- a
+     * driver needs to say which vehicle they took, but /fleet/vehicles
+     * itself (assign/unassign, documents, etc.) is Manager/Director-only
+     * vehicle *management*, not something a driver should reach.
+     */
+    public function vehicles()
+    {
+        return response()->json([
+            'success' => true,
+            'data' => \App\Models\Vehicle::where('active', true)->orderBy('reg_no')->get(['id', 'reg_no']),
+        ]);
+    }
+
+    /**
+     * Round 2 Phase 11: same reasoning as vehicles() above --
+     * /inventory/warehouses is Manager/Director-only (inventory
+     * management), but a driver still has to say which depot they
+     * loaded stock from.
+     */
+    public function warehouses()
+    {
+        return response()->json([
+            'success' => true,
+            'data' => \App\Models\Warehouse::orderBy('name')->get(['id', 'code', 'name']),
+        ]);
     }
 
     public function storeRoute(Request $request)

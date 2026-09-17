@@ -43,6 +43,12 @@ class AuthController extends Controller
                 'code' => $user->role->code,
                 'name' => $user->role->name,
                 'description' => $user->role->description,
+                // Round 2 Phase 11: which of the four access tiers this
+                // role maps to -- the frontend uses this to land the user
+                // on the right dashboard and hide nav it has no access to
+                // (the real enforcement is server-side; this is just so
+                // the UI doesn't show a link that 403s).
+                'access_tier' => $user->role->access_tier,
             ] : null,
             'department' => $user->department ? [
                 'id' => $user->department->id,

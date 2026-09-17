@@ -164,6 +164,22 @@ class User extends Authenticatable
     }
 
     /**
+     * Round 2 Phase 11: real backend authorization checks against this,
+     * not just a hidden button client-side. A user with no role, or a
+     * role with no access_tier set, has no tier -- checked explicitly
+     * rather than assumed away, since EnsureAccessTier denies by default.
+     */
+    public function accessTier(): ?string
+    {
+        return $this->role?->access_tier;
+    }
+
+    public function hasAccessTier(string ...$tiers): bool
+    {
+        return in_array($this->accessTier(), $tiers, true);
+    }
+
+    /**
      * Get the department that owns the user.
      */
     public function department()
