@@ -156,7 +156,10 @@ class MaterialController extends Controller
             return response()->json(['success' => false, 'message' => 'Material not found'], 404);
         }
 
-        $material->update(['deleted_at' => now(), 'updated_by' => Auth::id()]);
+        // Round 2 Phase 3: deleted_at isn't in $fillable (correctly), so
+        // mass-assigning it here silently did nothing -- see WaterTestController.
+        $material->update(['updated_by' => Auth::id()]);
+        $material->delete();
 
         return response()->json(['success' => true, 'message' => 'Material removed successfully']);
     }

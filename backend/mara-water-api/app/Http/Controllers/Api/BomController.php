@@ -121,7 +121,10 @@ class BomController extends Controller
             return response()->json(['success' => false, 'message' => 'Bill of materials line not found'], 404);
         }
 
-        $bomItem->update(['deleted_at' => now(), 'updated_by' => Auth::id()]);
+        // Round 2 Phase 3: deleted_at isn't in $fillable (correctly), so
+        // mass-assigning it here silently did nothing -- see WaterTestController.
+        $bomItem->update(['updated_by' => Auth::id()]);
+        $bomItem->delete();
 
         return response()->json(['success' => true, 'message' => 'Bill of materials line removed']);
     }

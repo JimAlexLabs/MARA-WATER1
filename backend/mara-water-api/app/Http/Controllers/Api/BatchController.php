@@ -218,11 +218,10 @@ class BatchController extends Controller
                 ], 422);
             }
 
-            // Soft delete
-            $batch->update([
-                'deleted_at' => now(),
-                'updated_by' => Auth::id(),
-            ]);
+            // Round 2 Phase 3: deleted_at isn't in $fillable (correctly), so
+            // mass-assigning it here silently did nothing -- see WaterTestController.
+            $batch->update(['updated_by' => Auth::id()]);
+            $batch->delete();
 
             return response()->json([
                 'success' => true,

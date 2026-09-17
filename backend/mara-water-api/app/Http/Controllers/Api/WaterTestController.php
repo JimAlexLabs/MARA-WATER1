@@ -233,11 +233,15 @@ class WaterTestController extends Controller
         try {
             $waterTest = WaterTest::whereNull('deleted_at')->findOrFail($id);
             
-            // Soft delete
-            $waterTest->update([
-                'deleted_at' => now(),
-                'updated_by' => Auth::id(),
-            ]);
+            // Round 2 Phase 3: `deleted_at` is deliberately not in the
+            // model's $fillable (correctly -- that column shouldn't be
+            // settable via a normal update), so ->update(['deleted_at' =>
+            // ...]) mass-assignment silently dropped it and this delete
+            // never actually happened, despite reporting success. Use
+            // Eloquent's real delete(), which SoftDeletes overrides to set
+            // deleted_at directly, bypassing $fillable entirely.
+            $waterTest->update(['updated_by' => Auth::id()]);
+            $waterTest->delete();
 
             return response()->json([
                 'success' => true,

@@ -96,7 +96,10 @@ class EquipmentController extends Controller
             return response()->json(['success' => false, 'message' => 'Equipment item not found'], 404);
         }
 
-        $item->update(['deleted_at' => now(), 'updated_by' => Auth::id()]);
+        // Round 2 Phase 3: deleted_at isn't in $fillable (correctly), so
+        // mass-assigning it here silently did nothing -- see WaterTestController.
+        $item->update(['updated_by' => Auth::id()]);
+        $item->delete();
 
         return response()->json(['success' => true, 'message' => 'Equipment item removed']);
     }

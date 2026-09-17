@@ -580,11 +580,10 @@ class OrderController extends Controller
             // Delete order items
             $order->items()->delete();
 
-            // Soft delete order
-            $order->update([
-                'deleted_at' => now(),
-                'updated_by' => Auth::id(),
-            ]);
+            // Round 2 Phase 3: deleted_at isn't in $fillable (correctly), so
+            // mass-assigning it here silently did nothing -- see WaterTestController.
+            $order->update(['updated_by' => Auth::id()]);
+            $order->delete();
 
             DB::commit();
 

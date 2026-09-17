@@ -130,7 +130,10 @@ class PettyCashController extends Controller
             return response()->json(['success' => false, 'message' => 'Entry not found'], 404);
         }
 
-        $entry->update(['deleted_at' => now(), 'updated_by' => Auth::id()]);
+        // Round 2 Phase 3: deleted_at isn't in $fillable (correctly), so
+        // mass-assigning it here silently did nothing -- see WaterTestController.
+        $entry->update(['updated_by' => Auth::id()]);
+        $entry->delete();
 
         return response()->json(['success' => true, 'message' => 'Entry removed']);
     }

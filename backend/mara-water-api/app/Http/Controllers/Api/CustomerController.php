@@ -257,11 +257,12 @@ class CustomerController extends Controller
                 ], 422);
             }
 
-            // Soft delete
-            $customer->update([
-                'deleted_at' => now(),
-                'updated_by' => Auth::id(),
-            ]);
+            // Round 2 Phase 3: deleted_at isn't in $fillable (correctly),
+            // so mass-assigning it here silently did nothing -- the
+            // Customer model now has SoftDeletes (see that model's
+            // docblock), so delete() does this correctly.
+            $customer->update(['updated_by' => Auth::id()]);
+            $customer->delete();
 
             return response()->json([
                 'success' => true,
