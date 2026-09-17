@@ -70,6 +70,15 @@ const EMPTY_TRIP_FORM = {
   mileage_start: '', mileage_end: '', fuel_liters: '', fuel_cost: '', oil_liters: '',
   authorizing_officer_id: '', time_out: '', time_in: '',
   cash_collected: '', mpesa_collected: '', mpesa_reference: '', notes: '',
+  // Round 2 Phase 6: one optional debt sale per trip -- drivers are the
+  // ones extending credit in the field.
+  debt_customer_id: '', debt_signatory: '', debt_amount: '', debt_expected_repayment_date: '',
+};
+
+const tripMaxRepaymentDate = (fromDate: string) => {
+  const d = new Date((fromDate || new Date().toISOString().slice(0, 10)) + 'T00:00:00');
+  d.setDate(d.getDate() + 7);
+  return d.toISOString().slice(0, 10);
 };
 
 const FleetPage: React.FC = () => {
@@ -183,6 +192,7 @@ const FleetPage: React.FC = () => {
   const [routes, setRoutes] = useState<RouteRef[]>([]);
   const [skus, setSkus] = useState<SkuRef[]>([]);
   const [mileageTrend, setMileageTrend] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<{ id: string; name: string; code: string }[]>([]);
   const [showTripForm, setShowTripForm] = useState(false);
   const [tripForm, setTripForm] = useState(EMPTY_TRIP_FORM);
   const [tripItems, setTripItems] = useState<TripItem[]>([{ sku_id: '', qty_carried: '', qty_returned: '', unit_price: '' }]);
@@ -207,6 +217,7 @@ const FleetPage: React.FC = () => {
     api.get('/fleet/routes').then(res => setRoutes(res.data.data)).catch(() => {});
     api.get('/fleet/skus').then(res => setSkus(res.data.data)).catch(() => {});
     api.get('/fleet/trips/mileage-trend').then(res => setMileageTrend(res.data.data)).catch(() => {});
+    api.get('/sales/customers', { params: { limit: 500 } }).then(res => setCustomers(res.data.data)).catch(() => {});
   };
 
   useEffect(() => {
@@ -232,6 +243,7 @@ const FleetPage: React.FC = () => {
   const openNewTrip = () => {
     setTripForm(EMPTY_TRIP_FORM);
     setTripItems([{ sku_id: '', qty_carried: '', qty_returned: '', unit_price: '' }]);
+    setShowTripDebtConfirm(false);
     setShowTripForm(true);
   };
 
@@ -251,12 +263,32 @@ const FleetPage: React.FC = () => {
     }
   };
 
-  const handleTripSubmit = async (e: React.FormEvent) => {
+  // Round 2 Phase 6: same "discouraged, not banned" deliberate
+  // confirmation step as the Sales page's credit sales, since a driver
+  // trip's debt entry is a credit sale too.
+  const [showTripDebtConfirm, setShowTripDebtConfirm] = useState(false);
+  const tripHasDebt = parseFloat(tripForm.debt_amount) > 0;
+
+  const handleTripSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (tripHasDebt) {
+      if (!tripForm.debt_customer_id) { toast.error('Select the debtor for this credit sale'); return; }
+      if (!tripForm.debt_signatory.trim()) { toast.error('Enter who is signing for this credit sale'); return; }
+      if (!tripForm.debt_expected_repayment_date) { toast.error('Enter an expected repayment date'); return; }
+      setShowTripDebtConfirm(true);
+      return;
+    }
+    submitTrip();
+  };
+
+  const submitTrip = async () => {
     setSavingTrip(true);
     try {
       const payload = {
         ...tripForm,
+        debt_customer_id: tripHasDebt ? tripForm.debt_customer_id : undefined,
+        debt_signatory: tripHasDebt ? tripForm.debt_signatory : undefined,
+        debt_expected_repayment_date: tripHasDebt ? tripForm.debt_expected_repayment_date : undefined,
         items: tripItems
           .filter(r => r.sku_id && (r.qty_carried || r.qty_returned))
           .map(r => ({
@@ -273,6 +305,7 @@ const FleetPage: React.FC = () => {
       } else {
         toast.error(`Trip logged, but off by KES ${Math.abs(recon.variance).toLocaleString()} — check stock/cash entries`, { duration: 6000 });
       }
+      setShowTripDebtConfirm(false);
       setShowTripForm(false);
       fetchTrips();
       fetchTripRefData();
@@ -280,6 +313,7 @@ const FleetPage: React.FC = () => {
       const errors = error.response?.data?.errors;
       const firstError = errors ? Object.values(errors)[0] : null;
       toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to log trip');
+      setShowTripDebtConfirm(false);
     } finally {
       setSavingTrip(false);
     }
@@ -740,6 +774,34 @@ const FleetPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Round 2 Phase 6: debt sales are discouraged, not banned --
+                  left as an optional amount, not a default. */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Sold on Debt (optional)</label>
+                <div className="grid grid-cols-2 gap-4 mb-3">
+                  <input type="number" min="0" placeholder="Amount sold on debt (KES)" value={tripForm.debt_amount} onChange={(e) => setTripForm({ ...tripForm, debt_amount: e.target.value })} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                </div>
+                {tripHasDebt && (
+                  <div className="grid grid-cols-3 gap-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Debtor</label>
+                      <select required value={tripForm.debt_customer_id} onChange={(e) => setTripForm({ ...tripForm, debt_customer_id: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm">
+                        <option value="">Select customer</option>
+                        {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Signatory</label>
+                      <input required type="text" placeholder="Who received it" value={tripForm.debt_signatory} onChange={(e) => setTripForm({ ...tripForm, debt_signatory: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Repay By (max 7 days)</label>
+                      <input required type="date" value={tripForm.debt_expected_repayment_date} min={tripForm.trip_date} max={tripMaxRepaymentDate(tripForm.trip_date)} onChange={(e) => setTripForm({ ...tripForm, debt_expected_repayment_date: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
                 <textarea value={tripForm.notes} onChange={(e) => setTripForm({ ...tripForm, notes: e.target.value })} rows={2} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
@@ -750,6 +812,36 @@ const FleetPage: React.FC = () => {
                 <button type="submit" disabled={savingTrip} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingTrip ? 'Logging…' : 'Log Trip'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Round 2 Phase 6: deliberate confirmation step for a trip's debt
+          sale, same reasoning as the Sales page's credit-sale confirm. */}
+      {showTripDebtConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center mb-4">
+              <AlertTriangle className="w-6 h-6 text-amber-500 mr-2" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">This trip includes a credit sale</h3>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Confirm the signatory and repayment date before this goes on the customer's account.
+            </p>
+            <dl className="space-y-2 text-sm bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4">
+              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Amount</dt><dd className="font-medium text-gray-900 dark:text-gray-100">KES {parseFloat(tripForm.debt_amount || '0').toLocaleString()}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Debtor</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{customers.find(c => c.id === tripForm.debt_customer_id)?.name || '—'}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Signatory</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{tripForm.debt_signatory}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Expected Repayment</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{tripForm.debt_expected_repayment_date}</dd></div>
+            </dl>
+            <div className="flex justify-end space-x-3">
+              <button type="button" onClick={() => setShowTripDebtConfirm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+                Go Back
+              </button>
+              <button type="button" onClick={submitTrip} disabled={savingTrip} className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50">
+                {savingTrip ? 'Logging…' : 'Confirm Credit Sale'}
+              </button>
+            </div>
           </div>
         </div>
       )}

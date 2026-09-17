@@ -13,7 +13,8 @@ import {
   Edit,
   Trash2,
   X,
-  PackageMinus
+  PackageMinus,
+  AlertTriangle
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
@@ -135,6 +136,17 @@ const EMPTY_SALE_FORM = {
   order_date: '',
   notes: '',
   items: [newSaleItem()],
+  // Round 2 Phase 6: required only when payment_method is 'credit'.
+  signatory: '',
+  expected_repayment_date: '',
+};
+
+// Kenya-time "today" as YYYY-MM-DD, and the max repayment date (7 days out).
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const maxRepaymentDate = (fromDate: string) => {
+  const d = new Date((fromDate || todayStr()) + 'T00:00:00');
+  d.setDate(d.getDate() + 7);
+  return d.toISOString().slice(0, 10);
 };
 
 const SalesPage: React.FC = () => {
@@ -266,6 +278,7 @@ const SalesPage: React.FC = () => {
   const openLogSale = () => {
     const defaultList = priceLists.find(l => l.is_default) || priceLists[0];
     setSaleForm({ ...EMPTY_SALE_FORM, price_list_id: defaultList?.id || '', items: [newSaleItem()] });
+    setShowCreditConfirm(false);
     setShowSaleForm(true);
   };
 
@@ -296,12 +309,35 @@ const SalesPage: React.FC = () => {
 
   const saleTotal = saleForm.items.reduce((sum, i) => sum + saleLineTotal(i), 0);
 
-  const handleSaleSubmit = async (e: React.FormEvent) => {
+  // Round 2 Phase 6: "debt sales are discouraged, not banned... show a
+  // visible warning/confirmation step... so it's a deliberate action, not
+  // an easy default." Submitting the main form with payment_method
+  // 'credit' opens this instead of logging the sale immediately;
+  // confirmSale() below does the actual submit.
+  const [showCreditConfirm, setShowCreditConfirm] = useState(false);
+
+  const handleSaleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (saleForm.payment_method === 'credit' && !saleForm.customer_id) {
-      toast.error('Select a customer for a credit sale');
+    if (saleForm.payment_method === 'credit') {
+      if (!saleForm.customer_id) {
+        toast.error('Select a customer for a credit sale');
+        return;
+      }
+      if (!saleForm.signatory.trim()) {
+        toast.error('Enter who is signing for this credit sale');
+        return;
+      }
+      if (!saleForm.expected_repayment_date) {
+        toast.error('Enter an expected repayment date');
+        return;
+      }
+      setShowCreditConfirm(true);
       return;
     }
+    submitSale();
+  };
+
+  const submitSale = async () => {
     setSaleSubmitting(true);
     try {
       const payload = {
@@ -312,6 +348,8 @@ const SalesPage: React.FC = () => {
         payment_reference: saleForm.payment_reference || null,
         order_date: saleForm.order_date || null,
         notes: saleForm.notes || null,
+        signatory: saleForm.payment_method === 'credit' ? saleForm.signatory : undefined,
+        expected_repayment_date: saleForm.payment_method === 'credit' ? saleForm.expected_repayment_date : undefined,
         items: saleForm.items.map(i => ({
           sku_id: i.sku_id,
           qty: i.qty,
@@ -325,12 +363,14 @@ const SalesPage: React.FC = () => {
       toast.success(`Sale logged${orderNo ? ` (${orderNo})` : ''}`);
       const stockWarnings = res.data?.data?.stock_warnings || [];
       stockWarnings.forEach((w: { message: string }) => toast.error(w.message, { duration: 8000 }));
+      setShowCreditConfirm(false);
       setShowSaleForm(false);
       fetchData();
     } catch (error: any) {
       const errors = error.response?.data?.errors;
       const firstError = errors ? Object.values(errors)[0] : null;
       toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to log sale');
+      setShowCreditConfirm(false);
     } finally {
       setSaleSubmitting(false);
     }
@@ -937,6 +977,34 @@ const SalesPage: React.FC = () => {
                 </div>
               </div>
 
+              {saleForm.payment_method === 'credit' && (
+                <div className="grid grid-cols-2 gap-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Signatory (who's accountable for this)</label>
+                    <input
+                      required
+                      type="text"
+                      value={saleForm.signatory}
+                      onChange={(e) => setSaleForm({...saleForm, signatory: e.target.value})}
+                      placeholder="Name of person receiving the goods on credit"
+                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Expected Repayment Date (max 7 days)</label>
+                    <input
+                      required
+                      type="date"
+                      value={saleForm.expected_repayment_date}
+                      min={saleForm.order_date || todayStr()}
+                      max={maxRepaymentDate(saleForm.order_date)}
+                      onChange={(e) => setSaleForm({...saleForm, expected_repayment_date: e.target.value})}
+                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Price List</label>
                 <select
@@ -1070,6 +1138,36 @@ const SalesPage: React.FC = () => {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Round 2 Phase 6: credit sales are discouraged, not banned -- this
+          is the deliberate confirmation step, not an easy default. */}
+      {showCreditConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center mb-4">
+              <AlertTriangle className="w-6 h-6 text-amber-500 mr-2" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">This is a credit sale</h3>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Confirm the signatory and repayment date before this goes on {customers.find(c => c.id === saleForm.customer_id)?.name || 'the customer'}'s account.
+            </p>
+            <dl className="space-y-2 text-sm bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4">
+              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Amount</dt><dd className="font-medium text-gray-900 dark:text-gray-100">KES {saleTotal.toLocaleString()}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Debtor</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{customers.find(c => c.id === saleForm.customer_id)?.name || '—'}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Signatory</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.signatory}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Expected Repayment</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.expected_repayment_date}</dd></div>
+            </dl>
+            <div className="flex justify-end space-x-3">
+              <button type="button" onClick={() => setShowCreditConfirm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+                Go Back
+              </button>
+              <button type="button" onClick={submitSale} disabled={saleSubmitting} className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50">
+                {saleSubmitting ? 'Logging...' : 'Confirm Credit Sale'}
+              </button>
+            </div>
           </div>
         </div>
       )}

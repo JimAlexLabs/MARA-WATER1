@@ -16,6 +16,10 @@ class DriverTrip extends Model
         'mileage_start', 'mileage_end', 'fuel_liters', 'fuel_cost', 'oil_liters',
         'authorizing_officer_id', 'time_out', 'time_in',
         'cash_collected', 'mpesa_collected', 'mpesa_reference', 'notes',
+        // Round 2 Phase 6: one optional debt sale per trip -- see
+        // DriverTripController::store() and docs on the migration that
+        // added these columns.
+        'debt_customer_id', 'debt_signatory', 'debt_amount', 'debt_expected_repayment_date', 'debt_id',
         'created_by', 'updated_by',
     ];
 
@@ -28,6 +32,8 @@ class DriverTrip extends Model
         'oil_liters' => 'decimal:2',
         'cash_collected' => 'decimal:2',
         'mpesa_collected' => 'decimal:2',
+        'debt_amount' => 'decimal:2',
+        'debt_expected_repayment_date' => 'date',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -60,6 +66,16 @@ class DriverTrip extends Model
         return $this->hasMany(DriverTripItem::class);
     }
 
+    public function debtCustomer()
+    {
+        return $this->belongsTo(Customer::class, 'debt_customer_id');
+    }
+
+    public function debt()
+    {
+        return $this->belongsTo(Debt::class, 'debt_id');
+    }
+
     public function getKmCoveredAttribute(): ?int
     {
         if ($this->mileage_start === null || $this->mileage_end === null) {
@@ -68,9 +84,17 @@ class DriverTrip extends Model
         return max(0, $this->mileage_end - $this->mileage_start);
     }
 
+    /**
+     * Round 2 Phase 6: a debt sale is still money accounted for -- just
+     * not collected yet -- so it belongs in "collected" for
+     * reconciliation purposes the same way cash/M-Pesa do. Before this
+     * phase, any credit given on a trip had nowhere to go and would show
+     * up as an unexplained variance even though nothing was actually
+     * wrong.
+     */
     public function getTotalCollectedAttribute(): float
     {
-        return round((float) $this->cash_collected + (float) $this->mpesa_collected, 2);
+        return round((float) $this->cash_collected + (float) $this->mpesa_collected + (float) $this->debt_amount, 2);
     }
 
     /**
@@ -95,6 +119,7 @@ class DriverTrip extends Model
             'units_sold' => $unitsSold,
             'expected_revenue' => $expectedRevenue,
             'collected' => $this->total_collected,
+            'debt_amount' => (float) $this->debt_amount,
             'variance' => $variance,
             'matches' => abs($variance) < 0.01,
         ];

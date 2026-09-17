@@ -178,6 +178,13 @@ class OrderController extends Controller
                 'price_list_id' => 'nullable|exists:price_lists,id',
                 'payment_method' => 'required|in:cash,mpesa,credit',
                 'payment_reference' => 'nullable|string|max:255',
+                // Round 2 Phase 6: every credit sale needs a named,
+                // accountable signatory and a deliberately short (max 7
+                // days) repayment promise -- debt sales are discouraged,
+                // not banned, so this is enforced only when payment_method
+                // is actually credit, not on every sale.
+                'signatory' => 'required_if:payment_method,credit|nullable|string|max:150',
+                'expected_repayment_date' => 'required_if:payment_method,credit|nullable|date',
                 'notes' => 'nullable|string|max:1000',
                 'items' => 'required|array|min:1',
                 'items.*.sku_id' => 'required|exists:skus,id',
@@ -201,6 +208,29 @@ class OrderController extends Controller
                     'message' => 'A customer is required for credit sales',
                     'errors' => ['customer_id' => ['Required when payment method is credit']]
                 ], 422);
+            }
+
+            // Round 2 Phase 6: "never more than 7 days from the sale
+            // date" -- checked here (not just a max-date validation rule)
+            // so the message names the actual limit rather than a bare
+            // "invalid date".
+            if ($request->payment_method === 'credit') {
+                $saleDate = \Carbon\Carbon::parse($request->order_date ?? now()->toDateString())->startOfDay();
+                $repaymentDate = \Carbon\Carbon::parse($request->expected_repayment_date)->startOfDay();
+                if ($repaymentDate->lt($saleDate)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Expected repayment date cannot be before the sale date',
+                        'errors' => ['expected_repayment_date' => ['Cannot be before the sale date']]
+                    ], 422);
+                }
+                if ($repaymentDate->gt($saleDate->copy()->addDays(7))) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Expected repayment date cannot be more than 7 days from the sale date',
+                        'errors' => ['expected_repayment_date' => ['Cannot be more than 7 days from the sale date']]
+                    ], 422);
+                }
             }
 
             // Resolve the price list once: the one picked, else whichever is
@@ -342,11 +372,14 @@ class OrderController extends Controller
 
                 // Posts straight to the debtor ledger -- this is the manual
                 // step the spec calls out as the biggest one to eliminate.
-                // days_overdue isn't set here: a BEFORE INSERT trigger on
-                // debts computes it from the linked invoice's due_date.
+                // days_overdue is a live accessor on the Debt model now
+                // (Round 2 Phase 6) -- computed from expected_repayment_date,
+                // not stored/frozen at creation.
                 $debt = Debt::create([
                     'customer_id' => $request->customer_id,
                     'invoice_id' => $invoice->id,
+                    'signatory' => $request->signatory,
+                    'expected_repayment_date' => $request->expected_repayment_date,
                     'principal' => $totalAmount,
                     'balance' => $totalAmount,
                     'created_by' => Auth::id(),

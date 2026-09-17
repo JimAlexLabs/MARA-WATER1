@@ -14,7 +14,7 @@ use App\Models\Sku;
 
 class DriverTripController extends Controller
 {
-    private const WITH = ['driver', 'vehicle', 'route', 'authorizingOfficer', 'items.sku'];
+    private const WITH = ['driver', 'vehicle', 'route', 'authorizingOfficer', 'items.sku', 'debtCustomer'];
 
     public function index(Request $request)
     {
@@ -84,6 +84,15 @@ class DriverTripController extends Controller
             'cash_collected' => 'nullable|numeric|min:0',
             'mpesa_collected' => 'nullable|numeric|min:0',
             'mpesa_reference' => 'nullable|string|max:100',
+            // Round 2 Phase 6: "specifically to Log Driver Trip, since
+            // drivers are the ones extending credit in the field." One
+            // optional debt sale per trip -- required together whenever an
+            // amount is entered, so a debt can't be logged with no one
+            // accountable for it.
+            'debt_customer_id' => 'required_with:debt_amount|nullable|exists:customers,id',
+            'debt_signatory' => 'required_with:debt_amount|nullable|string|max:150',
+            'debt_amount' => 'nullable|numeric|min:0',
+            'debt_expected_repayment_date' => 'required_with:debt_amount|nullable|date',
             'notes' => 'nullable|string|max:1000',
             'items' => 'nullable|array',
             'items.*.sku_id' => 'required_with:items|exists:skus,id',
@@ -100,8 +109,59 @@ class DriverTripController extends Controller
             ], 422);
         }
 
+        if ($request->filled('debt_amount') && (float) $request->debt_amount > 0) {
+            $tripDate = \Carbon\Carbon::parse($request->trip_date)->startOfDay();
+            $repaymentDate = \Carbon\Carbon::parse($request->debt_expected_repayment_date)->startOfDay();
+            if ($repaymentDate->lt($tripDate)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Expected repayment date cannot be before the trip date',
+                    'errors' => ['debt_expected_repayment_date' => ['Cannot be before the trip date']],
+                ], 422);
+            }
+            if ($repaymentDate->gt($tripDate->copy()->addDays(7))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Expected repayment date cannot be more than 7 days from the trip date',
+                    'errors' => ['debt_expected_repayment_date' => ['Cannot be more than 7 days from the trip date']],
+                ], 422);
+            }
+        }
+
         try {
             $trip = DB::transaction(function () use ($request) {
+                $debtAmount = (float) ($request->debt_amount ?? 0);
+                $debtId = null;
+
+                // Round 2 Phase 6: a trip-side debt is informal shop credit
+                // -- no formal invoice, just a named, accountable signatory
+                // -- so it posts straight to Debt + the debtor ledger the
+                // same way OrderController::logSale()'s credit sales do,
+                // just without an Invoice record.
+                if ($debtAmount > 0) {
+                    $debt = \App\Models\Debt::create([
+                        'customer_id' => $request->debt_customer_id,
+                        'invoice_id' => null,
+                        'signatory' => $request->debt_signatory,
+                        'expected_repayment_date' => $request->debt_expected_repayment_date,
+                        'principal' => $debtAmount,
+                        'balance' => $debtAmount,
+                        'created_by' => Auth::id(),
+                        'updated_by' => Auth::id(),
+                    ]);
+                    \App\Models\DebtorLedgerEntry::create([
+                        'customer_id' => $request->debt_customer_id,
+                        'debt_id' => $debt->id,
+                        'entry_date' => $request->trip_date,
+                        'details' => 'Credit sale via driver trip -- signed for by ' . $request->debt_signatory,
+                        'debit' => $debtAmount,
+                        'credit' => 0,
+                        'created_by' => Auth::id(),
+                        'updated_by' => Auth::id(),
+                    ]);
+                    $debtId = $debt->id;
+                }
+
                 $trip = DriverTrip::create([
                     'trip_date' => $request->trip_date,
                     'driver_id' => $request->driver_id,
@@ -116,6 +176,11 @@ class DriverTripController extends Controller
                     'time_out' => $request->time_out,
                     'time_in' => $request->time_in,
                     'cash_collected' => $request->cash_collected ?? 0,
+                    'debt_customer_id' => $debtAmount > 0 ? $request->debt_customer_id : null,
+                    'debt_signatory' => $debtAmount > 0 ? $request->debt_signatory : null,
+                    'debt_amount' => $debtAmount,
+                    'debt_expected_repayment_date' => $debtAmount > 0 ? $request->debt_expected_repayment_date : null,
+                    'debt_id' => $debtId,
                     'mpesa_collected' => $request->mpesa_collected ?? 0,
                     'mpesa_reference' => $request->mpesa_reference,
                     'notes' => $request->notes,

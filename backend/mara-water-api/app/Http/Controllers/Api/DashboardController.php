@@ -160,8 +160,17 @@ class DashboardController extends Controller
                 ];
             }
 
-            $overdueDebts = Debt::with('customer')->where('days_overdue', '>', 0)
-                ->orderByDesc('days_overdue')->limit(5)->get();
+            // Round 2 Phase 6: days_overdue is a live accessor now (see
+            // Debt model), not a queryable stale column -- computing
+            // "overdue" directly in SQL here instead, the same COALESCE
+            // (expected_repayment_date, falling back to the invoice's
+            // due_date) the accessor uses, so both agree.
+            $overdueDebts = Debt::with(['customer', 'invoice'])
+                ->where('balance', '>', 0)
+                ->whereRaw('DATEDIFF(CURDATE(), COALESCE(expected_repayment_date, (SELECT due_date FROM invoices WHERE invoices.id = debts.invoice_id))) > 0')
+                ->get()
+                ->sortByDesc('days_overdue')
+                ->take(5);
             foreach ($overdueDebts as $d) {
                 $customerName = $d->customer->name ?? 'Customer';
                 $alerts[] = [
