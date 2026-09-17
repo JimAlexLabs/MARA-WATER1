@@ -14,7 +14,7 @@ use App\Models\Sku;
 
 class DriverTripController extends Controller
 {
-    private const WITH = ['driver', 'vehicle', 'route', 'authorizingOfficer', 'items.sku', 'debtCustomer'];
+    private const WITH = ['driver', 'vehicle', 'route', 'authorizingOfficer', 'items.sku', 'sales.customer', 'sales.debt'];
 
     public function index(Request $request)
     {
@@ -77,28 +77,28 @@ class DriverTripController extends Controller
             'mileage_end' => 'nullable|integer|min:0|gte:mileage_start',
             'fuel_liters' => 'nullable|numeric|min:0',
             'fuel_cost' => 'nullable|numeric|min:0',
-            'oil_liters' => 'nullable|numeric|min:0',
+            // Round 2 Phase 7: Oil (Litres) dropped entirely, per the spec.
             'authorizing_officer_id' => 'nullable|exists:users,id',
             'time_out' => 'nullable|date_format:H:i',
             'time_in' => 'nullable|date_format:H:i',
-            'cash_collected' => 'nullable|numeric|min:0',
-            'mpesa_collected' => 'nullable|numeric|min:0',
-            'mpesa_reference' => 'nullable|string|max:100',
-            // Round 2 Phase 6: "specifically to Log Driver Trip, since
-            // drivers are the ones extending credit in the field." One
-            // optional debt sale per trip -- required together whenever an
-            // amount is entered, so a debt can't be logged with no one
-            // accountable for it.
-            'debt_customer_id' => 'required_with:debt_amount|nullable|exists:customers,id',
-            'debt_signatory' => 'required_with:debt_amount|nullable|string|max:150',
-            'debt_amount' => 'nullable|numeric|min:0',
-            'debt_expected_repayment_date' => 'required_with:debt_amount|nullable|date',
             'notes' => 'nullable|string|max:1000',
             'items' => 'nullable|array',
             'items.*.sku_id' => 'required_with:items|exists:skus,id',
             'items.*.qty_carried' => 'nullable|integer|min:0',
             'items.*.qty_returned' => 'nullable|integer|min:0',
+            'items.*.qty_sold' => 'nullable|integer|min:0',
             'items.*.unit_price' => 'nullable|numeric|min:0',
+            // Round 2 Phase 7: replaces the old single cash_collected/
+            // mpesa_collected/debt_* trip totals -- one row per sale made
+            // on the trip (one per customer/stop), "traceable to a real
+            // buyer, not just a total".
+            'sales' => 'nullable|array',
+            'sales.*.customer_id' => 'required_with:sales|exists:customers,id',
+            'sales.*.payment_method' => 'required_with:sales|in:cash,mpesa,debt',
+            'sales.*.amount' => 'required_with:sales|numeric|min:0.01',
+            'sales.*.mpesa_reference' => 'nullable|string|max:100',
+            'sales.*.debt_signatory' => 'required_if:sales.*.payment_method,debt|nullable|string|max:150',
+            'sales.*.debt_expected_repayment_date' => 'required_if:sales.*.payment_method,debt|nullable|date',
         ]);
 
         if ($validator->fails()) {
@@ -109,59 +109,32 @@ class DriverTripController extends Controller
             ], 422);
         }
 
-        if ($request->filled('debt_amount') && (float) $request->debt_amount > 0) {
-            $tripDate = \Carbon\Carbon::parse($request->trip_date)->startOfDay();
-            $repaymentDate = \Carbon\Carbon::parse($request->debt_expected_repayment_date)->startOfDay();
+        // Round 2 Phase 6/7: "never more than 7 days from the sale date",
+        // checked per sale so the message can point at exactly which one.
+        $tripDate = \Carbon\Carbon::parse($request->trip_date)->startOfDay();
+        foreach ($request->input('sales', []) as $i => $sale) {
+            if (($sale['payment_method'] ?? null) !== 'debt') {
+                continue;
+            }
+            $repaymentDate = \Carbon\Carbon::parse($sale['debt_expected_repayment_date'])->startOfDay();
             if ($repaymentDate->lt($tripDate)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Expected repayment date cannot be before the trip date',
-                    'errors' => ['debt_expected_repayment_date' => ['Cannot be before the trip date']],
+                    'message' => "Sale #" . ($i + 1) . ": expected repayment date cannot be before the trip date",
+                    'errors' => ["sales.{$i}.debt_expected_repayment_date" => ['Cannot be before the trip date']],
                 ], 422);
             }
             if ($repaymentDate->gt($tripDate->copy()->addDays(7))) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Expected repayment date cannot be more than 7 days from the trip date',
-                    'errors' => ['debt_expected_repayment_date' => ['Cannot be more than 7 days from the trip date']],
+                    'message' => "Sale #" . ($i + 1) . ": expected repayment date cannot be more than 7 days from the trip date",
+                    'errors' => ["sales.{$i}.debt_expected_repayment_date" => ['Cannot be more than 7 days from the trip date']],
                 ], 422);
             }
         }
 
         try {
             $trip = DB::transaction(function () use ($request) {
-                $debtAmount = (float) ($request->debt_amount ?? 0);
-                $debtId = null;
-
-                // Round 2 Phase 6: a trip-side debt is informal shop credit
-                // -- no formal invoice, just a named, accountable signatory
-                // -- so it posts straight to Debt + the debtor ledger the
-                // same way OrderController::logSale()'s credit sales do,
-                // just without an Invoice record.
-                if ($debtAmount > 0) {
-                    $debt = \App\Models\Debt::create([
-                        'customer_id' => $request->debt_customer_id,
-                        'invoice_id' => null,
-                        'signatory' => $request->debt_signatory,
-                        'expected_repayment_date' => $request->debt_expected_repayment_date,
-                        'principal' => $debtAmount,
-                        'balance' => $debtAmount,
-                        'created_by' => Auth::id(),
-                        'updated_by' => Auth::id(),
-                    ]);
-                    \App\Models\DebtorLedgerEntry::create([
-                        'customer_id' => $request->debt_customer_id,
-                        'debt_id' => $debt->id,
-                        'entry_date' => $request->trip_date,
-                        'details' => 'Credit sale via driver trip -- signed for by ' . $request->debt_signatory,
-                        'debit' => $debtAmount,
-                        'credit' => 0,
-                        'created_by' => Auth::id(),
-                        'updated_by' => Auth::id(),
-                    ]);
-                    $debtId = $debt->id;
-                }
-
                 $trip = DriverTrip::create([
                     'trip_date' => $request->trip_date,
                     'driver_id' => $request->driver_id,
@@ -171,32 +144,69 @@ class DriverTripController extends Controller
                     'mileage_end' => $request->mileage_end,
                     'fuel_liters' => $request->fuel_liters,
                     'fuel_cost' => $request->fuel_cost,
-                    'oil_liters' => $request->oil_liters,
                     'authorizing_officer_id' => $request->authorizing_officer_id,
                     'time_out' => $request->time_out,
                     'time_in' => $request->time_in,
-                    'cash_collected' => $request->cash_collected ?? 0,
-                    'debt_customer_id' => $debtAmount > 0 ? $request->debt_customer_id : null,
-                    'debt_signatory' => $debtAmount > 0 ? $request->debt_signatory : null,
-                    'debt_amount' => $debtAmount,
-                    'debt_expected_repayment_date' => $debtAmount > 0 ? $request->debt_expected_repayment_date : null,
-                    'debt_id' => $debtId,
-                    'mpesa_collected' => $request->mpesa_collected ?? 0,
-                    'mpesa_reference' => $request->mpesa_reference,
                     'notes' => $request->notes,
                     'created_by' => Auth::id(),
                     'updated_by' => Auth::id(),
                 ]);
 
                 foreach ($request->input('items', []) as $item) {
-                    if (($item['qty_carried'] ?? 0) == 0 && ($item['qty_returned'] ?? 0) == 0) {
+                    if (($item['qty_carried'] ?? 0) == 0 && ($item['qty_returned'] ?? 0) == 0 && ($item['qty_sold'] ?? 0) == 0) {
                         continue;
                     }
                     $trip->items()->create([
                         'sku_id' => $item['sku_id'],
                         'qty_carried' => $item['qty_carried'] ?? 0,
                         'qty_returned' => $item['qty_returned'] ?? 0,
+                        'qty_sold' => $item['qty_sold'] ?? 0,
                         'unit_price' => $item['unit_price'] ?? 0,
+                    ]);
+                }
+
+                foreach ($request->input('sales', []) as $sale) {
+                    $debtId = null;
+
+                    // Round 2 Phase 6/7: a trip-side debt is informal shop
+                    // credit -- no formal invoice, just a named, accountable
+                    // signatory -- so it posts straight to Debt + the
+                    // debtor ledger the same way OrderController::logSale()'s
+                    // credit sales do, just without an Invoice record.
+                    if ($sale['payment_method'] === 'debt') {
+                        $debt = \App\Models\Debt::create([
+                            'customer_id' => $sale['customer_id'],
+                            'invoice_id' => null,
+                            'signatory' => $sale['debt_signatory'],
+                            'expected_repayment_date' => $sale['debt_expected_repayment_date'],
+                            'principal' => $sale['amount'],
+                            'balance' => $sale['amount'],
+                            'created_by' => Auth::id(),
+                            'updated_by' => Auth::id(),
+                        ]);
+                        \App\Models\DebtorLedgerEntry::create([
+                            'customer_id' => $sale['customer_id'],
+                            'debt_id' => $debt->id,
+                            'entry_date' => $request->trip_date,
+                            'details' => 'Credit sale via driver trip -- signed for by ' . $sale['debt_signatory'],
+                            'debit' => $sale['amount'],
+                            'credit' => 0,
+                            'created_by' => Auth::id(),
+                            'updated_by' => Auth::id(),
+                        ]);
+                        $debtId = $debt->id;
+                    }
+
+                    $trip->sales()->create([
+                        'customer_id' => $sale['customer_id'],
+                        'payment_method' => $sale['payment_method'],
+                        'amount' => $sale['amount'],
+                        'mpesa_reference' => $sale['mpesa_reference'] ?? null,
+                        'debt_signatory' => $sale['payment_method'] === 'debt' ? $sale['debt_signatory'] : null,
+                        'debt_expected_repayment_date' => $sale['payment_method'] === 'debt' ? $sale['debt_expected_repayment_date'] : null,
+                        'debt_id' => $debtId,
+                        'created_by' => Auth::id(),
+                        'updated_by' => Auth::id(),
                     ]);
                 }
 
@@ -243,8 +253,11 @@ class DriverTripController extends Controller
 
     /**
      * Mainly for closing out an open trip (mileage_end, time_in) or fixing
-     * a typo -- not for changing the stock lines, which stay create-once
-     * to keep the reconciliation trail honest. Delete and re-log instead.
+     * a typo -- not for changing the stock lines or sales, which stay
+     * create-once to keep the reconciliation trail honest. Delete and
+     * re-log instead (Round 2 Phase 7: cash/M-Pesa/debt totals moved to
+     * the per-sale driver_trip_sales table, so they're no longer editable
+     * trip-level fields here).
      */
     public function update(Request $request, $id)
     {
@@ -256,9 +269,8 @@ class DriverTripController extends Controller
         $validator = Validator::make($request->all(), [
             'mileage_end' => 'nullable|integer|min:0|gte:mileage_start',
             'time_in' => 'nullable|date_format:H:i',
-            'cash_collected' => 'nullable|numeric|min:0',
-            'mpesa_collected' => 'nullable|numeric|min:0',
-            'mpesa_reference' => 'nullable|string|max:100',
+            'fuel_liters' => 'nullable|numeric|min:0',
+            'fuel_cost' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string|max:1000',
         ]);
 
@@ -271,7 +283,7 @@ class DriverTripController extends Controller
         }
 
         $trip->update(array_merge(
-            $request->only(['mileage_end', 'time_in', 'cash_collected', 'mpesa_collected', 'mpesa_reference', 'notes']),
+            $request->only(['mileage_end', 'time_in', 'fuel_liters', 'fuel_cost', 'notes']),
             ['updated_by' => Auth::id()]
         ));
 
@@ -294,7 +306,11 @@ class DriverTripController extends Controller
 
     public function statistics(Request $request)
     {
-        $query = DriverTrip::with('items');
+        // sales eager-loaded too -- total_collected/reconciliation are
+        // computed accessors that read $this->sales, and without this
+        // each trip would lazy-load its own sales query (N+1). items.sku
+        // likewise, for the stock-mismatch sku_name lookup.
+        $query = DriverTrip::with(['items.sku', 'sales']);
         if ($request->filled('date_from')) {
             $query->whereDate('trip_date', '>=', $request->date_from);
         }
@@ -316,6 +332,121 @@ class DriverTripController extends Controller
                 'mismatched_trips' => $mismatched->count(),
                 'mismatched_variance_total' => round($mismatched->sum(fn ($t) => $t->reconciliation['variance']), 2),
             ],
+        ]);
+    }
+
+    /**
+     * Round 2 Phase 7: one-click CSV (opens straight in Excel) export of
+     * the trip log -- "every column above": a column per active SKU for
+     * dispatched/returned/sold, plus payment method breakdown, buyer
+     * name/contact, and debt details when applicable. One row per sale on
+     * a trip (a trip with 3 sales prints 3 rows, with the trip-level and
+     * per-SKU columns repeated on each); a trip with no sales logged yet
+     * prints one row with the buyer/payment columns blank. Columns come
+     * from whatever SKUs are actually active right now rather than a
+     * hardcoded product list, so the export can't drift from Products &
+     * Prices (Phase 10) as the catalog changes.
+     */
+    public function export(Request $request)
+    {
+        $query = DriverTrip::with(self::WITH);
+
+        if ($request->filled('vehicle_id')) {
+            $query->where('vehicle_id', $request->vehicle_id);
+        }
+        if ($request->filled('driver_id')) {
+            $query->where('driver_id', $request->driver_id);
+        }
+        if ($request->filled('date_from')) {
+            $query->whereDate('trip_date', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('trip_date', '<=', $request->date_to);
+        }
+
+        $trips = $query->orderBy('trip_date')->orderBy('created_at')->get();
+        $skus = Sku::where('active', true)->orderBy('brand')->orderBy('name')->get();
+
+        $header = [
+            'Trip Date', 'Driver', 'Vehicle', 'Route',
+            'Mileage Start', 'Mileage End', 'KM Covered',
+            'Fuel Liters', 'Fuel Cost', 'Authorizing Officer', 'Time Out', 'Time In',
+        ];
+        foreach ($skus as $sku) {
+            $label = trim(($sku->brand ? $sku->brand . ' ' : '') . $sku->name);
+            $header[] = "{$label} Dispatched";
+            $header[] = "{$label} Returned";
+            $header[] = "{$label} Sold";
+        }
+        $header = array_merge($header, [
+            'Buyer', 'Buyer Contact', 'Payment Method', 'Amount',
+            'M-Pesa Reference', 'Debt Signatory', 'Debt Expected Repayment Date',
+            'Trip Total Collected', 'Cash Collected', 'M-Pesa Collected', 'Debt Collected',
+            'Expected Revenue', 'Variance', 'Stock Matches', 'Notes',
+        ]);
+
+        $escape = fn ($v) => '"' . str_replace('"', '""', (string) ($v ?? '')) . '"';
+        $rows = [implode(',', array_map($escape, $header))];
+
+        foreach ($trips as $trip) {
+            $itemsBySkuId = $trip->items->keyBy('sku_id');
+            $recon = $trip->reconciliation;
+
+            $base = [
+                $trip->trip_date->toDateString(),
+                $trip->driver->full_name ?? '',
+                $trip->vehicle->reg_no ?? '',
+                $trip->route->name ?? '',
+                $trip->mileage_start,
+                $trip->mileage_end,
+                $trip->km_covered,
+                $trip->fuel_liters,
+                $trip->fuel_cost,
+                $trip->authorizingOfficer->full_name ?? '',
+                $trip->time_out,
+                $trip->time_in,
+            ];
+            foreach ($skus as $sku) {
+                $item = $itemsBySkuId->get($sku->id);
+                $base[] = $item->qty_carried ?? 0;
+                $base[] = $item->qty_returned ?? 0;
+                $base[] = $item->qty_sold ?? 0;
+            }
+
+            $trailer = [
+                $trip->total_collected,
+                $trip->cash_collected,
+                $trip->mpesa_collected,
+                $trip->debt_collected,
+                $recon['expected_revenue'],
+                $recon['variance'],
+                $recon['stock_matches'] ? 'Yes' : 'No',
+                $trip->notes,
+            ];
+
+            if ($trip->sales->isEmpty()) {
+                $rows[] = implode(',', array_map($escape, array_merge($base, ['', '', '', '', '', '', ''], $trailer)));
+                continue;
+            }
+
+            foreach ($trip->sales as $sale) {
+                $row = array_merge($base, [
+                    $sale->customer->name ?? '',
+                    $sale->customer->phone ?? '',
+                    ucfirst($sale->payment_method),
+                    $sale->amount,
+                    $sale->mpesa_reference,
+                    $sale->debt_signatory,
+                    optional($sale->debt_expected_repayment_date)->toDateString(),
+                ], $trailer);
+                $rows[] = implode(',', array_map($escape, $row));
+            }
+        }
+
+        $csv = implode("\n", $rows);
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="driver-trip-log-' . now()->format('Y-m-d') . '.csv"',
         ]);
     }
 

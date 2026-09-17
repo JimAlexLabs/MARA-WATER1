@@ -13,13 +13,8 @@ class DriverTrip extends Model
 
     protected $fillable = [
         'trip_date', 'driver_id', 'vehicle_id', 'route_id',
-        'mileage_start', 'mileage_end', 'fuel_liters', 'fuel_cost', 'oil_liters',
-        'authorizing_officer_id', 'time_out', 'time_in',
-        'cash_collected', 'mpesa_collected', 'mpesa_reference', 'notes',
-        // Round 2 Phase 6: one optional debt sale per trip -- see
-        // DriverTripController::store() and docs on the migration that
-        // added these columns.
-        'debt_customer_id', 'debt_signatory', 'debt_amount', 'debt_expected_repayment_date', 'debt_id',
+        'mileage_start', 'mileage_end', 'fuel_liters', 'fuel_cost',
+        'authorizing_officer_id', 'time_out', 'time_in', 'notes',
         'created_by', 'updated_by',
     ];
 
@@ -29,11 +24,6 @@ class DriverTrip extends Model
         'mileage_end' => 'integer',
         'fuel_liters' => 'decimal:2',
         'fuel_cost' => 'decimal:2',
-        'oil_liters' => 'decimal:2',
-        'cash_collected' => 'decimal:2',
-        'mpesa_collected' => 'decimal:2',
-        'debt_amount' => 'decimal:2',
-        'debt_expected_repayment_date' => 'date',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -66,14 +56,14 @@ class DriverTrip extends Model
         return $this->hasMany(DriverTripItem::class);
     }
 
-    public function debtCustomer()
+    /**
+     * Round 2 Phase 7: replaces the old single cash_collected/
+     * mpesa_collected/debt_* trip-level fields -- one row per sale made
+     * on the trip, each with its own customer and payment method.
+     */
+    public function sales()
     {
-        return $this->belongsTo(Customer::class, 'debt_customer_id');
-    }
-
-    public function debt()
-    {
-        return $this->belongsTo(Debt::class, 'debt_id');
+        return $this->hasMany(DriverTripSale::class);
     }
 
     public function getKmCoveredAttribute(): ?int
@@ -84,33 +74,69 @@ class DriverTrip extends Model
         return max(0, $this->mileage_end - $this->mileage_start);
     }
 
-    /**
-     * Round 2 Phase 6: a debt sale is still money accounted for -- just
-     * not collected yet -- so it belongs in "collected" for
-     * reconciliation purposes the same way cash/M-Pesa do. Before this
-     * phase, any credit given on a trip had nowhere to go and would show
-     * up as an unexplained variance even though nothing was actually
-     * wrong.
-     */
     public function getTotalCollectedAttribute(): float
     {
-        return round((float) $this->cash_collected + (float) $this->mpesa_collected + (float) $this->debt_amount, 2);
+        return round((float) $this->sales->sum('amount'), 2);
+    }
+
+    private function collectedByMethod(string $method): float
+    {
+        return round((float) $this->sales->where('payment_method', $method)->sum('amount'), 2);
+    }
+
+    public function getCashCollectedAttribute(): float
+    {
+        return $this->collectedByMethod('cash');
+    }
+
+    public function getMpesaCollectedAttribute(): float
+    {
+        return $this->collectedByMethod('mpesa');
+    }
+
+    public function getDebtCollectedAttribute(): float
+    {
+        return $this->collectedByMethod('debt');
     }
 
     /**
-     * Stock carried minus returned should equal stock sold, which should
-     * reconcile against cash + M-Pesa collected. Flag mismatches rather
-     * than silently accepting them -- that's the whole point of this
-     * table existing instead of a paper worksheet.
+     * Round 2 Phase 7: two independent checks, not one.
+     *
+     * 1. Stock check, per product/size: what the driver reports selling
+     *    (qty_sold) should equal what actually left the vehicle
+     *    (qty_carried - qty_returned). A real gap here means something
+     *    physical happened -- breakage, a miscount, an unrecorded give-
+     *    away -- that money reconciliation alone would never catch,
+     *    since it only looks at cash vs. expected revenue.
+     * 2. Money check, trip-wide: total qty_sold x unit_price across every
+     *    product/size should equal the sum of every sale logged
+     *    (cash + M-Pesa + debt). qty_sold is what actually changed hands,
+     *    so it's the correct basis for expected revenue now -- not
+     *    carried-returned, which Phase 7 keeps around for the stock
+     *    check above but no longer uses for money.
      */
     public function getReconciliationAttribute(): array
     {
         $expectedRevenue = 0;
         $unitsSold = 0;
+        $stockMismatches = [];
+
         foreach ($this->items as $item) {
-            $sold = max(0, $item->qty_carried - $item->qty_returned);
-            $unitsSold += $sold;
-            $expectedRevenue += $sold * (float) $item->unit_price;
+            $impliedSold = max(0, $item->qty_carried - $item->qty_returned);
+            $unitsSold += $item->qty_sold;
+            $expectedRevenue += $item->qty_sold * (float) $item->unit_price;
+
+            if ($impliedSold !== $item->qty_sold) {
+                $stockMismatches[] = [
+                    'sku_id' => $item->sku_id,
+                    'sku_name' => $item->sku->name ?? 'Product',
+                    'dispatched' => $item->qty_carried,
+                    'returned' => $item->qty_returned,
+                    'implied_sold' => $impliedSold,
+                    'reported_sold' => $item->qty_sold,
+                    'difference' => $item->qty_sold - $impliedSold,
+                ];
+            }
         }
         $expectedRevenue = round($expectedRevenue, 2);
         $variance = round($this->total_collected - $expectedRevenue, 2);
@@ -119,9 +145,13 @@ class DriverTrip extends Model
             'units_sold' => $unitsSold,
             'expected_revenue' => $expectedRevenue,
             'collected' => $this->total_collected,
-            'debt_amount' => (float) $this->debt_amount,
+            'cash_collected' => $this->cash_collected,
+            'mpesa_collected' => $this->mpesa_collected,
+            'debt_collected' => $this->debt_collected,
             'variance' => $variance,
             'matches' => abs($variance) < 0.01,
+            'stock_mismatches' => $stockMismatches,
+            'stock_matches' => empty($stockMismatches),
         ];
     }
 }

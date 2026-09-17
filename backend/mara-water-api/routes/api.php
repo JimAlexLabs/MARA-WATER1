@@ -250,6 +250,7 @@ Route::prefix('v1')->group(function () {
             // wildcard and would otherwise capture "statistics" etc.
             Route::get('/trips/statistics', [DriverTripController::class, 'statistics']);
             Route::get('/trips/mileage-trend', [DriverTripController::class, 'mileageTrend']);
+            Route::get('/trips/export', [DriverTripController::class, 'export']);
             Route::get('/trips', [DriverTripController::class, 'index']);
             Route::post('/trips', [DriverTripController::class, 'store']);
             Route::get('/trips/{id}', [DriverTripController::class, 'show']);
