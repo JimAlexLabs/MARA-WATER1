@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\WaterTestController;
 use App\Http\Controllers\Api\BatchController;
 use App\Http\Controllers\Api\OrderController;
@@ -61,6 +62,10 @@ Route::prefix('v1')->group(function () {
         // Dashboard routes
         Route::get('/dashboard/health', [DashboardController::class, 'health']);
         Route::get('/dashboard/overview', [DashboardController::class, 'overview']);
+
+        // Round 2 Phase 9: dedicated analytics view, separate from the
+        // dashboard above.
+        Route::get('/analytics/overview', [AnalyticsController::class, 'overview']);
 
         // Global top-bar search
         Route::get('/search', [SearchController::class, 'index']);

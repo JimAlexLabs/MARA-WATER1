@@ -22,7 +22,8 @@ import {
   Factory,
   Loader2,
   Sun,
-  Moon
+  Moon,
+  TrendingUp
 } from 'lucide-react';
 
 interface SearchResult {
@@ -126,6 +127,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       href: '/dashboard', 
       icon: Home,
       description: 'Overview and KPIs'
+    },
+    {
+      name: 'Analytics',
+      href: '/analytics',
+      icon: TrendingUp,
+      description: 'Live sales, money flow, production, debtors, fleet and payroll'
     },
     {
       name: 'QA',

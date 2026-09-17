@@ -66,4 +66,18 @@ class Order extends Model
     {
         return $this->hasOne(Invoice::class);
     }
+
+    /**
+     * Round 2 Phase 9: an order created via store() (the draft ->
+     * confirmed -> dispatched -> delivered workflow) never reaches the
+     * frontend today and never gets a payment_method -- so
+     * payment_method IS NOT NULL is exactly "created via logSale(), a
+     * real committed sale" for now, distinguishing it from a stray draft
+     * that never became a transaction. Analytics/reporting on revenue
+     * should use this, not every row in the table.
+     */
+    public function scopeCompletedSale($query)
+    {
+        return $query->whereNotNull('payment_method');
+    }
 }

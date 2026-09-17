@@ -13,6 +13,7 @@ import './index.css';
 // only downloads the first time it's visited. Login and Dashboard stay
 // eager -- they're what everyone hits first, so there's nothing to save
 // by deferring them, and it avoids a loading flash on the most common path.
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'));
 const QAPage = lazy(() => import('./pages/QAPage'));
 const ProductionPage = lazy(() => import('./pages/ProductionPage'));
 const InventoryPage = lazy(() => import('./pages/InventoryPage'));
@@ -100,6 +101,15 @@ function App() {
               </ProtectedRoute>
             } />
             
+            {/* Analytics Routes */}
+            <Route path="/analytics" element={
+              <ProtectedRoute>
+                <Layout>
+                  <AnalyticsPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
             {/* QA & Production Routes */}
             <Route path="/qa" element={
               <ProtectedRoute>
