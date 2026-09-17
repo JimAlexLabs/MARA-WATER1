@@ -136,6 +136,7 @@ Route::prefix('v1')->group(function () {
 
             // SKU catalog (Phase 8) -- fixed segments before /{id}.
             Route::get('/skus', [SkuController::class, 'index']);
+            Route::post('/skus', [SkuController::class, 'store']);
             Route::put('/skus/{id}', [SkuController::class, 'update']);
 
             // Raw materials (Phase 8) -- fixed segments before /{id}.
@@ -185,6 +186,7 @@ Route::prefix('v1')->group(function () {
             // segments before /{id}, same reason as everywhere else here.
             Route::get('/price-lists', [PriceListController::class, 'index']);
             Route::get('/price-lists/{id}/items', [PriceListController::class, 'items']);
+            Route::put('/price-lists/{id}/items/{skuId}', [PriceListController::class, 'upsertItem']);
 
             Route::get('/customers/statistics', [CustomerController::class, 'statistics']);
             Route::get('/customers/route/{routeId}', [CustomerController::class, 'byRoute']);

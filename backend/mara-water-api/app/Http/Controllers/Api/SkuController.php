@@ -40,6 +40,49 @@ class SkuController extends Controller
         ]);
     }
 
+    /**
+     * Round 2 Phase 10: the catalog needs to grow now -- e.g. a "Custom"
+     * (custom-label/branded) bottle is a genuinely separate sellable
+     * product from the standard bottle of the same nominal size, not
+     * just a different price tier on it.
+     */
+    public function store(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'code' => 'required|string|max:20|unique:skus,code',
+            'name' => 'required|string|max:200',
+            'brand' => 'nullable|string|max:50',
+            'size_liters' => 'required|numeric|min:0.01',
+            'unit' => 'nullable|string|max:10',
+            'expiry_days' => 'nullable|integer|min:1',
+            'reorder_threshold' => 'nullable|integer|min:0',
+            'active' => 'nullable|boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $sku = Sku::create([
+            'code' => $request->code,
+            'name' => $request->name,
+            'brand' => $request->brand,
+            'size_liters' => $request->size_liters,
+            'unit' => $request->unit ?? 'BOTTLE',
+            'expiry_days' => $request->expiry_days ?? 365,
+            'reorder_threshold' => $request->reorder_threshold,
+            'active' => $request->boolean('active', true),
+            'created_by' => Auth::id(),
+            'updated_by' => Auth::id(),
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Product created successfully', 'data' => $sku], 201);
+    }
+
     public function update(Request $request, $id)
     {
         $sku = Sku::find($id);

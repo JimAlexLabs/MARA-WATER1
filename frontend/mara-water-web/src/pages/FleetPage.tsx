@@ -40,7 +40,7 @@ interface Vehicle {
 interface Person { id: string; first_name: string; last_name: string; role?: { code: string; name: string }; }
 interface RouteRef { id: string; name: string; }
 interface WarehouseRef { id: string; code: string; name: string; }
-interface SkuRef { id: string; name: string; code: string; brand: string | null; size_liters: string; unit?: string; }
+interface SkuRef { id: string; name: string; code: string; brand: string | null; size_liters: string; unit?: string; current_price?: number | null; }
 // Round 2 Phase 7: one grid cell per SKU on the trip form -- dispatched/
 // returned/sold, keyed by sku_id, instead of freeform product-picker rows.
 interface GridItem { qty_carried: string; qty_returned: string; qty_sold: string; unit_price: string; }
@@ -330,7 +330,14 @@ const FleetPage: React.FC = () => {
 
   const openNewTrip = () => {
     setTripForm(EMPTY_TRIP_FORM);
-    setTripGrid({});
+    // Round 2 Phase 10: pre-fill each row's unit price from the default
+    // price list ("Products & Prices"), same as Sales' own product picker
+    // -- still editable, just not blank by default.
+    const grid: Record<string, GridItem> = {};
+    skus.forEach(s => {
+      if (s.current_price != null) grid[s.id] = { ...EMPTY_GRID_ITEM, unit_price: String(s.current_price) };
+    });
+    setTripGrid(grid);
     setTripSales([{ ...EMPTY_SALE_ROW }]);
     setShowTripDebtConfirm(false);
     setShowTripForm(true);
@@ -368,7 +375,9 @@ const FleetPage: React.FC = () => {
       qty_carried: parseInt(r.qty_carried, 10) || 0,
       qty_returned: parseInt(r.qty_returned, 10) || 0,
       qty_sold: parseInt(r.qty_sold, 10) || 0,
-      unit_price: parseFloat(r.unit_price) || 0,
+      // Falls back to the price list default in case a row's price was
+      // never pre-filled (e.g. products loaded after the form opened).
+      unit_price: parseFloat(r.unit_price) || skus.find(s => s.id === sku_id)?.current_price || 0,
     }));
 
   const buildSalesPayload = () => usedSales().map(s => ({

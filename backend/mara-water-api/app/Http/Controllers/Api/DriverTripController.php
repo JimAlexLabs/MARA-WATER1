@@ -600,12 +600,24 @@ class DriverTripController extends Controller
     }
 
     // Product catalog for the stock-carried/returned lines on the trip form.
+    /**
+     * Round 2 Phase 10: current_price comes from the default price list
+     * ("Products & Prices") -- the trip form pre-fills each row's unit
+     * price from this instead of a driver having to know/type it, per
+     * "single source of truth ... Sales, Driver Trip Logs ... pull unit
+     * prices from".
+     */
     public function skus()
     {
-        return response()->json([
-            'success' => true,
-            'data' => Sku::where('active', true)->orderBy('name')->get(),
-        ]);
+        $prices = \App\Models\PriceListItem::whereHas('priceList', fn ($q) => $q->where('is_default', true))
+            ->pluck('unit_price', 'sku_id');
+
+        $skus = Sku::where('active', true)->orderBy('name')->get()->map(function ($sku) use ($prices) {
+            $sku->current_price = isset($prices[$sku->id]) ? (float) $prices[$sku->id] : null;
+            return $sku;
+        });
+
+        return response()->json(['success' => true, 'data' => $skus]);
     }
 
     public function storeRoute(Request $request)

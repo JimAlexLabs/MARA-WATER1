@@ -23,7 +23,8 @@ import {
   Loader2,
   Sun,
   Moon,
-  TrendingUp
+  TrendingUp,
+  Tag
 } from 'lucide-react';
 
 interface SearchResult {
@@ -145,6 +146,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       href: '/production',
       icon: Factory,
       description: 'Packaging runs and production batches'
+    },
+    {
+      name: 'Pricing',
+      href: '/pricing',
+      icon: Tag,
+      description: 'Products and current selling prices'
     },
     {
       name: 'Inventory',
