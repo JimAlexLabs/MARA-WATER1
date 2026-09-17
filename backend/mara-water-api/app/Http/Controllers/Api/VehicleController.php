@@ -76,8 +76,16 @@ class VehicleController extends Controller
                 'year' => 'required|integer|min:1900|max:' . (date('Y') + 1),
                 'capacity' => 'required|numeric|min:0',
                 'fuel_type' => 'nullable|string|max:50',
-                'insurance_expiry' => 'required|date|after:today',
-                'inspection_expiry' => 'required|date|after:today',
+                // Round 2 Phase 1: this used to require `after:today`, so
+                // adding any vehicle whose insurance/inspection had already
+                // lapsed (or expires today) -- exactly the vehicles most in
+                // need of tracking, and a completely normal thing to be
+                // true when onboarding an existing real fleet -- was
+                // silently rejected with a generic "Validation failed" and
+                // no indication why. A valid date is still required; it no
+                // longer has to be in the future.
+                'insurance_expiry' => 'required|date',
+                'inspection_expiry' => 'required|date',
                 'speed_gov_status' => 'required|string|max:50',
                 'notes' => 'nullable|string|max:1000',
             ]);

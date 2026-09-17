@@ -131,7 +131,9 @@ const FleetPage: React.FC = () => {
       setShowVehicleForm(false);
       fetchVehicles();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to save vehicle');
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to save vehicle');
     }
   };
 

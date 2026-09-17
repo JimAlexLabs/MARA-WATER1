@@ -17,23 +17,37 @@ import {
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 
+interface Employee {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+}
+
 interface Attendance {
   id: string;
-  employee: {
+  // The backend eager-loads this relation as `user`, not `employee` -- and
+  // it can genuinely be null (a deleted user, a row created before a
+  // relation existed), so every read of it has to be defensive. This
+  // exact field-name mismatch plus the missing null-check is what crashed
+  // this whole page to a blank white screen the moment any real
+  // attendance record existed.
+  user: {
     first_name: string;
     last_name: string;
-    employee_no: string;
-  };
+    email?: string;
+  } | null;
   date: string;
-  clock_in: string;
-  clock_out: string;
-  hours_worked: number;
-  overtime_hours: number;
+  clock_in_time: string;
+  clock_out_time: string | null;
+  total_hours: number | null;
+  overtime_hours: number | null;
   status: 'present' | 'absent' | 'late' | 'half_day';
 }
 
 const HRPage: React.FC = () => {
   const [attendances, setAttendances] = useState<Attendance[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchParams] = useSearchParams();
@@ -44,25 +58,29 @@ const HRPage: React.FC = () => {
   }, [searchParams]);
   const [filterStatus, setFilterStatus] = useState('all');
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  // Attendance Form State
+  // Attendance Form State -- field names match what AttendanceController::store()
+  // actually validates (user_id, clock_in_time, clock_out_time, status required).
   const [attendanceForm, setAttendanceForm] = useState({
-    employee_id: '',
-    date: '',
-    clock_in: '',
-    clock_out: '',
+    user_id: '',
+    date: new Date().toISOString().split('T')[0],
+    clock_in_time: '',
+    clock_out_time: '',
+    status: 'present',
     notes: ''
   });
 
   useEffect(() => {
     fetchData();
+    fetchEmployees();
   }, []);
 
   const fetchData = async () => {
     try {
       setLoading(true);
       const response = await api.get('/hr/attendance');
-      setAttendances(response.data.data);
+      setAttendances(response.data.data || []);
     } catch (error) {
       toast.error('Failed to fetch HR data');
     } finally {
@@ -70,29 +88,52 @@ const HRPage: React.FC = () => {
     }
   };
 
+  const fetchEmployees = async () => {
+    try {
+      const response = await api.get('/users', { params: { per_page: 200 } });
+      setEmployees(response.data.data || []);
+    } catch (error) {
+      // Non-fatal -- the attendance list itself still works, only the
+      // "Record Attendance" form's employee picker would be empty.
+    }
+  };
+
   const handleAttendanceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!attendanceForm.user_id || !attendanceForm.date || !attendanceForm.clock_in_time) {
+      toast.error('Employee, date, and clock-in time are required');
+      return;
+    }
+    setSubmitting(true);
     try {
-      await api.post('/hr/attendance', attendanceForm);
+      await api.post('/hr/attendance', {
+        ...attendanceForm,
+        clock_in_time: `${attendanceForm.clock_in_time}:00`,
+        clock_out_time: attendanceForm.clock_out_time ? `${attendanceForm.clock_out_time}:00` : null,
+      });
       toast.success('Attendance recorded successfully');
       setShowAttendanceForm(false);
       setAttendanceForm({
-        employee_id: '',
-        date: '',
-        clock_in: '',
-        clock_out: '',
+        user_id: '',
+        date: new Date().toISOString().split('T')[0],
+        clock_in_time: '',
+        clock_out_time: '',
+        status: 'present',
         notes: ''
       });
       fetchData();
-    } catch (error) {
-      toast.error('Failed to record attendance');
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to record attendance');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const filteredAttendances = attendances.filter(attendance => {
-    const matchesSearch = attendance.employee.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         attendance.employee.last_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         attendance.employee.employee_no.toLowerCase().includes(searchTerm.toLowerCase());
+    const name = `${attendance.user?.first_name ?? ''} ${attendance.user?.last_name ?? ''}`.toLowerCase();
+    const matchesSearch = name.includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === 'all' || attendance.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
@@ -176,7 +217,7 @@ const HRPage: React.FC = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Hours</p>
               <p className="text-2xl font-bold text-gray-900">
-                {attendances.reduce((sum, a) => sum + a.hours_worked, 0).toFixed(1)}
+                {attendances.reduce((sum, a) => sum + (a.total_hours ?? 0), 0).toFixed(1)}
               </p>
             </div>
           </div>
@@ -187,7 +228,7 @@ const HRPage: React.FC = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Overtime Hours</p>
               <p className="text-2xl font-bold text-gray-900">
-                {attendances.reduce((sum, a) => sum + a.overtime_hours, 0).toFixed(1)}
+                {attendances.reduce((sum, a) => sum + (a.overtime_hours ?? 0), 0).toFixed(1)}
               </p>
             </div>
           </div>
@@ -267,9 +308,11 @@ const HRPage: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          {attendance.employee.first_name} {attendance.employee.last_name}
+                          {attendance.user ? `${attendance.user.first_name} ${attendance.user.last_name}` : 'Unknown employee'}
                         </div>
-                        <div className="text-sm text-gray-500">{attendance.employee.employee_no}</div>
+                        {attendance.user?.email && (
+                          <div className="text-sm text-gray-500">{attendance.user.email}</div>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -279,14 +322,14 @@ const HRPage: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        <div>In: {attendance.clock_in}</div>
-                        <div>Out: {attendance.clock_out || 'Not clocked out'}</div>
+                        <div>In: {attendance.clock_in_time}</div>
+                        <div>Out: {attendance.clock_out_time || 'Not clocked out'}</div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        <div>Worked: {attendance.hours_worked}h</div>
-                        <div>Overtime: {attendance.overtime_hours}h</div>
+                        <div>Worked: {attendance.total_hours ?? 0}h</div>
+                        <div>Overtime: {attendance.overtime_hours ?? 0}h</div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -325,12 +368,14 @@ const HRPage: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700">Employee</label>
                 <select
-                  value={attendanceForm.employee_id}
-                  onChange={(e) => setAttendanceForm({...attendanceForm, employee_id: e.target.value})}
+                  value={attendanceForm.user_id}
+                  onChange={(e) => setAttendanceForm({...attendanceForm, user_id: e.target.value})}
                   className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select Employee</option>
-                  {/* Add employee options here */}
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name}</option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -342,13 +387,26 @@ const HRPage: React.FC = () => {
                   className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Status</label>
+                <select
+                  value={attendanceForm.status}
+                  onChange={(e) => setAttendanceForm({...attendanceForm, status: e.target.value})}
+                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="present">Present</option>
+                  <option value="absent">Absent</option>
+                  <option value="late">Late</option>
+                  <option value="half_day">Half Day</option>
+                </select>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Clock In</label>
                   <input
                     type="time"
-                    value={attendanceForm.clock_in}
-                    onChange={(e) => setAttendanceForm({...attendanceForm, clock_in: e.target.value})}
+                    value={attendanceForm.clock_in_time}
+                    onChange={(e) => setAttendanceForm({...attendanceForm, clock_in_time: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -356,8 +414,8 @@ const HRPage: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700">Clock Out</label>
                   <input
                     type="time"
-                    value={attendanceForm.clock_out}
-                    onChange={(e) => setAttendanceForm({...attendanceForm, clock_out: e.target.value})}
+                    value={attendanceForm.clock_out_time}
+                    onChange={(e) => setAttendanceForm({...attendanceForm, clock_out_time: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -381,9 +439,10 @@ const HRPage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  disabled={submitting}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                 >
-                  Record Attendance
+                  {submitting ? 'Saving…' : 'Record Attendance'}
                 </button>
               </div>
             </form>

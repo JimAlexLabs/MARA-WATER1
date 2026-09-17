@@ -13,6 +13,53 @@ use Illuminate\Validation\ValidationException;
 class AuthController extends Controller
 {
     /**
+     * Round 2 Phase 1: login(), me(), and updateProfile() each hand-built
+     * their own `user` response shape and had quietly drifted apart --
+     * updateProfile() in particular dropped role/department/permissions
+     * entirely. The frontend's global user state gets overwritten with
+     * whatever any of these three return (AuthContext's setUser()), and
+     * Layout.tsx reads user.role.name/user.department.name on every page
+     * -- so updateProfile()'s incomplete shape crashed the whole app to a
+     * blank screen the moment someone saved their profile. One shared
+     * serializer means all three can never disagree again.
+     */
+    private function serializeUser(User $user): array
+    {
+        $user->loadMissing('role.permissions', 'department');
+
+        return [
+            'id' => $user->id,
+            'email' => $user->email,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'full_name' => $user->full_name,
+            'phone' => $user->phone,
+            'avatar_url' => $user->avatar_url,
+            'status' => $user->status,
+            'last_login_at' => $user->last_login_at,
+            'role' => $user->role ? [
+                'id' => $user->role->id,
+                'code' => $user->role->code,
+                'name' => $user->role->name,
+                'description' => $user->role->description,
+            ] : null,
+            'department' => $user->department ? [
+                'id' => $user->department->id,
+                'code' => $user->department->code,
+                'name' => $user->department->name,
+                'description' => $user->department->description,
+            ] : null,
+            'permissions' => $user->role
+                ? $user->role->permissions->map(fn ($p) => [
+                    'code' => $p->code,
+                    'name' => $p->name,
+                    'module' => $p->module,
+                ])
+                : [],
+        ];
+    }
+
+    /**
      * User login
      */
     public function login(Request $request)
@@ -66,26 +113,7 @@ class AuthController extends Controller
             'success' => true,
             'message' => 'Login successful',
             'data' => [
-                'user' => [
-                    'id' => $user->id,
-                    'email' => $user->email,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'full_name' => $user->full_name,
-                    'phone' => $user->phone,
-                    'avatar_url' => $user->avatar_url,
-                    'status' => $user->status,
-                    'role' => [
-                        'id' => $user->role->id,
-                        'code' => $user->role->code,
-                        'name' => $user->role->name,
-                    ],
-                    'department' => [
-                        'id' => $user->department->id,
-                        'code' => $user->department->code,
-                        'name' => $user->department->name,
-                    ],
-                ],
+                'user' => $this->serializeUser($user),
                 'token' => $token,
                 'token_type' => 'Bearer',
                 'expires_in' => 30 * 24 * 60 * 60, // 30 days
@@ -103,36 +131,7 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'user' => [
-                    'id' => $user->id,
-                    'email' => $user->email,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'full_name' => $user->full_name,
-                    'phone' => $user->phone,
-                    'avatar_url' => $user->avatar_url,
-                    'status' => $user->status,
-                    'last_login_at' => $user->last_login_at,
-                    'role' => [
-                        'id' => $user->role->id,
-                        'code' => $user->role->code,
-                        'name' => $user->role->name,
-                        'description' => $user->role->description,
-                    ],
-                    'department' => [
-                        'id' => $user->department->id,
-                        'code' => $user->department->code,
-                        'name' => $user->department->name,
-                        'description' => $user->department->description,
-                    ],
-                    'permissions' => $user->role->permissions->map(function ($permission) {
-                        return [
-                            'code' => $permission->code,
-                            'name' => $permission->name,
-                            'module' => $permission->module,
-                        ];
-                    }),
-                ]
+                'user' => $this->serializeUser($user),
             ]
         ]);
     }
@@ -182,15 +181,7 @@ class AuthController extends Controller
             'success' => true,
             'message' => 'Profile updated successfully',
             'data' => [
-                'user' => [
-                    'id' => $user->id,
-                    'email' => $user->email,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'full_name' => $user->full_name,
-                    'phone' => $user->phone,
-                    'avatar_url' => $user->avatar_url,
-                ]
+                'user' => $this->serializeUser($user->fresh()),
             ]
         ]);
     }

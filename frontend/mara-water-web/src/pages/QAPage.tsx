@@ -17,20 +17,24 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 interface WaterTest {
   id: string;
   test_type: 'baseline' | 'random' | 'retest';
   recorded_at: string;
-  ph: number;
-  tds: number;
-  chlorine: number;
+  ph: number | null;
+  tds: number | null;
+  chlorine: number | null;
   status: 'pass' | 'fail' | 'pending';
-  location_text: string;
+  location_text: string | null;
+  // Auto-set server-side from the logged-in user, not free text -- but the
+  // relation can still be null (e.g. a test whose recording user was later
+  // removed), so every read of it has to be defensive.
   recorded_by: {
     first_name: string;
     last_name: string;
-  };
+  } | null;
 }
 
 interface Sku {
@@ -102,6 +106,7 @@ interface CriticalGap {
 }
 
 const QAPage: React.FC = () => {
+  const { user } = useAuth();
   const [waterTests, setWaterTests] = useState<WaterTest[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,9 +123,18 @@ const QAPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'tests' | 'audit'>('tests');
   const [skus, setSkus] = useState<Sku[]>([]);
 
-  // Water Test Form State
+  // Water Test Form State. `recorded_at` defaults to right now, formatted
+  // for a datetime-local input (YYYY-MM-DDTHH:mm) -- the backend requires
+  // this field and previously never received it at all, which is exactly
+  // why every water test submission failed validation.
+  const nowForDatetimeLocal = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  };
   const [waterTestForm, setWaterTestForm] = useState({
     test_type: 'baseline',
+    recorded_at: nowForDatetimeLocal(),
     ph: '',
     tds: '',
     chlorine: '',
@@ -271,11 +285,17 @@ const QAPage: React.FC = () => {
   const handleWaterTestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/qa/water-tests', waterTestForm);
+      await api.post('/qa/water-tests', {
+        ...waterTestForm,
+        // datetime-local gives "2026-09-17T14:30" with no seconds/offset;
+        // append seconds so the backend's `date` validation parses it cleanly.
+        recorded_at: `${waterTestForm.recorded_at}:00`,
+      });
       toast.success('Water test created successfully');
       setShowWaterTestForm(false);
       setWaterTestForm({
         test_type: 'baseline',
+        recorded_at: nowForDatetimeLocal(),
         ph: '',
         tds: '',
         chlorine: '',
@@ -283,8 +303,10 @@ const QAPage: React.FC = () => {
         unit_notes: ''
       });
       fetchData();
-    } catch (error) {
-      toast.error('Failed to create water test');
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to create water test');
     }
   };
 
@@ -307,8 +329,9 @@ const QAPage: React.FC = () => {
   };
 
   const filteredWaterTests = waterTests.filter(test => {
-    const matchesSearch = test.location_text.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         test.recorded_by.first_name.toLowerCase().includes(searchTerm.toLowerCase());
+    const q = searchTerm.toLowerCase();
+    const matchesSearch = (test.location_text ?? '').toLowerCase().includes(q) ||
+                         (test.recorded_by?.first_name ?? '').toLowerCase().includes(q);
     const matchesStatus = filterStatus === 'all' || test.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
@@ -530,10 +553,10 @@ const QAPage: React.FC = () => {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {test.recorded_by.first_name} {test.recorded_by.last_name}
+                    {test.recorded_by ? `${test.recorded_by.first_name} ${test.recorded_by.last_name}` : '—'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(test.recorded_at).toLocaleDateString()}
+                    {new Date(test.recorded_at).toLocaleString()}
                   </td>
                 </tr>
               ))}
@@ -803,6 +826,17 @@ const QAPage: React.FC = () => {
                   <option value="random">Random</option>
                   <option value="retest">Retest</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Date &amp; Time</label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={waterTestForm.recorded_at}
+                  onChange={(e) => setWaterTestForm({...waterTestForm, recorded_at: e.target.value})}
+                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">Recorded by: you ({user?.full_name || 'logged-in user'}) -- not editable.</p>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>

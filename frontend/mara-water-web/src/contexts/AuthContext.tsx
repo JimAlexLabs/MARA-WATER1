@@ -195,16 +195,16 @@ export const usePermissions = () => {
   
   const hasPermission = (permissionCode: string): boolean => {
     if (!user) return false;
-    return user.permissions.some(p => p.code === permissionCode);
+    return (user.permissions ?? []).some(p => p.code === permissionCode);
   };
 
   const hasModulePermission = (module: string): boolean => {
     if (!user) return false;
-    return user.permissions.some(p => p.module === module);
+    return (user.permissions ?? []).some(p => p.module === module);
   };
 
   const isDirector = (): boolean => {
-    return user?.role.code === 'ADMIN';
+    return user?.role?.code === 'ADMIN';
   };
 
   return {

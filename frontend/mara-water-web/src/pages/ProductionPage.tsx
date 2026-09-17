@@ -270,14 +270,14 @@ const ProductionPage: React.FC = () => {
 
   const filteredBatches = batches.filter(batch => {
     const matchesSearch = batch.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         batch.sku.name.toLowerCase().includes(searchTerm.toLowerCase());
+                         (batch.sku?.name ?? '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === 'all' || batch.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
 
   const filteredPackagingRuns = packagingRuns.filter(run => {
-    return run.batch.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           run.sku.name.toLowerCase().includes(searchTerm.toLowerCase());
+    return (run.batch?.code ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+           (run.sku?.name ?? '').toLowerCase().includes(searchTerm.toLowerCase());
   });
 
   const getStatusColor = (status: string) => {
@@ -510,8 +510,8 @@ const ProductionPage: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{batch.sku.name}</div>
-                          <div className="text-sm text-gray-500">{batch.sku.size_liters}L</div>
+                          <div className="text-sm font-medium text-gray-900">{batch.sku?.name ?? '—'}</div>
+                          <div className="text-sm text-gray-500">{batch.sku?.size_liters ?? '—'}L</div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -595,14 +595,14 @@ const ProductionPage: React.FC = () => {
                               {new Date(run.run_start).toLocaleTimeString()} - {new Date(run.run_end).toLocaleTimeString()}
                             </div>
                             <div className="text-xs text-gray-400">
-                              By: {run.run_by.first_name} {run.run_by.last_name}
+                              By: {run.run_by ? `${run.run_by.first_name} ${run.run_by.last_name}` : '—'}
                             </div>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div>
-                            <div className="text-sm font-medium text-gray-900">{run.batch.code}</div>
-                            <div className="text-sm text-gray-500">{run.sku.name}</div>
+                            <div className="text-sm font-medium text-gray-900">{run.batch?.code ?? '—'}</div>
+                            <div className="text-sm text-gray-500">{run.sku?.name ?? '—'}</div>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -859,7 +859,7 @@ const ProductionPage: React.FC = () => {
                   <option value="">Select Batch (in progress)</option>
                   {batches.filter(b => b.status === 'in_progress').map(batch => (
                     <option key={batch.id} value={batch.id}>
-                      {batch.code} - {batch.sku.name}
+                      {batch.code} - {batch.sku?.name ?? 'Unknown product'}
                     </option>
                   ))}
                 </select>

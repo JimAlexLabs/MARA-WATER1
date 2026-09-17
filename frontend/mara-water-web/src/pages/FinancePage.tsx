@@ -311,7 +311,7 @@ const FinancePage: React.FC = () => {
   };
 
   const filteredInvoices = invoices.filter(invoice => {
-    const matchesSearch = invoice.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    const matchesSearch = (invoice.customer?.name ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                          invoice.invoice_no.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === 'all' || invoice.payment_status === filterStatus;
     return matchesSearch && matchesStatus;
@@ -523,14 +523,14 @@ const FinancePage: React.FC = () => {
                       <div>
                         <div className="text-sm font-medium text-gray-900">{invoice.invoice_no}</div>
                         <div className="text-sm text-gray-500">
-                          By: {invoice.created_by.first_name} {invoice.created_by.last_name}
+                          By: {invoice.created_by ? `${invoice.created_by.first_name} ${invoice.created_by.last_name}` : '—'}
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{invoice.customer.name}</div>
-                        <div className="text-sm text-gray-500">{invoice.customer.code}</div>
+                        <div className="text-sm font-medium text-gray-900">{invoice.customer?.name ?? '—'}</div>
+                        <div className="text-sm text-gray-500">{invoice.customer?.code ?? ''}</div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">

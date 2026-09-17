@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
+import ErrorBoundary from './ErrorBoundary';
 import {
   Menu,
   X,
@@ -298,7 +299,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   {user?.full_name}
                 </p>
                 <p className="text-xs text-gray-500 truncate">
-                  {user?.role.name}
+                  {user?.role?.name}
                 </p>
               </div>
             </div>
@@ -437,7 +438,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                       <div className="font-medium text-gray-900">{user?.full_name}</div>
                       <div className="text-sm text-gray-500">{user?.email}</div>
                       <div className="text-xs text-gray-400 mt-1">
-                        {user?.role.name} • {user?.department.name}
+                        {user?.role?.name}{user?.role && user?.department ? ' • ' : ''}{user?.department?.name}
                       </div>
                     </div>
                     <div className="py-1">
@@ -475,7 +476,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         {/* Page content */}
         <main className="py-6">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            {children}
+            <ErrorBoundary>{children}</ErrorBoundary>
           </div>
         </main>
       </div>
