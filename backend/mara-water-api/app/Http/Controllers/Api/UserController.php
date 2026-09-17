@@ -15,6 +15,12 @@ use App\Models\Department;
 
 class UserController extends Controller
 {
+    private const SENSITIVE_STAFF_FIELDS = [
+        'salary', 'house_allowance', 'gross_salary',
+        'bank_name', 'bank_branch', 'bank_account_number', 'bank_code',
+        'kra_pin', 'nssf_number', 'shif_number',
+    ];
+
     public function index(Request $request)
     {
         try {
@@ -56,10 +62,14 @@ class UserController extends Controller
             $users = $query->paginate($perPage);
             $items = $users->items();
 
-            // Salary is sensitive -- only an admin gets it back.
+            // Round 2 Phase 4: salary was already hidden from non-admins;
+            // extended the same treatment to the new payroll/PII fields
+            // (house allowance, gross salary, bank details, KRA/NSSF/SHIF
+            // numbers) rather than accidentally exposing them to every
+            // logged-in user just because they're now columns on User.
             if (!$request->user()->isDirector()) {
                 foreach ($items as $u) {
-                    $u->makeHidden('salary');
+                    $u->makeHidden(self::SENSITIVE_STAFF_FIELDS);
                 }
             }
 
@@ -91,8 +101,20 @@ class UserController extends Controller
                 'role_id' => 'required|exists:roles,id',
                 'department_id' => 'required|exists:departments,id',
                 'id_number' => 'nullable|string|max:20|unique:users,id_number',
+                'staff_number' => 'nullable|string|max:20|unique:users,staff_number',
+                'address' => 'nullable|string|max:2000',
+                'kra_pin' => 'nullable|string|max:20',
+                'nssf_number' => 'nullable|string|max:20',
+                'shif_number' => 'nullable|string|max:20',
+                'date_of_birth' => 'nullable|date',
+                'terms_of_employment' => 'nullable|string|max:50',
                 'employment_date' => 'nullable|date',
                 'salary' => 'nullable|numeric|min:0',
+                'house_allowance' => 'nullable|numeric|min:0',
+                'bank_name' => 'nullable|string|max:100',
+                'bank_branch' => 'nullable|string|max:100',
+                'bank_account_number' => 'nullable|string|max:50',
+                'bank_code' => 'nullable|string|max:20',
                 'status' => 'sometimes|in:active,inactive,suspended'
             ]);
 
@@ -114,8 +136,20 @@ class UserController extends Controller
                 'role_id' => $request->role_id,
                 'department_id' => $request->department_id,
                 'id_number' => $request->id_number ?: null,
+                'staff_number' => $request->staff_number ?: null,
+                'address' => $request->address ?: null,
+                'kra_pin' => $request->kra_pin ?: null,
+                'nssf_number' => $request->nssf_number ?: null,
+                'shif_number' => $request->shif_number ?: null,
+                'date_of_birth' => $request->date_of_birth ?: null,
+                'terms_of_employment' => $request->terms_of_employment ?: null,
                 'employment_date' => $request->employment_date ?: null,
                 'salary' => $request->salary ?: null,
+                'house_allowance' => $request->house_allowance ?: 0,
+                'bank_name' => $request->bank_name ?: null,
+                'bank_branch' => $request->bank_branch ?: null,
+                'bank_account_number' => $request->bank_account_number ?: null,
+                'bank_code' => $request->bank_code ?: null,
                 'status' => $request->status ?? 'active',
                 'created_by' => Auth::id(),
                 'updated_by' => Auth::id(),
@@ -287,6 +321,10 @@ class UserController extends Controller
                 ], 404);
             }
 
+            if (!request()->user()->isDirector() && request()->user()->id !== $user->id) {
+                $user->makeHidden(self::SENSITIVE_STAFF_FIELDS);
+            }
+
             return response()->json([
                 'success' => true,
                 'data' => $user
@@ -320,8 +358,20 @@ class UserController extends Controller
                 'role_id' => 'sometimes|exists:roles,id',
                 'department_id' => 'sometimes|exists:departments,id',
                 'id_number' => 'sometimes|nullable|string|max:20|unique:users,id_number,' . $id,
+                'staff_number' => 'sometimes|nullable|string|max:20|unique:users,staff_number,' . $id,
+                'address' => 'sometimes|nullable|string|max:2000',
+                'kra_pin' => 'sometimes|nullable|string|max:20',
+                'nssf_number' => 'sometimes|nullable|string|max:20',
+                'shif_number' => 'sometimes|nullable|string|max:20',
+                'date_of_birth' => 'sometimes|nullable|date',
+                'terms_of_employment' => 'sometimes|nullable|string|max:50',
                 'employment_date' => 'sometimes|nullable|date',
                 'salary' => 'sometimes|nullable|numeric|min:0',
+                'house_allowance' => 'sometimes|nullable|numeric|min:0',
+                'bank_name' => 'sometimes|nullable|string|max:100',
+                'bank_branch' => 'sometimes|nullable|string|max:100',
+                'bank_account_number' => 'sometimes|nullable|string|max:50',
+                'bank_code' => 'sometimes|nullable|string|max:20',
                 'status' => 'sometimes|in:active,inactive,suspended'
             ]);
 
@@ -337,7 +387,10 @@ class UserController extends Controller
                 $request->only([
                     'email', 'phone', 'first_name', 'last_name',
                     'role_id', 'department_id', 'status',
-                    'id_number', 'employment_date', 'salary',
+                    'id_number', 'staff_number', 'address', 'kra_pin', 'nssf_number',
+                    'shif_number', 'date_of_birth', 'terms_of_employment',
+                    'employment_date', 'salary', 'house_allowance',
+                    'bank_name', 'bank_branch', 'bank_account_number', 'bank_code',
                 ]),
                 ['updated_by' => Auth::id()]
             ));

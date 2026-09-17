@@ -14,6 +14,9 @@ use App\Http\Controllers\Api\PackagingRunController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\VehicleController;
 use App\Http\Controllers\Api\AttendanceController;
+use App\Http\Controllers\Api\PayrollController;
+use App\Http\Controllers\Api\StaffLoanController;
+use App\Http\Controllers\Api\SalaryTemplateController;
 use App\Http\Controllers\Api\ReportsController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\FileUploadController;
@@ -266,6 +269,28 @@ Route::prefix('v1')->group(function () {
             Route::get('/attendance/{id}', [AttendanceController::class, 'show']);
             Route::put('/attendance/{id}', [AttendanceController::class, 'update']);
             Route::delete('/attendance/{id}', [AttendanceController::class, 'destroy']);
+
+            // Round 2 Phase 4: Payroll
+            Route::get('/payroll/runs', [PayrollController::class, 'index']);
+            Route::post('/payroll/runs', [PayrollController::class, 'store']);
+            Route::get('/payroll/runs/{id}', [PayrollController::class, 'show']);
+            Route::delete('/payroll/runs/{id}', [PayrollController::class, 'destroy']);
+            Route::post('/payroll/runs/{id}/finalize', [PayrollController::class, 'finalize']);
+            Route::get('/payroll/runs/{id}/bank-transfer-file', [PayrollController::class, 'bankTransferFile']);
+            Route::put('/payroll/runs/{runId}/payslips/{payslipId}', [PayrollController::class, 'updatePayslip']);
+            Route::get('/payroll/payslips/{id}', [PayrollController::class, 'payslip']);
+
+            // Advances & Loans
+            Route::get('/loans', [StaffLoanController::class, 'index']);
+            Route::post('/loans', [StaffLoanController::class, 'store']);
+            Route::put('/loans/{id}', [StaffLoanController::class, 'update']);
+            Route::delete('/loans/{id}', [StaffLoanController::class, 'destroy']);
+
+            // Salary/role templates
+            Route::get('/salary-templates', [SalaryTemplateController::class, 'index']);
+            Route::post('/salary-templates', [SalaryTemplateController::class, 'store']);
+            Route::put('/salary-templates/{id}', [SalaryTemplateController::class, 'update']);
+            Route::delete('/salary-templates/{id}', [SalaryTemplateController::class, 'destroy']);
         });
 
         // Reports routes

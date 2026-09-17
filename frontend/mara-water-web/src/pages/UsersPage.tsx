@@ -26,8 +26,21 @@ interface User {
   email: string | null;
   phone: string;
   id_number: string | null;
+  staff_number?: string | null;
+  address?: string | null;
+  kra_pin?: string | null;
+  nssf_number?: string | null;
+  shif_number?: string | null;
+  date_of_birth?: string | null;
+  terms_of_employment?: string | null;
   employment_date: string | null;
   salary?: number | null;
+  house_allowance?: number | null;
+  gross_salary?: number | null;
+  bank_name?: string | null;
+  bank_branch?: string | null;
+  bank_account_number?: string | null;
+  bank_code?: string | null;
   role: Role;
   department: Department;
   status: 'active' | 'inactive' | 'suspended';
@@ -36,8 +49,12 @@ interface User {
 
 const EMPTY_FORM = {
   first_name: '', last_name: '', phone: '', email: '',
-  id_number: '', role_id: '', department_id: '',
-  employment_date: '', salary: '', status: 'active',
+  id_number: '', staff_number: '', address: '',
+  kra_pin: '', nssf_number: '', shif_number: '',
+  date_of_birth: '', terms_of_employment: '',
+  role_id: '', department_id: '',
+  employment_date: '', salary: '', house_allowance: '', status: 'active',
+  bank_name: '', bank_branch: '', bank_account_number: '', bank_code: '',
   password: '',
 };
 
@@ -48,6 +65,7 @@ const UsersPage: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [salaryTemplates, setSalaryTemplates] = useState<{ id: string; name: string; basic_salary: number; house_allowance: number; terms_of_employment: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchParams] = useSearchParams();
@@ -73,6 +91,7 @@ const UsersPage: React.FC = () => {
     fetchData();
     api.get('/users/roles').then(res => setRoles(res.data.data)).catch(() => {});
     api.get('/users/departments').then(res => setDepartments(res.data.data)).catch(() => {});
+    api.get('/hr/salary-templates').then(res => setSalaryTemplates(res.data.data)).catch(() => {});
   }, []);
 
   const fetchData = async () => {
@@ -97,9 +116,18 @@ const UsersPage: React.FC = () => {
     setEditingId(u.id);
     setUserForm({
       first_name: u.first_name, last_name: u.last_name, phone: u.phone, email: u.email || '',
-      id_number: u.id_number || '', role_id: u.role?.id || '', department_id: u.department?.id || '',
+      id_number: u.id_number || '', staff_number: u.staff_number || '', address: u.address || '',
+      kra_pin: u.kra_pin || '', nssf_number: u.nssf_number || '', shif_number: u.shif_number || '',
+      date_of_birth: u.date_of_birth ? u.date_of_birth.slice(0, 10) : '',
+      terms_of_employment: u.terms_of_employment || '',
+      role_id: u.role?.id || '', department_id: u.department?.id || '',
       employment_date: u.employment_date ? u.employment_date.slice(0, 10) : '',
-      salary: u.salary != null ? String(u.salary) : '', status: u.status, password: '',
+      salary: u.salary != null ? String(u.salary) : '',
+      house_allowance: u.house_allowance != null ? String(u.house_allowance) : '',
+      status: u.status,
+      bank_name: u.bank_name || '', bank_branch: u.bank_branch || '',
+      bank_account_number: u.bank_account_number || '', bank_code: u.bank_code || '',
+      password: '',
     });
     setShowUserForm(true);
   };
@@ -389,6 +417,29 @@ const UsersPage: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{editingId ? 'Edit Employee' : 'New Employee'}</h3>
+            {!editingId && salaryTemplates.length > 0 && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Start from a role template (optional)</label>
+                <select
+                  onChange={(e) => {
+                    const tpl = salaryTemplates.find(t => t.id === e.target.value);
+                    if (tpl) {
+                      setUserForm({
+                        ...userForm,
+                        salary: String(tpl.basic_salary || ''),
+                        house_allowance: String(tpl.house_allowance || ''),
+                        terms_of_employment: tpl.terms_of_employment || userForm.terms_of_employment,
+                      });
+                    }
+                  }}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  defaultValue=""
+                >
+                  <option value="">— Fill in manually —</option>
+                  {salaryTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+            )}
             <form onSubmit={handleUserSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -408,6 +459,37 @@ const UsersPage: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">ID Number</label>
                   <input type="text" value={userForm.id_number} onChange={(e) => setUserForm({ ...userForm, id_number: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Staff Number</label>
+                  <input type="text" placeholder="e.g. SP001" value={userForm.staff_number} onChange={(e) => setUserForm({ ...userForm, staff_number: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date of Birth</label>
+                  <input type="date" value={userForm.date_of_birth} onChange={(e) => setUserForm({ ...userForm, date_of_birth: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Address</label>
+                <textarea rows={2} value={userForm.address} onChange={(e) => setUserForm({ ...userForm, address: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Statutory Numbers</p>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">KRA PIN</label>
+                    <input type="text" value={userForm.kra_pin} onChange={(e) => setUserForm({ ...userForm, kra_pin: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">NSSF Number</label>
+                    <input type="text" value={userForm.nssf_number} onChange={(e) => setUserForm({ ...userForm, nssf_number: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">SHIF Number</label>
+                    <input type="text" value={userForm.shif_number} onChange={(e) => setUserForm({ ...userForm, shif_number: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -432,8 +514,47 @@ const UsersPage: React.FC = () => {
                   <input type="date" value={userForm.employment_date} onChange={(e) => setUserForm({ ...userForm, employment_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Salary (KES)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Terms of Employment</label>
+                  <input type="text" placeholder="e.g. Contract, Permanent" value={userForm.terms_of_employment} onChange={(e) => setUserForm({ ...userForm, terms_of_employment: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4 items-end">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Basic Salary (KES)</label>
                   <input type="number" min="0" value={userForm.salary} onChange={(e) => setUserForm({ ...userForm, salary: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">House Allowance (KES)</label>
+                  <input type="number" min="0" value={userForm.house_allowance} onChange={(e) => setUserForm({ ...userForm, house_allowance: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div className="pb-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Gross Salary</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    KES {((parseFloat(userForm.salary) || 0) + (parseFloat(userForm.house_allowance) || 0)).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Bank Details (for the bank transfer file)</p>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Bank Name</label>
+                    <input type="text" value={userForm.bank_name} onChange={(e) => setUserForm({ ...userForm, bank_name: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Branch</label>
+                    <input type="text" value={userForm.bank_branch} onChange={(e) => setUserForm({ ...userForm, bank_branch: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Account Number</label>
+                    <input type="text" value={userForm.bank_account_number} onChange={(e) => setUserForm({ ...userForm, bank_account_number: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Bank Code</label>
+                    <input type="text" value={userForm.bank_code} onChange={(e) => setUserForm({ ...userForm, bank_code: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
                 </div>
               </div>
               <div>

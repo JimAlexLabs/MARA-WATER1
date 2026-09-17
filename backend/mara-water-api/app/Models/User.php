@@ -30,8 +30,20 @@ class User extends Authenticatable
         'role_id',
         'department_id',
         'id_number',
+        'staff_number',
+        'address',
+        'kra_pin',
+        'nssf_number',
+        'shif_number',
+        'date_of_birth',
+        'terms_of_employment',
         'employment_date',
         'salary',
+        'house_allowance',
+        'bank_name',
+        'bank_branch',
+        'bank_account_number',
+        'bank_code',
         'two_factor_secret',
         'two_factor_enabled',
         'created_by',
@@ -49,6 +61,8 @@ class User extends Authenticatable
         'remember_token',
     ];
 
+    protected $appends = ['gross_salary'];
+
     /**
      * The attributes that should be cast.
      *
@@ -59,7 +73,9 @@ class User extends Authenticatable
         'last_login_at' => 'datetime',
         'two_factor_enabled' => 'boolean',
         'employment_date' => 'date',
+        'date_of_birth' => 'date',
         'salary' => 'decimal:2',
+        'house_allowance' => 'decimal:2',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -87,6 +103,40 @@ class User extends Authenticatable
     public function getFullNameAttribute()
     {
         return "{$this->first_name} {$this->last_name}";
+    }
+
+    /**
+     * Round 2 Phase 4: `salary` has always meant Basic Salary here (it
+     * predates this phase) -- this alias reads better in payroll code
+     * without a risky rename of a column other parts of the app already
+     * depend on.
+     */
+    public function getBasicSalaryAttribute()
+    {
+        return $this->salary;
+    }
+
+    /**
+     * Basic Salary + House Allowance. Spec: "calculated not typed" --
+     * this is why it's an accessor, not a stored column.
+     */
+    public function getGrossSalaryAttribute(): float
+    {
+        return (float) $this->salary + (float) $this->house_allowance;
+    }
+
+    public function staffLoans()
+    {
+        return $this->hasMany(StaffLoan::class);
+    }
+
+    /**
+     * Active loans/advances with an outstanding balance -- what the next
+     * payroll run should deduct against.
+     */
+    public function activeStaffLoans()
+    {
+        return $this->staffLoans()->where('status', 'active')->where('balance', '>', 0);
     }
 
     /**
