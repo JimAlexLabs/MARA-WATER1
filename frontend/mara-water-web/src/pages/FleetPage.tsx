@@ -39,7 +39,8 @@ interface Vehicle {
 
 interface Person { id: string; first_name: string; last_name: string; role?: { code: string; name: string }; }
 interface RouteRef { id: string; name: string; }
-interface SkuRef { id: string; name: string; code: string; brand: string | null; size_liters: string; }
+interface WarehouseRef { id: string; code: string; name: string; }
+interface SkuRef { id: string; name: string; code: string; brand: string | null; size_liters: string; unit?: string; }
 // Round 2 Phase 7: one grid cell per SKU on the trip form -- dispatched/
 // returned/sold, keyed by sku_id, instead of freeform product-picker rows.
 interface GridItem { qty_carried: string; qty_returned: string; qty_sold: string; unit_price: string; }
@@ -79,6 +80,7 @@ interface Trip {
   driver: Person;
   vehicle: Vehicle;
   route?: RouteRef | null;
+  warehouse?: WarehouseRef | null;
   authorizingOfficer?: Person | null;
   mileage_start: number | null;
   mileage_end: number | null;
@@ -110,6 +112,9 @@ const EMPTY_VEHICLE_FORM = {
 const EMPTY_TRIP_FORM = {
   trip_date: new Date().toISOString().slice(0, 10),
   driver_id: '', vehicle_id: '', route_id: '',
+  // Round 2 Phase 8: the depot the trip loads stock from / returns to --
+  // required so the trip's stock movements can post the moment it's logged.
+  warehouse_id: '',
   // Round 2 Phase 7: Oil (Litres) dropped entirely, per the spec.
   mileage_start: '', mileage_end: '', fuel_liters: '', fuel_cost: '',
   authorizing_officer_id: '', time_out: '', time_in: '', notes: '',
@@ -257,6 +262,7 @@ const FleetPage: React.FC = () => {
   const [tripsLoading, setTripsLoading] = useState(false);
   const [people, setPeople] = useState<Person[]>([]);
   const [routes, setRoutes] = useState<RouteRef[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseRef[]>([]);
   const [skus, setSkus] = useState<SkuRef[]>([]);
   const [mileageTrend, setMileageTrend] = useState<any[]>([]);
   const [customers, setCustomers] = useState<{ id: string; name: string; code: string }[]>([]);
@@ -288,6 +294,7 @@ const FleetPage: React.FC = () => {
   const fetchTripRefData = () => {
     api.get('/users?per_page=200').then(res => setPeople(res.data.data)).catch(() => {});
     api.get('/fleet/routes').then(res => setRoutes(res.data.data)).catch(() => {});
+    api.get('/inventory/warehouses').then(res => setWarehouses(res.data.data)).catch(() => {});
     api.get('/fleet/skus').then(res => setSkus(res.data.data)).catch(() => {});
     api.get('/fleet/trips/mileage-trend').then(res => setMileageTrend(res.data.data)).catch(() => {});
     api.get('/sales/customers', { params: { limit: 500 } }).then(res => setCustomers(res.data.data)).catch(() => {});
@@ -404,6 +411,11 @@ const FleetPage: React.FC = () => {
       } else {
         toast.error(`Trip logged, but off by KES ${Math.abs(recon.variance).toLocaleString()} — check stock/cash entries`, { duration: 6000 });
       }
+      // Round 2 Phase 8: surfaced the same way SalesPage's Log Sale does --
+      // a sale that outran recorded stock still goes through (a real stock-
+      // out shouldn't be silently invisible either way), but flagged loudly.
+      const stockWarnings: { message: string }[] = res.data?.stock_warnings || [];
+      stockWarnings.forEach(w => toast.error(w.message, { duration: 8000 }));
       setShowTripDebtConfirm(false);
       setShowTripForm(false);
       fetchTrips();
@@ -836,6 +848,18 @@ const FleetPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Round 2 Phase 8: where the vehicle loaded stock from and
+                  returns unsold stock to -- required so this trip's stock
+                  movements post to Inventory Management the moment it's
+                  logged, the same "outlet" concept Log Sale requires. */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Warehouse (loaded from / returned to)</label>
+                <select required value={tripForm.warehouse_id} onChange={(e) => setTripForm({ ...tripForm, warehouse_id: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
+                  <option value="">Select warehouse</option>
+                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
+                </select>
+              </div>
+
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Mileage Start</label>
@@ -1030,6 +1054,7 @@ const FleetPage: React.FC = () => {
               <div><dt className="text-gray-500 dark:text-gray-400">Driver</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.driver?.first_name} {viewingTrip.driver?.last_name}</dd></div>
               <div><dt className="text-gray-500 dark:text-gray-400">Vehicle</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.vehicle?.reg_no}</dd></div>
               <div><dt className="text-gray-500 dark:text-gray-400">Route</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.route?.name || '—'}</dd></div>
+              <div><dt className="text-gray-500 dark:text-gray-400">Warehouse</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.warehouse?.name || '—'}</dd></div>
               <div><dt className="text-gray-500 dark:text-gray-400">Mileage</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.mileage_start ?? '—'} → {viewingTrip.mileage_end ?? '—'} ({viewingTrip.km_covered ?? '—'} km)</dd></div>
               <div><dt className="text-gray-500 dark:text-gray-400">Fuel</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.fuel_liters ?? '—'} L (KES {viewingTrip.fuel_cost ?? '0'})</dd></div>
               <div><dt className="text-gray-500 dark:text-gray-400">Time Out / In</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.time_out ?? '—'} → {viewingTrip.time_in ?? '—'}</dd></div>

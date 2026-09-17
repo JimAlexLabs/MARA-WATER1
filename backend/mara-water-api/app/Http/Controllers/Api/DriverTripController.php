@@ -14,7 +14,7 @@ use App\Models\Sku;
 
 class DriverTripController extends Controller
 {
-    private const WITH = ['driver', 'vehicle', 'route', 'authorizingOfficer', 'items.sku', 'sales.customer', 'sales.debt'];
+    private const WITH = ['driver', 'vehicle', 'route', 'warehouse', 'authorizingOfficer', 'items.sku', 'sales.customer', 'sales.debt'];
 
     public function index(Request $request)
     {
@@ -73,6 +73,10 @@ class DriverTripController extends Controller
             'driver_id' => 'required|exists:users,id',
             'vehicle_id' => 'required|exists:vehicles,id',
             'route_id' => 'nullable|exists:routes,id',
+            // Round 2 Phase 8: the depot the vehicle loaded stock from and
+            // returns unsold stock to -- required so the trip's stock
+            // movements can post to the real ledger the moment it's logged.
+            'warehouse_id' => 'required|exists:warehouses,id',
             'mileage_start' => 'nullable|integer|min:0',
             'mileage_end' => 'nullable|integer|min:0|gte:mileage_start',
             'fuel_liters' => 'nullable|numeric|min:0',
@@ -134,12 +138,14 @@ class DriverTripController extends Controller
         }
 
         try {
-            $trip = DB::transaction(function () use ($request) {
+            $stockWarnings = [];
+            $trip = DB::transaction(function () use ($request, &$stockWarnings) {
                 $trip = DriverTrip::create([
                     'trip_date' => $request->trip_date,
                     'driver_id' => $request->driver_id,
                     'vehicle_id' => $request->vehicle_id,
                     'route_id' => $request->route_id,
+                    'warehouse_id' => $request->warehouse_id,
                     'mileage_start' => $request->mileage_start,
                     'mileage_end' => $request->mileage_end,
                     'fuel_liters' => $request->fuel_liters,
@@ -152,17 +158,61 @@ class DriverTripController extends Controller
                     'updated_by' => Auth::id(),
                 ]);
 
+                // Round 2 Phase 8: stock leaves/returns to this warehouse the
+                // moment the trip is logged -- one single stock ledger, the
+                // same recordMove()/deductStock() every other sales entry
+                // point (OrderController::logSale()) writes to, so Inventory
+                // Management reflects this trip in real time, not after a
+                // separate manual adjustment.
+                $inventoryController = new InventoryController();
+
                 foreach ($request->input('items', []) as $item) {
-                    if (($item['qty_carried'] ?? 0) == 0 && ($item['qty_returned'] ?? 0) == 0 && ($item['qty_sold'] ?? 0) == 0) {
+                    $qtyCarried = $item['qty_carried'] ?? 0;
+                    $qtyReturned = $item['qty_returned'] ?? 0;
+                    $qtySold = $item['qty_sold'] ?? 0;
+                    if ($qtyCarried == 0 && $qtyReturned == 0 && $qtySold == 0) {
                         continue;
                     }
                     $trip->items()->create([
                         'sku_id' => $item['sku_id'],
-                        'qty_carried' => $item['qty_carried'] ?? 0,
-                        'qty_returned' => $item['qty_returned'] ?? 0,
-                        'qty_sold' => $item['qty_sold'] ?? 0,
+                        'qty_carried' => $qtyCarried,
+                        'qty_returned' => $qtyReturned,
+                        'qty_sold' => $qtySold,
                         'unit_price' => $item['unit_price'] ?? 0,
                     ]);
+
+                    $sku = Sku::find($item['sku_id']);
+                    $uom = $sku->unit ?? 'BOTTLE';
+
+                    // What came back goes straight into recorded stock at
+                    // this warehouse -- same "return" move type, same
+                    // no-specific-batch bucket, as an outlet sale's return.
+                    if ($qtyReturned > 0) {
+                        $inventoryController->recordMove([
+                            'move_type' => 'return',
+                            'item_type' => 'sku',
+                            'sku_id' => $item['sku_id'],
+                            'warehouse_to_id' => $request->warehouse_id,
+                            'qty' => $qtyReturned,
+                            'uom' => $uom,
+                            'ref_entity' => 'driver_trip',
+                            'ref_id' => $trip->id,
+                        ]);
+                    }
+
+                    // What didn't come back permanently left the warehouse
+                    // the moment it was loaded onto the vehicle -- deducted
+                    // here regardless of whether the driver's reported
+                    // qty_sold matches (a mismatch there is a reconciliation
+                    // signal, not a reason to under- or over-deduct real
+                    // physical stock).
+                    $netDispatched = max(0, $qtyCarried - $qtyReturned);
+                    if ($netDispatched > 0) {
+                        $stockWarnings = array_merge(
+                            $stockWarnings,
+                            $inventoryController->deductStock($item['sku_id'], $sku, $request->warehouse_id, $netDispatched, 'driver_trip', $trip->id)
+                        );
+                    }
                 }
 
                 foreach ($request->input('sales', []) as $sale) {
@@ -232,6 +282,7 @@ class DriverTripController extends Controller
                 'success' => true,
                 'message' => 'Trip logged successfully',
                 'data' => $trip->load(self::WITH),
+                'stock_warnings' => $stockWarnings,
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
@@ -300,8 +351,63 @@ class DriverTripController extends Controller
         if (!$trip) {
             return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
         }
-        $trip->delete();
+
+        DB::transaction(function () use ($trip) {
+            $this->reverseStockMoves($trip);
+            $trip->delete();
+        });
+
         return response()->json(['success' => true, 'message' => 'Trip deleted successfully']);
+    }
+
+    /**
+     * Round 2 Phase 8: Phase 7's own doc comment on update() says "Delete
+     * and re-log instead" for correcting a trip's stock lines -- so
+     * deletion has to give back exactly what this trip's stock moves did,
+     * or "delete and re-log" would silently double-deduct every time
+     * someone corrects a mistake. Reverses each move this trip posted
+     * (an 'issue' gets its qty added back, a 'return' gets it taken back
+     * out) as new 'adjust' moves tagged 'driver_trip_deleted' so the
+     * ledger keeps a clean, traceable record of the reversal rather than
+     * just deleting the original entries. allowNegative on the 'return'
+     * reversal because that stock could theoretically have already been
+     * sold on since -- a correction should never be blocked by that.
+     */
+    private function reverseStockMoves(DriverTrip $trip): void
+    {
+        $inventoryController = new InventoryController();
+        $moves = \App\Models\StockMove::where('ref_entity', 'driver_trip')
+            ->where('ref_id', $trip->id)
+            ->whereNull('deleted_at')
+            ->get();
+
+        foreach ($moves as $move) {
+            if ($move->move_type === 'issue' && $move->warehouse_from_id) {
+                $inventoryController->recordMove([
+                    'move_type' => 'adjust',
+                    'item_type' => $move->item_type,
+                    'sku_id' => $move->sku_id,
+                    'batch_id' => $move->batch_id,
+                    'warehouse_to_id' => $move->warehouse_from_id,
+                    'qty' => $move->qty,
+                    'uom' => $move->uom,
+                    'ref_entity' => 'driver_trip_deleted',
+                    'ref_id' => $trip->id,
+                ]);
+            } elseif ($move->move_type === 'return' && $move->warehouse_to_id) {
+                $inventoryController->recordMove([
+                    'move_type' => 'adjust',
+                    'item_type' => $move->item_type,
+                    'sku_id' => $move->sku_id,
+                    'batch_id' => $move->batch_id,
+                    'warehouse_from_id' => $move->warehouse_to_id,
+                    'qty' => $move->qty,
+                    'uom' => $move->uom,
+                    'ref_entity' => 'driver_trip_deleted',
+                    'ref_id' => $trip->id,
+                ], allowNegative: true);
+            }
+        }
     }
 
     public function statistics(Request $request)
@@ -368,7 +474,7 @@ class DriverTripController extends Controller
         $skus = Sku::where('active', true)->orderBy('brand')->orderBy('name')->get();
 
         $header = [
-            'Trip Date', 'Driver', 'Vehicle', 'Route',
+            'Trip Date', 'Driver', 'Vehicle', 'Route', 'Warehouse',
             'Mileage Start', 'Mileage End', 'KM Covered',
             'Fuel Liters', 'Fuel Cost', 'Authorizing Officer', 'Time Out', 'Time In',
         ];
@@ -397,6 +503,7 @@ class DriverTripController extends Controller
                 $trip->driver->full_name ?? '',
                 $trip->vehicle->reg_no ?? '',
                 $trip->route->name ?? '',
+                $trip->warehouse->name ?? '',
                 $trip->mileage_start,
                 $trip->mileage_end,
                 $trip->km_covered,

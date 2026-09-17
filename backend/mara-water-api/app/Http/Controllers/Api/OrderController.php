@@ -11,7 +11,6 @@ use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Models\Invoice;
 use App\Models\Debt;
-use App\Models\StockItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
@@ -337,7 +336,7 @@ class OrderController extends Controller
                 if ($netQtySold > 0) {
                     $stockWarnings = array_merge(
                         $stockWarnings,
-                        $this->deductSoldStock($inventoryController, $item['sku_id'], $sku, $request->warehouse_id, $netQtySold, $order->id)
+                        $inventoryController->deductStock($item['sku_id'], $sku, $request->warehouse_id, $netQtySold, 'order', $order->id)
                     );
                 }
             }
@@ -428,85 +427,10 @@ class OrderController extends Controller
         }
     }
 
-    /**
-     * Decrement recorded finished-goods stock for a net quantity sold,
-     * drawing FEFO across whichever batches of this SKU have stock at
-     * this warehouse. Returns warnings (empty if everything drew cleanly)
-     * rather than throwing, matching how postProductionStockMoves()
-     * handles a raw-material shortfall -- a sale that would otherwise be
-     * blocked by an imperfect stock count is worse than a sale that goes
-     * through and leaves a visible negative-balance warning behind.
-     */
-    private function deductSoldStock(InventoryController $inventoryController, string $skuId, ?Sku $sku, string $warehouseId, int $qtyToDeduct, string $orderId): array
-    {
-        $warnings = [];
-        $uom = $sku->unit ?? 'BOTTLE';
-
-        $available = StockItem::where('stock_items.item_type', 'sku')
-            ->where('stock_items.sku_id', $skuId)
-            ->where('stock_items.warehouse_id', $warehouseId)
-            ->where('stock_items.qty', '>', 0)
-            ->whereNull('stock_items.deleted_at')
-            ->join('batches', 'batches.id', '=', 'stock_items.batch_id')
-            ->orderByRaw('batches.expiry_date IS NULL, batches.expiry_date ASC')
-            ->orderByRaw('batches.manufacture_date IS NULL, batches.manufacture_date ASC')
-            ->select('stock_items.batch_id', 'stock_items.qty')
-            ->get();
-
-        $remaining = $qtyToDeduct;
-        foreach ($available as $row) {
-            if ($remaining <= 0) {
-                break;
-            }
-            $take = min($remaining, (int) $row->qty);
-            $inventoryController->recordMove([
-                'move_type' => 'issue',
-                'item_type' => 'sku',
-                'sku_id' => $skuId,
-                'batch_id' => $row->batch_id,
-                'warehouse_from_id' => $warehouseId,
-                'qty' => $take,
-                'uom' => $uom,
-                'ref_entity' => 'order',
-                'ref_id' => $orderId,
-            ]);
-            $remaining -= $take;
-        }
-
-        if ($remaining > 0) {
-            // Not enough recorded stock anywhere for this SKU at this
-            // warehouse -- draw the shortfall against whichever batch is
-            // most recent (or, if this SKU has never been produced here
-            // at all, skip it and warn loudly instead of guessing a batch).
-            $fallbackBatchId = DB::table('batches')->where('sku_id', $skuId)->orderByDesc('manufacture_date')->value('id');
-            if ($fallbackBatchId) {
-                $inventoryController->recordMove([
-                    'move_type' => 'issue',
-                    'item_type' => 'sku',
-                    'sku_id' => $skuId,
-                    'batch_id' => $fallbackBatchId,
-                    'warehouse_from_id' => $warehouseId,
-                    'qty' => $remaining,
-                    'uom' => $uom,
-                    'ref_entity' => 'order',
-                    'ref_id' => $orderId,
-                ], allowNegative: true);
-                $warnings[] = [
-                    'sku_id' => $skuId,
-                    'sku_name' => $sku->name ?? 'Product',
-                    'message' => ($sku->name ?? 'This product') . " sold {$remaining} {$uom} more than recorded stock at this warehouse -- balance is now negative, a production run or stock count likely needs entering.",
-                ];
-            } else {
-                $warnings[] = [
-                    'sku_id' => $skuId,
-                    'sku_name' => $sku->name ?? 'Product',
-                    'message' => ($sku->name ?? 'This product') . " has never been produced at this warehouse -- {$remaining} {$uom} sold could not be deducted from any batch.",
-                ];
-            }
-        }
-
-        return $warnings;
-    }
+    // Round 2 Phase 8: the FEFO stock-deduction logic that used to live
+    // here as a private method now lives in InventoryController::deductStock()
+    // -- shared with Driver Trips instead of duplicated, per "one single
+    // stock ledger that everything writes to and reads from".
 
     /**
      * Display the specified order
