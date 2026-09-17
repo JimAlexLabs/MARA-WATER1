@@ -323,6 +323,8 @@ const SalesPage: React.FC = () => {
       const res = await api.post('/sales/orders/log-sale', payload);
       const orderNo = res.data?.data?.order?.order_no;
       toast.success(`Sale logged${orderNo ? ` (${orderNo})` : ''}`);
+      const stockWarnings = res.data?.data?.stock_warnings || [];
+      stockWarnings.forEach((w: { message: string }) => toast.error(w.message, { duration: 8000 }));
       setShowSaleForm(false);
       fetchData();
     } catch (error: any) {

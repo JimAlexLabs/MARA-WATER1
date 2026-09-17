@@ -2,32 +2,29 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
 
 class Notification extends Model
 {
-    use HasFactory, SoftDeletes, HasUuids;
+    use HasUuids;
+
+    public $timestamps = false;
 
     protected $fillable = [
         'user_id',
-        'title',
-        'message',
+        'channel',
         'type',
+        'title',
+        'body',
+        'sent_at',
         'read_at',
-        'data',
-        'created_by',
-        'updated_by',
     ];
 
     protected $casts = [
+        'sent_at' => 'datetime',
         'read_at' => 'datetime',
-        'data' => 'array',
         'created_at' => 'datetime',
-        'updated_at' => 'datetime',
-        'deleted_at' => 'datetime',
     ];
 
     public function user()

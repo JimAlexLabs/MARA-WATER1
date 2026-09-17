@@ -3,168 +3,142 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Notification;
+use App\Models\Setting;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
 
+/**
+ * Phase 12 (Final verification pass) found this whole controller was
+ * pre-upgrade placeholder scaffolding: index() always returned an empty,
+ * hardcoded list, and send() never actually inserted a row despite a
+ * real `notifications` table + model existing. The bell icon (every
+ * page, via Layout.tsx) always showed "No notifications" regardless of
+ * what was really in the table -- a decorative button by Phase 1's own
+ * definition. Rewritten to be genuinely backed by that table, scoped to
+ * the authenticated user (each row belongs to one user_id).
+ */
 class NotificationController extends Controller
 {
     public function index(Request $request)
     {
-        try {
-            $query = collect(); // Placeholder for notifications
+        $query = Notification::where('user_id', $request->user()->id);
 
-            // Filter by read status
-            $isRead = $request->get('read');
-            if ($isRead !== null) {
-                // In production, filter by read status
-            }
-
-            // Paginate
-            $perPage = $request->get('per_page', 15);
-            $notifications = $query->take($perPage);
-
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'notifications' => $notifications,
-                    'unread_count' => 0
-                ]
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to fetch notifications',
-                'error' => $e->getMessage()
-            ], 500);
+        $isRead = $request->get('read');
+        if ($isRead !== null) {
+            filter_var($isRead, FILTER_VALIDATE_BOOLEAN)
+                ? $query->whereNotNull('read_at')
+                : $query->whereNull('read_at');
         }
+
+        $perPage = (int) $request->get('per_page', 15);
+        $notifications = $query->orderByDesc('created_at')->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => $notifications->items(),
+            'meta' => [
+                'current_page' => $notifications->currentPage(),
+                'last_page' => $notifications->lastPage(),
+                'total' => $notifications->total(),
+            ],
+        ]);
     }
 
     public function markAsRead(Request $request)
     {
-        try {
-            $validator = Validator::make($request->all(), [
-                'notification_ids' => 'required|array',
-                'notification_ids.*' => 'string'
-            ]);
+        $validator = Validator::make($request->all(), [
+            'notification_ids' => 'required|array',
+            'notification_ids.*' => 'string',
+        ]);
 
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Validation failed',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            // In production, mark notifications as read
-            return response()->json([
-                'success' => true,
-                'message' => 'Notifications marked as read'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to mark notifications as read',
-                'error' => $e->getMessage()
-            ], 500);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
+
+        $updated = Notification::where('user_id', $request->user()->id)
+            ->whereIn('id', $request->notification_ids)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return response()->json(['success' => true, 'message' => "{$updated} notification(s) marked as read"]);
     }
 
-    public function markAllAsRead()
+    public function markAllAsRead(Request $request)
     {
-        try {
-            // In production, mark all notifications as read
-            return response()->json([
-                'success' => true,
-                'message' => 'All notifications marked as read'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to mark all notifications as read',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        $updated = Notification::where('user_id', $request->user()->id)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return response()->json(['success' => true, 'message' => "{$updated} notification(s) marked as read"]);
     }
 
-    public function delete($id)
+    public function delete(Request $request, $id)
     {
-        try {
-            // In production, delete notification
-            return response()->json([
-                'success' => true,
-                'message' => 'Notification deleted successfully'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete notification',
-                'error' => $e->getMessage()
-            ], 500);
+        $notification = Notification::where('user_id', $request->user()->id)->find($id);
+        if (!$notification) {
+            return response()->json(['success' => false, 'message' => 'Notification not found'], 404);
         }
+        $notification->delete();
+
+        return response()->json(['success' => true, 'message' => 'Notification deleted successfully']);
     }
 
+    /**
+     * Create and persist a real notification for one or more recipients.
+     * Only 'in_app' actually shows anywhere today -- 'email'/'sms'
+     * channels are accepted (matching the column's enum) but nothing
+     * sends them, same honestly-disclosed gap as Settings > Notifications.
+     *
+     * Settings > Notifications > "In-app Notifications" is a single
+     * site-wide toggle (the Setting store has no per-user rows), so it's
+     * wired here as a company-wide pause switch for the in_app channel --
+     * flip it off and no new in-app notifications get created for anyone
+     * until it's flipped back on. Existing unread ones are unaffected.
+     */
     public function send(Request $request)
     {
-        try {
-            $validator = Validator::make($request->all(), [
-                'title' => 'required|string|max:255',
-                'message' => 'required|string',
-                'type' => 'required|in:info,warning,error,success',
-                'recipient_ids' => 'required|array',
-                'recipient_ids.*' => 'string',
-                'data' => 'sometimes|array'
-            ]);
+        $validator = Validator::make($request->all(), [
+            'title' => 'required|string|max:200',
+            'message' => 'required|string',
+            'type' => 'sometimes|in:info,warning,error,success,alert',
+            'channel' => 'sometimes|in:in_app,email,sms',
+            'recipient_ids' => 'required|array|min:1',
+            'recipient_ids.*' => 'string',
+        ]);
 
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Validation failed',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
 
-            // In production, create and send notifications
-            $notification = [
-                'id' => Str::uuid(),
-                'title' => $request->title,
-                'message' => $request->message,
-                'type' => $request->type,
-                'data' => $request->data ?? [],
-                'created_at' => now()
-            ];
-
+        $channel = $request->get('channel', 'in_app');
+        if ($channel === 'in_app' && !(Setting::allAsMap()['notifications_enabled'] ?? true)) {
             return response()->json([
                 'success' => true,
-                'message' => 'Notification sent successfully',
-                'data' => $notification
+                'message' => 'In-app notifications are disabled in Settings -- nothing sent',
+                'data' => [],
             ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to send notification',
-                'error' => $e->getMessage()
-            ], 500);
         }
+
+        $created = collect($request->recipient_ids)->map(fn ($userId) => Notification::create([
+            'user_id' => $userId,
+            'channel' => $channel,
+            'type' => $request->get('type', 'info'),
+            'title' => $request->title,
+            'body' => $request->message,
+        ]));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Notification sent to ' . $created->count() . ' recipient(s)',
+            'data' => $created->values(),
+        ]);
     }
 
-    public function getUnreadCount()
+    public function getUnreadCount(Request $request)
     {
-        try {
-            // In production, count unread notifications
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'unread_count' => 0
-                ]
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to get unread count',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        $count = Notification::where('user_id', $request->user()->id)->whereNull('read_at')->count();
+
+        return response()->json(['success' => true, 'data' => ['unread_count' => $count]]);
     }
 }

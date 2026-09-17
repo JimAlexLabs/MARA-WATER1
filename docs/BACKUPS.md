@@ -71,15 +71,26 @@ that creates it.
   volume backup schedule are specified in `.railway/railway.ts` and
   validated (`railway config plan` shows exactly the intended change,
   cleanly, with nothing destroyed) but not yet actually applied to the
-  live project** -- the Railway API token available in this session
-  could plan the change but not apply it (every apply attempt reported
-  success without the change taking effect, and this held across a
-  plain apply, a verbose apply, and the documented CI pinned-plan
-  flow). Whoever has full account-level Railway access needs to run
-  `railway config apply --yes` from the repo root once, or make the
-  equivalent changes by hand in the Railway dashboard (see below).
-  Until then, backups only happen when someone clicks
-  "Create Backup Now" in Settings, or before a reset/restore.
+  live project.** This was first suspected to be a token-permission
+  issue (Phase 11 was built with a project-scoped `RAILWAY_TOKEN`), but
+  Phase 12 retried the identical `railway config apply` with a fully
+  authenticated account-owner session and got the exact same silent
+  no-op a fifth time, across five distinct invocation styles (plain
+  apply, verbose apply, apply with `--confirm-destructive`, and the
+  documented CI pinned-plan flow of `config plan --out` then
+  `config apply --plan ... --yes --confirm-destructive` -- the last of
+  which even prints "Applied pinned Railway configuration." on success
+  with zero actual effect). That rules out account permissions as the
+  cause. It looks instead like a genuine limitation in Railway's
+  `config apply` path specifically for **creating a brand-new service**
+  and/or **setting `backupSchedules` on an existing volume** via the
+  declarative IaC flow -- other applies to *existing* resources (e.g.
+  deploying code changes to MARA-WATER1) have worked fine all project.
+  Given that, don't spend time re-trying `railway config apply` --
+  go straight to the dashboard fallback below, which uses a different,
+  more mature code path than the newer IaC apply feature. Until this is
+  done, backups only happen when someone clicks "Create Backup Now" in
+  Settings, or before a reset/restore.
 - **Retention:** backups older than 400 days are pruned automatically
   every time a new one is taken (`BackupService::cleanup()`), except
   the single most recent backup is never deleted regardless of age --
@@ -88,7 +99,11 @@ that creates it.
   window. 400 days comfortably covers "a full financial year" with
   margin on both sides of a year boundary, per the spec.
 
-## Applying the pending infrastructure change (once you have full Railway access)
+## Applying the pending infrastructure change
+
+`railway config apply` has not worked for this specific change under
+any credentials tried so far (see above) -- expect it to report success
+and do nothing. Feel free to confirm that for yourself first:
 
 ```bash
 cd MARA.COM
@@ -98,8 +113,7 @@ railway config plan     # review the diff -- should show exactly:
 railway config apply --yes
 ```
 
-If that also silently no-ops for you, it's a Railway CLI/API quirk
-rather than anything specific to this repo -- fall back to the Railway
+But don't loop on it -- go straight to the Railway
 dashboard: **Volumes → mysql-volume → enable a daily backup schedule**,
 and **New Service → GitHub Repo → same repo, root directory
 `backend/mara-water-api` → Settings → Cron Schedule: `0 2 * * *`,
