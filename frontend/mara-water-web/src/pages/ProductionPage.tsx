@@ -285,7 +285,7 @@ const ProductionPage: React.FC = () => {
       case 'open': return 'text-blue-600 bg-blue-100';
       case 'in_progress': return 'text-yellow-600 bg-yellow-100';
       case 'closed': return 'text-green-600 bg-green-100';
-      default: return 'text-gray-600 bg-gray-100';
+      default: return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700';
     }
   };
 
@@ -311,8 +311,8 @@ const ProductionPage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Production Management</h1>
-          <p className="text-gray-600">Manage batches and packaging runs</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Production Management</h1>
+          <p className="text-gray-600 dark:text-gray-400">Manage batches and packaging runs</p>
         </div>
         <div className="flex space-x-3">
           <button
@@ -343,58 +343,58 @@ const ProductionPage: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <Package className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Batches</p>
-              <p className="text-2xl font-bold text-gray-900">{batches.length}</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Batches</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{batches.length}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <Settings className="w-8 h-8 text-yellow-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Active Batches</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Batches</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {batches.filter(b => b.status === 'open' || b.status === 'in_progress').length}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <CheckCircle className="w-8 h-8 text-green-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Completed Batches</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Completed Batches</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {batches.filter(b => b.status === 'closed').length}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <TrendingUp className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Packaging Runs</p>
-              <p className="text-2xl font-bold text-gray-900">{packagingRuns.length}</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Packaging Runs</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{packagingRuns.length}</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex space-x-8 px-6">
             <button
               onClick={() => setActiveTab('batches')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'batches'
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
               }`}
             >
               Batches ({batches.length})
@@ -404,7 +404,7 @@ const ProductionPage: React.FC = () => {
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'packaging'
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
               }`}
             >
               Packaging Runs ({packagingRuns.length})
@@ -414,7 +414,7 @@ const ProductionPage: React.FC = () => {
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'materials'
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
               }`}
             >
               Materials ({materials.length})
@@ -424,7 +424,7 @@ const ProductionPage: React.FC = () => {
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'bom'
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
               }`}
             >
               Bill of Materials
@@ -437,13 +437,13 @@ const ProductionPage: React.FC = () => {
           <div className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="flex-1">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
                 <input
                   type="text"
                   placeholder={`Search ${activeTab}...`}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
             </div>
@@ -452,7 +452,7 @@ const ProductionPage: React.FC = () => {
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="all">All Status</option>
                   <option value="open">Open</option>
@@ -460,11 +460,11 @@ const ProductionPage: React.FC = () => {
                   <option value="closed">Closed</option>
                 </select>
               )}
-              <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <button className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                 <Filter className="w-4 h-4 mr-2" />
                 More Filters
               </button>
-              <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <button className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                 <Download className="w-4 h-4 mr-2" />
                 Export
               </button>
@@ -474,55 +474,55 @@ const ProductionPage: React.FC = () => {
           {/* Batches Table */}
           {activeTab === 'batches' && (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-900">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Batch Details
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Product
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Dates
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Quantity
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredBatches.map((batch) => (
-                    <tr key={batch.id} className="hover:bg-gray-50">
+                    <tr key={batch.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{batch.code}</div>
-                          <div className="text-sm text-gray-500">
+                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{batch.code}</div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400">
                             By: {batch.opened_by.first_name} {batch.opened_by.last_name}
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{batch.sku?.name ?? '—'}</div>
-                          <div className="text-sm text-gray-500">{batch.sku?.size_liters ?? '—'}L</div>
+                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{batch.sku?.name ?? '—'}</div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400">{batch.sku?.size_liters ?? '—'}L</div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">
                           <div>MFG: {new Date(batch.manufacture_date).toLocaleDateString()}</div>
                           <div>EXP: {new Date(batch.expiry_date).toLocaleDateString()}</div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
                         <div>Planned: {batch.planned_qty.toLocaleString()}</div>
-                        {batch.actual_qty != null && <div className="text-gray-500 font-normal">Actual: {batch.actual_qty.toLocaleString()}</div>}
+                        {batch.actual_qty != null && <div className="text-gray-500 dark:text-gray-400 font-normal">Actual: {batch.actual_qty.toLocaleString()}</div>}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(batch.status)}`}>
@@ -550,33 +550,33 @@ const ProductionPage: React.FC = () => {
           {/* Packaging Runs Table */}
           {activeTab === 'packaging' && (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-900">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Run Details
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Batch & Product
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Warehouse
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Duration
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Output
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Efficiency
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredPackagingRuns.map((run) => {
                     const startTime = new Date(run.run_start);
                     const endTime = new Date(run.run_end);
@@ -585,41 +585,41 @@ const ProductionPage: React.FC = () => {
                     const efficiency = totalQty > 0 ? Math.round((run.good_qty / totalQty) * 100) : 0;
                     
                     return (
-                      <tr key={run.id} className="hover:bg-gray-50">
+                      <tr key={run.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div>
-                            <div className="text-sm font-medium text-gray-900">
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                               {new Date(run.run_start).toLocaleDateString()}
                             </div>
-                            <div className="text-sm text-gray-500">
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
                               {new Date(run.run_start).toLocaleTimeString()} - {new Date(run.run_end).toLocaleTimeString()}
                             </div>
-                            <div className="text-xs text-gray-400">
+                            <div className="text-xs text-gray-400 dark:text-gray-500">
                               By: {run.run_by ? `${run.run_by.first_name} ${run.run_by.last_name}` : '—'}
                             </div>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div>
-                            <div className="text-sm font-medium text-gray-900">{run.batch?.code ?? '—'}</div>
-                            <div className="text-sm text-gray-500">{run.sku?.name ?? '—'}</div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{run.batch?.code ?? '—'}</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">{run.sku?.name ?? '—'}</div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                           {run.warehouse?.name || '—'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                           {duration} min
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
+                          <div className="text-sm text-gray-900 dark:text-gray-100">
                             <div>Good: {run.good_qty.toLocaleString()}</div>
                             <div>Scrap: {run.scrap_qty.toLocaleString()}</div>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="text-sm font-medium text-gray-900">{efficiency}%</div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{efficiency}%</div>
                             <div className="ml-2 w-16 bg-gray-200 rounded-full h-2">
                               <div 
                                 className="bg-green-600 h-2 rounded-full" 
@@ -652,29 +652,29 @@ const ProductionPage: React.FC = () => {
           {/* Materials Table */}
           {activeTab === 'materials' && (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-900">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Material</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UoM</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reorder Level</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Material</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Category</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">UoM</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Reorder Level</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {materials.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()) || m.code.toLowerCase().includes(searchTerm.toLowerCase())).map((m) => (
-                    <tr key={m.id} className="hover:bg-gray-50">
+                    <tr key={m.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{m.name}</div>
-                        <div className="text-sm text-gray-500">{m.code}</div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{m.name}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{m.code}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{m.category}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{m.uom}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{parseFloat(m.min_level || '0').toLocaleString()}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{m.category}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{m.uom}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{parseFloat(m.min_level || '0').toLocaleString()}</td>
                     </tr>
                   ))}
                   {materials.length === 0 && (
-                    <tr><td colSpan={4} className="px-6 py-4 text-sm text-gray-400">No materials yet -- add one to start tracking raw materials.</td></tr>
+                    <tr><td colSpan={4} className="px-6 py-4 text-sm text-gray-400 dark:text-gray-500">No materials yet -- add one to start tracking raw materials.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -685,11 +685,11 @@ const ProductionPage: React.FC = () => {
           {activeTab === 'bom' && (
             <div>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700">Product</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Product</label>
                 <select
                   value={bomSkuId}
                   onChange={(e) => setBomSkuId(e.target.value)}
-                  className="mt-1 block w-full max-w-md border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full max-w-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select a product to view/edit its recipe</option>
                   {skus.map(s => <option key={s.id} value={s.id}>{s.brand ? `${s.brand} -- ` : ''}{s.name}</option>)}
@@ -699,21 +699,21 @@ const ProductionPage: React.FC = () => {
               {bomSkuId && (
                 <>
                   <div className="overflow-x-auto mb-4">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                      <thead className="bg-gray-50 dark:bg-gray-900">
                         <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Material</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty per unit</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UoM</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Material</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Qty per unit</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">UoM</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
+                      <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                         {bomItems.map((b) => (
-                          <tr key={b.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{b.material?.name}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{parseFloat(b.qty_per_unit).toLocaleString()}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{b.uom}</td>
+                          <tr key={b.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{b.material?.name}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{parseFloat(b.qty_per_unit).toLocaleString()}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{b.uom}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm">
                               <button onClick={() => handleRemoveBomLine(b.id)} className="text-red-600 hover:text-red-900">
                                 <Trash2 className="w-4 h-4" />
@@ -722,41 +722,41 @@ const ProductionPage: React.FC = () => {
                           </tr>
                         ))}
                         {bomItems.length === 0 && (
-                          <tr><td colSpan={4} className="px-6 py-4 text-sm text-gray-400">No recipe set for this product yet -- add a line below.</td></tr>
+                          <tr><td colSpan={4} className="px-6 py-4 text-sm text-gray-400 dark:text-gray-500">No recipe set for this product yet -- add a line below.</td></tr>
                         )}
                       </tbody>
                     </table>
                   </div>
 
-                  <form onSubmit={handleAddBomLine} className="flex items-end gap-3 bg-gray-50 p-4 rounded-lg">
+                  <form onSubmit={handleAddBomLine} className="flex items-end gap-3 bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Material</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Material</label>
                       <select
                         required
                         value={bomForm.material_id}
                         onChange={(e) => setBomForm({...bomForm, material_id: e.target.value})}
-                        className="mt-1 block border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="mt-1 block border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
                         <option value="">Select material</option>
                         {materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Qty per unit</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Qty per unit</label>
                       <input
                         required type="number" min={0.0001} step="0.0001"
                         value={bomForm.qty_per_unit}
                         onChange={(e) => setBomForm({...bomForm, qty_per_unit: e.target.value})}
-                        className="mt-1 block w-28 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="mt-1 block w-28 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">UoM</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">UoM</label>
                       <input
                         required type="text"
                         value={bomForm.uom}
                         onChange={(e) => setBomForm({...bomForm, uom: e.target.value})}
-                        className="mt-1 block w-24 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="mt-1 block w-24 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                     <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
@@ -773,16 +773,16 @@ const ProductionPage: React.FC = () => {
       {/* Batch Form Modal */}
       {showBatchForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">New Batch</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">New Batch</h3>
             <form onSubmit={handleBatchSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">SKU</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">SKU</label>
                 <select
                   required
                   value={batchForm.sku_id}
                   onChange={(e) => setBatchForm({...batchForm, sku_id: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select SKU</option>
                   {skus.map(s => (
@@ -791,31 +791,31 @@ const ProductionPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Planned Quantity</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Planned Quantity</label>
                 <input
                   type="number"
                   value={batchForm.planned_qty}
                   onChange={(e) => setBatchForm({...batchForm, planned_qty: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Manufacture Date</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Manufacture Date</label>
                   <input
                     type="date"
                     value={batchForm.manufacture_date}
                     onChange={(e) => setBatchForm({...batchForm, manufacture_date: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Expiry Date</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Expiry Date</label>
                   <input
                     type="date"
                     value={batchForm.expiry_date}
                     onChange={(e) => setBatchForm({...batchForm, expiry_date: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
@@ -823,7 +823,7 @@ const ProductionPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowBatchForm(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
                   Cancel
                 </button>
@@ -842,11 +842,11 @@ const ProductionPage: React.FC = () => {
       {/* Packaging Form Modal */}
       {showPackagingForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">New Packaging Run</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">New Packaging Run</h3>
             <form onSubmit={handlePackagingSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Batch</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Batch</label>
                 <select
                   required
                   value={packagingForm.batch_id}
@@ -854,7 +854,7 @@ const ProductionPage: React.FC = () => {
                     const batch = batches.find(b => b.id === e.target.value);
                     setPackagingForm({...packagingForm, batch_id: e.target.value, sku_id: batch?.sku_id || ''});
                   }}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select Batch (in progress)</option>
                   {batches.filter(b => b.status === 'in_progress').map(batch => (
@@ -868,12 +868,12 @@ const ProductionPage: React.FC = () => {
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Outlet / Warehouse (finished goods land here)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Outlet / Warehouse (finished goods land here)</label>
                 <select
                   required
                   value={packagingForm.warehouse_id}
                   onChange={(e) => setPackagingForm({...packagingForm, warehouse_id: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select warehouse</option>
                   {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
@@ -881,59 +881,59 @@ const ProductionPage: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Start Time</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Start Time</label>
                   <input
                     type="datetime-local"
                     value={packagingForm.run_start}
                     onChange={(e) => setPackagingForm({...packagingForm, run_start: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">End Time</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">End Time</label>
                   <input
                     type="datetime-local"
                     value={packagingForm.run_end}
                     onChange={(e) => setPackagingForm({...packagingForm, run_end: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Good Qty</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Good Qty</label>
                   <input
                     type="number"
                     value={packagingForm.good_qty}
                     onChange={(e) => setPackagingForm({...packagingForm, good_qty: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Scrap Qty</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Scrap Qty</label>
                   <input
                     type="number"
                     value={packagingForm.scrap_qty}
                     onChange={(e) => setPackagingForm({...packagingForm, scrap_qty: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Downtime (min)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Downtime (min)</label>
                   <input
                     type="number"
                     value={packagingForm.downtime_minutes}
                     onChange={(e) => setPackagingForm({...packagingForm, downtime_minutes: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
                 <textarea
                   value={packagingForm.notes}
                   onChange={(e) => setPackagingForm({...packagingForm, notes: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
                 />
               </div>
@@ -941,7 +941,7 @@ const ProductionPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowPackagingForm(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
                   Cancel
                 </button>
@@ -960,64 +960,64 @@ const ProductionPage: React.FC = () => {
       {/* Material Form Modal */}
       {showMaterialForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">New Material</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">New Material</h3>
             <form onSubmit={handleMaterialSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Code</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code</label>
                   <input
                     required type="text"
                     value={materialForm.code}
                     onChange={(e) => setMaterialForm({...materialForm, code: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Category</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
                   <input
                     required type="text" placeholder="e.g. preform, label, cap, bailing paper"
                     value={materialForm.category}
                     onChange={(e) => setMaterialForm({...materialForm, category: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Name</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
                 <input
                   required type="text"
                   value={materialForm.name}
                   onChange={(e) => setMaterialForm({...materialForm, name: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Unit</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit</label>
                   <input
                     required type="text"
                     value={materialForm.uom}
                     onChange={(e) => setMaterialForm({...materialForm, uom: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Reorder Level</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reorder Level</label>
                   <input
                     type="number" min={0}
                     value={materialForm.min_level}
                     onChange={(e) => setMaterialForm({...materialForm, min_level: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Lead Time (days)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Lead Time (days)</label>
                   <input
                     type="number" min={0}
                     value={materialForm.lead_time_days}
                     onChange={(e) => setMaterialForm({...materialForm, lead_time_days: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
@@ -1025,7 +1025,7 @@ const ProductionPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowMaterialForm(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
                   Cancel
                 </button>

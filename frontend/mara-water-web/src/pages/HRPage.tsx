@@ -144,7 +144,7 @@ const HRPage: React.FC = () => {
       case 'absent': return 'text-red-600 bg-red-100';
       case 'late': return 'text-yellow-600 bg-yellow-100';
       case 'half_day': return 'text-orange-600 bg-orange-100';
-      default: return 'text-gray-600 bg-gray-100';
+      default: return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700';
     }
   };
 
@@ -171,8 +171,8 @@ const HRPage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">HR Management</h1>
-          <p className="text-gray-600">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">HR Management</h1>
+          <p className="text-gray-600 dark:text-gray-400">
             Attendance tracking. Adding or bulk-importing employee records (name, phone, ID
             number, department, role, employment date, salary) is in{' '}
             <Link to="/users" className="text-blue-600 hover:text-blue-800 font-medium">Employees</Link>.
@@ -191,43 +191,43 @@ const HRPage: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <Users className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Records</p>
-              <p className="text-2xl font-bold text-gray-900">{attendances.length}</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Records</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{attendances.length}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <CheckCircle className="w-8 h-8 text-green-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Present Today</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Present Today</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {attendances.filter(a => a.status === 'present' && a.date === new Date().toISOString().split('T')[0]).length}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <Clock className="w-8 h-8 text-yellow-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Hours</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Hours</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {attendances.reduce((sum, a) => sum + (a.total_hours ?? 0), 0).toFixed(1)}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <AlertTriangle className="w-8 h-8 text-red-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Overtime Hours</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Overtime Hours</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {attendances.reduce((sum, a) => sum + (a.overtime_hours ?? 0), 0).toFixed(1)}
               </p>
             </div>
@@ -236,22 +236,22 @@ const HRPage: React.FC = () => {
       </div>
 
       {/* Attendance Table */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Attendance Records</h3>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Attendance Records</h3>
         </div>
         <div className="p-6">
           {/* Search and Filters */}
           <div className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="flex-1">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
                 <input
                   type="text"
                   placeholder="Search attendance..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
             </div>
@@ -259,7 +259,7 @@ const HRPage: React.FC = () => {
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="all">All Status</option>
                 <option value="present">Present</option>
@@ -267,11 +267,11 @@ const HRPage: React.FC = () => {
                 <option value="late">Late</option>
                 <option value="half_day">Half Day</option>
               </select>
-              <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <button className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                 <Filter className="w-4 h-4 mr-2" />
                 More Filters
               </button>
-              <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <button className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                 <Download className="w-4 h-4 mr-2" />
                 Export
               </button>
@@ -279,55 +279,55 @@ const HRPage: React.FC = () => {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Employee
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Date
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Clock In/Out
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Hours
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {filteredAttendances.map((attendance) => (
-                  <tr key={attendance.id} className="hover:bg-gray-50">
+                  <tr key={attendance.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                           {attendance.user ? `${attendance.user.first_name} ${attendance.user.last_name}` : 'Unknown employee'}
                         </div>
                         {attendance.user?.email && (
-                          <div className="text-sm text-gray-500">{attendance.user.email}</div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400">{attendance.user.email}</div>
                         )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
+                      <div className="text-sm text-gray-900 dark:text-gray-100">
                         {new Date(attendance.date).toLocaleDateString()}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
+                      <div className="text-sm text-gray-900 dark:text-gray-100">
                         <div>In: {attendance.clock_in_time}</div>
                         <div>Out: {attendance.clock_out_time || 'Not clocked out'}</div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
+                      <div className="text-sm text-gray-900 dark:text-gray-100">
                         <div>Worked: {attendance.total_hours ?? 0}h</div>
                         <div>Overtime: {attendance.overtime_hours ?? 0}h</div>
                       </div>
@@ -362,15 +362,15 @@ const HRPage: React.FC = () => {
       {/* Attendance Form Modal */}
       {showAttendanceForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Record Attendance</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Record Attendance</h3>
             <form onSubmit={handleAttendanceSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Employee</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Employee</label>
                 <select
                   value={attendanceForm.user_id}
                   onChange={(e) => setAttendanceForm({...attendanceForm, user_id: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select Employee</option>
                   {employees.map((emp) => (
@@ -379,20 +379,20 @@ const HRPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Date</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
                 <input
                   type="date"
                   value={attendanceForm.date}
                   onChange={(e) => setAttendanceForm({...attendanceForm, date: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Status</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
                 <select
                   value={attendanceForm.status}
                   onChange={(e) => setAttendanceForm({...attendanceForm, status: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="present">Present</option>
                   <option value="absent">Absent</option>
@@ -402,30 +402,30 @@ const HRPage: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Clock In</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Clock In</label>
                   <input
                     type="time"
                     value={attendanceForm.clock_in_time}
                     onChange={(e) => setAttendanceForm({...attendanceForm, clock_in_time: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Clock Out</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Clock Out</label>
                   <input
                     type="time"
                     value={attendanceForm.clock_out_time}
                     onChange={(e) => setAttendanceForm({...attendanceForm, clock_out_time: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
                 <textarea
                   value={attendanceForm.notes}
                   onChange={(e) => setAttendanceForm({...attendanceForm, notes: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
                 />
               </div>
@@ -433,7 +433,7 @@ const HRPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowAttendanceForm(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
                   Cancel
                 </button>

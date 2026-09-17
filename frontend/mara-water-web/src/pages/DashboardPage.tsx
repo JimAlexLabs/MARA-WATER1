@@ -111,16 +111,16 @@ const DashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 px-4 py-5 sm:px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 px-4 py-5 sm:px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">
             Welcome back, {user?.first_name}
           </h1>
-          <p className="text-sm text-gray-600 mt-0.5">Here's what's happening at MARA-WATER today</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">Here's what's happening at MARA-WATER today</p>
         </div>
         <div className="text-left sm:text-right">
-          <div className="text-lg font-semibold text-gray-900">{currentTime.toLocaleTimeString()}</div>
-          <div className="text-xs text-gray-500">{currentTime.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+          <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">{currentTime.toLocaleTimeString()}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{currentTime.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
         </div>
       </div>
 
@@ -132,7 +132,7 @@ const DashboardPage: React.FC = () => {
         <>
           {/* Today -- the numbers that matter most, first */}
           <div>
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Today</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Today</h2>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <KpiCard label="Sales Today" value={money(d.today.sales_amount)} icon={TrendingUp} color="from-purple-500 to-purple-600" onClick={() => navigate('/sales?tab=orders')} />
               <KpiCard label="Litres Produced" value={`${d.today.production_liters.toLocaleString()} L`} icon={Droplets} color="from-blue-500 to-blue-600" onClick={() => navigate('/production')} />
@@ -164,7 +164,7 @@ const DashboardPage: React.FC = () => {
 
           {/* Trends */}
           <div>
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Last 7 Days</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Last 7 Days</h2>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <ChartCard title="Sales">
                 {d.trends.sales_7d.length === 0 ? (
@@ -218,9 +218,9 @@ const DashboardPage: React.FC = () => {
 
           {/* Alerts + Recent Activity */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-gray-200">
-              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">Alerts</h3>
+            <div className="lg:col-span-1 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Alerts</h3>
                 {d.alerts.filter(a => a.severity === 'high').length > 0 && (
                   <span className="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
                     {d.alerts.filter(a => a.severity === 'high').length} High Priority
@@ -229,7 +229,7 @@ const DashboardPage: React.FC = () => {
               </div>
               <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
                 {d.alerts.length === 0 ? (
-                  <p className="text-sm text-gray-500 px-2 py-4 text-center">Nothing needs attention right now.</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 px-2 py-4 text-center">Nothing needs attention right now.</p>
                 ) : (
                   d.alerts.map((alert, i) => {
                     const style = SEVERITY_STYLES[alert.severity] || SEVERITY_STYLES.low;
@@ -250,13 +250,13 @@ const DashboardPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
+            <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Activity</h3>
               </div>
               <div className="p-4 space-y-2 max-h-96 overflow-y-auto">
                 {d.recent_activity.length === 0 ? (
-                  <p className="text-sm text-gray-500 px-2 py-4 text-center">No activity yet.</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 px-2 py-4 text-center">No activity yet.</p>
                 ) : (
                   d.recent_activity.map((activity, i) => {
                     const Icon = ACTIVITY_ICON[activity.type] || Package;
@@ -264,14 +264,14 @@ const DashboardPage: React.FC = () => {
                       <button
                         key={i}
                         onClick={() => navigate(activity.route)}
-                        className="w-full text-left flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50 transition"
+                        className="w-full text-left flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                       >
                         <div className="h-8 w-8 flex-shrink-0 bg-blue-100 rounded-full flex items-center justify-center">
                           <Icon className="h-4 w-4 text-blue-600" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-900 truncate">{activity.message}</p>
-                          <p className="text-xs text-gray-500">{new Date(activity.at).toLocaleString()}</p>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 truncate">{activity.message}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(activity.at).toLocaleString()}</p>
                         </div>
                       </button>
                     );
@@ -282,9 +282,9 @@ const DashboardPage: React.FC = () => {
           </div>
 
           {/* Quick Actions */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Quick Actions</h3>
             </div>
             <div className="p-4 sm:p-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -320,26 +320,26 @@ const KpiCard: React.FC<{
 }> = ({ label, value, icon: Icon, color, onClick, compact }) => (
   <button
     onClick={onClick}
-    className={`text-left bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow ${compact ? 'p-4' : 'p-4 sm:p-5'}`}
+    className={`text-left bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow ${compact ? 'p-4' : 'p-4 sm:p-5'}`}
   >
     <div className={`bg-gradient-to-r ${color} rounded-lg p-2.5 inline-flex mb-3`}>
       <Icon className="h-5 w-5 text-white" />
     </div>
-    <p className="text-xs font-medium text-gray-500">{label}</p>
-    <p className={`font-bold text-gray-900 mt-0.5 ${compact ? 'text-lg' : 'text-xl sm:text-2xl'}`}>{value}</p>
+    <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
+    <p className={`font-bold text-gray-900 dark:text-gray-100 mt-0.5 ${compact ? 'text-lg' : 'text-xl sm:text-2xl'}`}>{value}</p>
   </button>
 );
 
 const ChartCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-    <h4 className="text-sm font-semibold text-gray-700 mb-2">{title}</h4>
+  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{title}</h4>
     {children}
   </div>
 );
 
 const EmptyChart: React.FC<{ label: string }> = ({ label }) => (
   <div className="h-[200px] flex items-center justify-center text-center px-4">
-    <p className="text-sm text-gray-400">{label}</p>
+    <p className="text-sm text-gray-400 dark:text-gray-500">{label}</p>
   </div>
 );
 

@@ -14,6 +14,8 @@ import {
   DatabaseBackup,
   History,
   X,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
@@ -40,7 +42,7 @@ const SettingsPage: React.FC = () => {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const { user, updateProfile } = useAuth();
+  const { user, updateProfile, theme, toggleTheme } = useAuth();
   const isAdmin = user?.role?.code === 'ADMIN';
 
   useEffect(() => {
@@ -230,7 +232,7 @@ const SettingsPage: React.FC = () => {
     { id: 'profile', name: 'Profile', icon: UserIcon },
     { id: 'general', name: 'General', icon: Settings },
     { id: 'notifications', name: 'Notifications', icon: Bell },
-    { id: 'appearance', name: 'Locale', icon: Globe },
+    { id: 'appearance', name: 'Appearance', icon: Globe },
     { id: 'security', name: 'Security', icon: Shield },
     ...(isAdmin ? [{ id: 'danger', name: 'Danger Zone', icon: AlertTriangle }] : []),
   ];
@@ -240,8 +242,8 @@ const SettingsPage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">System Settings</h1>
-          <p className="text-gray-600">Configure system preferences and options</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">System Settings</h1>
+          <p className="text-gray-600 dark:text-gray-400">Configure system preferences and options</p>
         </div>
         {activeTab !== 'profile' && activeTab !== 'security' && activeTab !== 'danger' && (
           <div className="flex space-x-3">
@@ -265,8 +267,8 @@ const SettingsPage: React.FC = () => {
       )}
 
       {/* Settings Tabs */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex space-x-8 px-6">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -277,7 +279,7 @@ const SettingsPage: React.FC = () => {
                   className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
                     activeTab === tab.id
                       ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -290,65 +292,65 @@ const SettingsPage: React.FC = () => {
 
         <div className="p-6">
           {loading ? (
-            <p className="text-sm text-gray-500">Loading…</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
           ) : (
             <>
               {/* Profile */}
               {activeTab === 'profile' && (
                 <div className="space-y-6 max-w-lg">
-                  <h3 className="text-lg font-medium text-gray-900">Your Profile</h3>
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Your Profile</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">First Name</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">First Name</label>
                       <input
                         type="text"
                         value={profileForm.first_name}
                         onChange={(e) => setProfileForm(p => ({ ...p, first_name: e.target.value }))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Last Name</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Last Name</label>
                       <input
                         type="text"
                         value={profileForm.last_name}
                         onChange={(e) => setProfileForm(p => ({ ...p, last_name: e.target.value }))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Phone</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
                     <input
                       type="tel"
                       value={profileForm.phone}
                       onChange={(e) => setProfileForm(p => ({ ...p, phone: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
-                  <div className="border-t border-gray-200 pt-4">
-                    <h4 className="text-sm font-medium text-gray-900 mb-3">Change Password (optional)</h4>
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Change Password (optional)</h4>
                     <div className="space-y-3">
                       <input
                         type="password"
                         placeholder="Current password"
                         value={profileForm.current_password}
                         onChange={(e) => setProfileForm(p => ({ ...p, current_password: e.target.value }))}
-                        className="block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <input
                         type="password"
                         placeholder="New password"
                         value={profileForm.new_password}
                         onChange={(e) => setProfileForm(p => ({ ...p, new_password: e.target.value }))}
-                        className="block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <input
                         type="password"
                         placeholder="Confirm new password"
                         value={profileForm.new_password_confirmation}
                         onChange={(e) => setProfileForm(p => ({ ...p, new_password_confirmation: e.target.value }))}
-                        className="block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                   </div>
@@ -366,63 +368,63 @@ const SettingsPage: React.FC = () => {
               {/* General Settings */}
               {activeTab === 'general' && (
                 <div className="space-y-6">
-                  <h3 className="text-lg font-medium text-gray-900">General Settings</h3>
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">General Settings</h3>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Company Name</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Company Name</label>
                       <input
                         type="text"
                         disabled={!isAdmin}
                         value={settings.company_name}
                         onChange={(e) => handleSettingChange('company_name', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-600"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Company Email</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Company Email</label>
                       <input
                         type="email"
                         disabled={!isAdmin}
                         value={settings.company_email}
                         onChange={(e) => handleSettingChange('company_email', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-600"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Company Phone</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Company Phone</label>
                       <input
                         type="tel"
                         disabled={!isAdmin}
                         value={settings.company_phone}
                         onChange={(e) => handleSettingChange('company_phone', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-600"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Session Timeout (minutes)</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Session Timeout (minutes)</label>
                       <input
                         type="number"
                         disabled={!isAdmin}
                         value={settings.session_timeout}
                         onChange={(e) => handleSettingChange('session_timeout', parseInt(e.target.value) || 0)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-600"
                       />
-                      <p className="text-xs text-gray-500 mt-1">Recorded for reference only right now — not yet enforced on login sessions.</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Recorded for reference only right now — not yet enforced on login sessions.</p>
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Company Address</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Company Address</label>
                     <textarea
                       disabled={!isAdmin}
                       value={settings.company_address}
                       onChange={(e) => handleSettingChange('company_address', e.target.value)}
                       rows={3}
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-600"
                     />
                   </div>
                 </div>
@@ -431,8 +433,8 @@ const SettingsPage: React.FC = () => {
               {/* Notification Settings */}
               {activeTab === 'notifications' && (
                 <div className="space-y-6">
-                  <h3 className="text-lg font-medium text-gray-900">Notification Settings</h3>
-                  <p className="text-sm text-gray-500">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Notification Settings</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
                     These preferences are saved, but the app doesn't send email or SMS yet — only
                     in-app notifications (the bell icon, top right) exist today.
                   </p>
@@ -442,10 +444,10 @@ const SettingsPage: React.FC = () => {
                     { key: 'email_notifications', label: 'Email Notifications', desc: 'Receive notifications via email (not yet sent — no email delivery is wired up)' },
                     { key: 'sms_notifications', label: 'SMS Notifications', desc: 'Receive notifications via SMS (not yet sent — no SMS gateway is wired up)' },
                   ].map(({ key, label, desc }) => (
-                    <div key={key} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                    <div key={key} className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
                       <div>
-                        <h4 className="text-sm font-medium text-gray-900">{label}</h4>
-                        <p className="text-sm text-gray-600">{desc}</p>
+                        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">{label}</h4>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">{desc}</p>
                       </div>
                       <label className="relative inline-flex items-center cursor-pointer">
                         <input
@@ -465,8 +467,35 @@ const SettingsPage: React.FC = () => {
               {/* Locale Settings */}
               {activeTab === 'appearance' && (
                 <div className="space-y-6">
-                  <h3 className="text-lg font-medium text-gray-900">Locale</h3>
-                  <p className="text-sm text-gray-500">
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Theme</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      This is your own preference -- it's saved to your account, not shared with
+                      other users, and follows you if you log in elsewhere.
+                    </p>
+                    <div className="mt-3 flex items-center space-x-3">
+                      <button
+                        onClick={() => theme !== 'light' && toggleTheme()}
+                        className={`flex items-center px-4 py-2 rounded-lg border text-sm font-medium ${
+                          theme === 'light' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-500' : 'border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 text-gray-700 dark:text-gray-300'
+                        }`}
+                      >
+                        <Sun className="w-4 h-4 mr-2" /> Light
+                      </button>
+                      <button
+                        onClick={() => theme !== 'dark' && toggleTheme()}
+                        className={`flex items-center px-4 py-2 rounded-lg border text-sm font-medium ${
+                          theme === 'dark' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-500' : 'border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 text-gray-700 dark:text-gray-300'
+                        }`}
+                      >
+                        <Moon className="w-4 h-4 mr-2" /> Dark
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Locale</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
                     Saved for the app to use going forward. Translations and locale-aware date/time
                     rendering across pages aren't wired up yet, so changing these doesn't visibly
                     reformat existing pages today.
@@ -474,12 +503,12 @@ const SettingsPage: React.FC = () => {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Timezone</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Timezone</label>
                       <select
                         disabled={!isAdmin}
                         value={settings.timezone}
                         onChange={(e) => handleSettingChange('timezone', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-600"
                       >
                         <option value="Africa/Nairobi">Africa/Nairobi</option>
                         <option value="UTC">UTC</option>
@@ -487,12 +516,12 @@ const SettingsPage: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Language</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Language</label>
                       <select
                         disabled={!isAdmin}
                         value={settings.language}
                         onChange={(e) => handleSettingChange('language', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-600"
                       >
                         <option value="en">English</option>
                         <option value="sw">Swahili</option>
@@ -500,12 +529,12 @@ const SettingsPage: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Date Format</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date Format</label>
                       <select
                         disabled={!isAdmin}
                         value={settings.date_format}
                         onChange={(e) => handleSettingChange('date_format', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-600"
                       >
                         <option value="Y-m-d">YYYY-MM-DD</option>
                         <option value="d/m/Y">DD/MM/YYYY</option>
@@ -514,17 +543,18 @@ const SettingsPage: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Time Format</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Time Format</label>
                       <select
                         disabled={!isAdmin}
                         value={settings.time_format}
                         onChange={(e) => handleSettingChange('time_format', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-600"
                       >
                         <option value="H:i:s">24-hour</option>
                         <option value="h:i:s A">12-hour</option>
                       </select>
                     </div>
+                  </div>
                   </div>
                 </div>
               )}
@@ -532,8 +562,8 @@ const SettingsPage: React.FC = () => {
               {/* Security */}
               {activeTab === 'security' && (
                 <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-gray-900">Security</h3>
-                  <p className="text-sm text-gray-500">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Security</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
                     Two-factor authentication, a configurable password policy, and API rate limiting
                     aren't built yet — removed the buttons that used to sit here and did nothing
                     when clicked, rather than leave them decorative. Change your password from the
@@ -546,8 +576,8 @@ const SettingsPage: React.FC = () => {
               {activeTab === 'danger' && isAdmin && (
                 <div className="space-y-8">
                   <div>
-                    <h3 className="text-lg font-medium text-gray-900">Backups</h3>
-                    <p className="text-sm text-gray-500 mt-1">
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Backups</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                       A full snapshot of every business table, downloadable as JSON. Take one any
                       time — this doesn't touch any data. Kept for
                       {dangerInfo ? ` ${dangerInfo.retention_days} days` : ' 400 days'} (a full financial
@@ -564,20 +594,20 @@ const SettingsPage: React.FC = () => {
                     </button>
 
                     {dangerLoading ? (
-                      <p className="text-sm text-gray-500 mt-4">Loading…</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">Loading…</p>
                     ) : (
-                      <div className="mt-4 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-56 overflow-y-auto">
+                      <div className="mt-4 border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700 max-h-56 overflow-y-auto">
                         {backups.length === 0 ? (
-                          <p className="text-sm text-gray-500 p-4">No backups yet.</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 p-4">No backups yet.</p>
                         ) : (
                           backups.map((b) => (
                             <div key={b.id} className="flex items-center justify-between px-4 py-2.5">
                               <div>
-                                <p className="text-sm text-gray-900">
+                                <p className="text-sm text-gray-900 dark:text-gray-100">
                                   {new Date(b.created_at).toLocaleString()}
-                                  <span className="ml-2 text-xs uppercase tracking-wide text-gray-400">{b.reason.replace('_', ' ')}</span>
+                                  <span className="ml-2 text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">{b.reason.replace('_', ' ')}</span>
                                 </p>
-                                <p className="text-xs text-gray-500">{b.total_rows.toLocaleString()} rows · {(b.size_bytes / 1024).toFixed(0)} KB{b.created_by ? ` · by ${b.created_by}` : ''}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{b.total_rows.toLocaleString()} rows · {(b.size_bytes / 1024).toFixed(0)} KB{b.created_by ? ` · by ${b.created_by}` : ''}</p>
                               </div>
                               <div className="flex items-center space-x-4">
                                 <button
@@ -600,13 +630,13 @@ const SettingsPage: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="border-t border-gray-200 pt-6">
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
                     <div className="flex items-center justify-between">
                       <div>
                         <h3 className="text-lg font-medium text-red-700 flex items-center">
                           <AlertTriangle className="w-5 h-5 mr-2" /> Clear All Data
                         </h3>
-                        <p className="text-sm text-gray-500 mt-1 max-w-2xl">
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-2xl">
                           Wipes operational data (orders, invoices, production, inventory, attendance,
                           fleet logs, and more) for a fresh launch. Logins, the product/customer-route
                           catalog, pricing, the vehicle registry, and settings are preserved. A backup
@@ -617,7 +647,7 @@ const SettingsPage: React.FC = () => {
                         onClick={toggleDangerZoneLock}
                         disabled={togglingLock}
                         className={`flex items-center px-4 py-2 rounded-lg font-medium flex-shrink-0 ml-4 ${
-                          dangerUnlocked ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-gray-900 text-white hover:bg-gray-800'
+                          dangerUnlocked ? 'bg-gray-200 text-gray-700 dark:text-gray-300 hover:bg-gray-300' : 'bg-gray-900 text-white hover:bg-gray-800'
                         }`}
                       >
                         {dangerUnlocked ? <Unlock className="w-4 h-4 mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
@@ -629,24 +659,24 @@ const SettingsPage: React.FC = () => {
                       <div className="mt-4 border border-red-200 bg-red-50 rounded-lg p-5 space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                           <div>
-                            <p className="font-medium text-gray-900 mb-1">Will be wiped ({dangerInfo.wiped.length} tables)</p>
-                            <p className="text-gray-600 max-h-24 overflow-y-auto">{dangerInfo.wiped.join(', ')}</p>
+                            <p className="font-medium text-gray-900 dark:text-gray-100 mb-1">Will be wiped ({dangerInfo.wiped.length} tables)</p>
+                            <p className="text-gray-600 dark:text-gray-400 max-h-24 overflow-y-auto">{dangerInfo.wiped.join(', ')}</p>
                           </div>
                           <div>
-                            <p className="font-medium text-gray-900 mb-1">Preserved ({dangerInfo.preserved.length} tables)</p>
-                            <p className="text-gray-600 max-h-24 overflow-y-auto">{dangerInfo.preserved.join(', ')}</p>
+                            <p className="font-medium text-gray-900 dark:text-gray-100 mb-1">Preserved ({dangerInfo.preserved.length} tables)</p>
+                            <p className="text-gray-600 dark:text-gray-400 max-h-24 overflow-y-auto">{dangerInfo.preserved.join(', ')}</p>
                           </div>
                         </div>
 
                         <div>
-                          <label className="block text-sm font-medium text-gray-900">
-                            Type <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-gray-300">{dangerInfo.confirmation_phrase}</span> to confirm
+                          <label className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                            Type <span className="font-mono bg-white dark:bg-gray-800 px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100">{dangerInfo.confirmation_phrase}</span> to confirm
                           </label>
                           <input
                             type="text"
                             value={confirmText}
                             onChange={(e) => setConfirmText(e.target.value)}
-                            className="mt-1 block w-full max-w-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
+                            className="mt-1 block w-full max-w-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
                             placeholder={dangerInfo.confirmation_phrase}
                           />
                         </div>
@@ -663,17 +693,17 @@ const SettingsPage: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="border-t border-gray-200 pt-6">
-                    <h3 className="text-sm font-semibold text-gray-900">Reset history</h3>
-                    <p className="text-xs text-gray-500 mb-3">Permanent — survives the reset it records.</p>
-                    <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-40 overflow-y-auto">
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Reset history</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Permanent — survives the reset it records.</p>
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700 max-h-40 overflow-y-auto">
                       {resetLogs.length === 0 ? (
-                        <p className="text-sm text-gray-500 p-4">No resets have been run.</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 p-4">No resets have been run.</p>
                       ) : (
                         resetLogs.map((l) => (
                           <div key={l.id} className="px-4 py-2.5 text-sm">
-                            <span className="text-gray-900">{l.performed_by_email}</span>
-                            <span className="text-gray-500"> · {new Date(l.created_at).toLocaleString()} · {l.tables_wiped.length} tables</span>
+                            <span className="text-gray-900 dark:text-gray-100">{l.performed_by_email}</span>
+                            <span className="text-gray-500 dark:text-gray-400"> · {new Date(l.created_at).toLocaleString()} · {l.tables_wiped.length} tables</span>
                           </div>
                         ))
                       )}
@@ -689,18 +719,18 @@ const SettingsPage: React.FC = () => {
       {/* Restore Backup Modal */}
       {restoringBackup && dangerInfo && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-lg">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-medium text-red-700 flex items-center">
                 <History className="w-5 h-5 mr-2" /> Restore Backup
               </h3>
-              <button onClick={() => { setRestoringBackup(null); setRestoreConfirmText(''); }} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => { setRestoringBackup(null); setRestoreConfirmText(''); }} className="text-gray-400 dark:text-gray-500 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-sm text-gray-600 mb-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
               This overwrites the current database with exactly what it looked like on{' '}
-              <span className="font-medium text-gray-900">{new Date(restoringBackup.created_at).toLocaleString()}</span>.
+              <span className="font-medium text-gray-900 dark:text-gray-100">{new Date(restoringBackup.created_at).toLocaleString()}</span>.
               A safety backup of the current state is taken automatically first, so this can itself be
               undone by restoring that one if you pick the wrong backup.
             </p>
@@ -710,14 +740,14 @@ const SettingsPage: React.FC = () => {
               </div>
             ) : (
               <div className="border border-red-200 bg-red-50 rounded-lg p-4 space-y-3">
-                <label className="block text-sm font-medium text-gray-900">
-                  Type <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-gray-300">{dangerInfo.restore_confirmation_phrase}</span> to confirm
+                <label className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                  Type <span className="font-mono bg-white dark:bg-gray-800 px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100">{dangerInfo.restore_confirmation_phrase}</span> to confirm
                 </label>
                 <input
                   type="text"
                   value={restoreConfirmText}
                   onChange={(e) => setRestoreConfirmText(e.target.value)}
-                  className="block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
                   placeholder={dangerInfo.restore_confirmation_phrase}
                 />
                 <button

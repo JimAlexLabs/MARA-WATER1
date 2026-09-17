@@ -1,5 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  // Round 2 Phase 2 (dark mode): 'class' instead of the default 'media' --
+  // the toggle sets/removes a `dark` class on <html>, independent of the
+  // OS-level color scheme, and persisted per-user (see AuthContext).
+  darkMode: 'class',
   content: [
     "./src/**/*.{js,jsx,ts,tsx}",
   ],

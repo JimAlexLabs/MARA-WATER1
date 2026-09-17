@@ -341,7 +341,7 @@ const QAPage: React.FC = () => {
       case 'pass': return 'text-green-600 bg-green-100';
       case 'fail': return 'text-red-600 bg-red-100';
       case 'pending': return 'text-yellow-600 bg-yellow-100';
-      default: return 'text-gray-600 bg-gray-100';
+      default: return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700';
     }
   };
 
@@ -367,8 +367,8 @@ const QAPage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Quality Assurance</h1>
-          <p className="text-gray-600">Water tests, production batches, and the warehouse audit</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Quality Assurance</h1>
+          <p className="text-gray-600 dark:text-gray-400">Water tests, production batches, and the warehouse audit</p>
         </div>
         <div className="flex space-x-3">
           <button
@@ -389,13 +389,13 @@ const QAPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex space-x-8 px-6">
             <button
               onClick={() => setActiveTab('tests')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'tests' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                activeTab === 'tests' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
               }`}
             >
               Water Tests
@@ -403,7 +403,7 @@ const QAPage: React.FC = () => {
             <button
               onClick={() => setActiveTab('audit')}
               className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center ${
-                activeTab === 'audit' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                activeTab === 'audit' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
               }`}
             >
               Warehouse Audit
@@ -419,43 +419,43 @@ const QAPage: React.FC = () => {
       <>
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <TestTube className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Tests</p>
-              <p className="text-2xl font-bold text-gray-900">{waterTests.length}</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Tests</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{waterTests.length}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <CheckCircle className="w-8 h-8 text-green-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Passed Tests</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Passed Tests</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {waterTests.filter(t => t.status === 'pass').length}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <XCircle className="w-8 h-8 text-red-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Failed Tests</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Failed Tests</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {waterTests.filter(t => t.status === 'fail').length}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <BarChart3 className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Active Batches</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Batches</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {batches.filter(b => b.status !== 'closed').length}
               </p>
             </div>
@@ -464,17 +464,17 @@ const QAPage: React.FC = () => {
       </div>
 
       {/* Search and Filters */}
-      <div className="bg-white p-6 rounded-lg shadow">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
               <input
                 type="text"
                 placeholder="Search water tests..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
@@ -482,18 +482,18 @@ const QAPage: React.FC = () => {
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="all">All Status</option>
               <option value="pass">Pass</option>
               <option value="fail">Fail</option>
               <option value="pending">Pending</option>
             </select>
-            <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+            <button className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
               <Filter className="w-4 h-4 mr-2" />
               More Filters
             </button>
-            <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+            <button className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
               <Download className="w-4 h-4 mr-2" />
               Export
             </button>
@@ -502,48 +502,48 @@ const QAPage: React.FC = () => {
       </div>
 
       {/* Water Tests Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Recent Water Tests</h3>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Recent Water Tests</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Test Type
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Parameters
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Location
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Recorded By
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Date
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
               {filteredWaterTests.map((test) => (
-                <tr key={test.id} className="hover:bg-gray-50">
+                <tr key={test.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                       {test.test_type}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                     <div>pH: {test.ph}</div>
                     <div>TDS: {test.tds}</div>
                     <div>Cl: {test.chlorine}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                     {test.location_text}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -552,10 +552,10 @@ const QAPage: React.FC = () => {
                       <span className="ml-1">{test.status}</span>
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                     {test.recorded_by ? `${test.recorded_by.first_name} ${test.recorded_by.last_name}` : '—'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {new Date(test.recorded_at).toLocaleString()}
                   </td>
                 </tr>
@@ -577,27 +577,27 @@ const QAPage: React.FC = () => {
           ) : (
           <>
           {/* Critical Gaps -- ranked by what actually blocks production */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h3 className="text-lg font-medium text-gray-900 flex items-center">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 flex items-center">
                 <AlertTriangle className="w-5 h-5 text-red-500 mr-2" />
                 Critical Gaps
               </h3>
-              <div className="text-sm text-gray-500">
+              <div className="text-sm text-gray-500 dark:text-gray-400">
                 <span className="text-red-600 font-medium">{criticalGaps.critical_count} critical</span>
                 {criticalGaps.warning_count > 0 && <span className="ml-3 text-yellow-600 font-medium">{criticalGaps.warning_count} warning</span>}
               </div>
             </div>
             <div className="p-6">
               {criticalGaps.gaps.length === 0 ? (
-                <p className="text-sm text-gray-400">No gaps found -- everything checked out.</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500">No gaps found -- everything checked out.</p>
               ) : (
-                <ul className="divide-y divide-gray-100">
+                <ul className="divide-y divide-gray-100 dark:divide-gray-700">
                   {criticalGaps.gaps.map((gap, i) => (
                     <li key={i} className="py-2 flex items-center">
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium mr-3 ${severityBadge(gap.severity)}`}>{gap.severity}</span>
-                      <span className="text-xs text-gray-400 uppercase mr-2 w-24 flex-shrink-0">{gap.area}</span>
-                      <span className="text-sm text-gray-900">{gap.message}</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500 uppercase mr-2 w-24 flex-shrink-0">{gap.area}</span>
+                      <span className="text-sm text-gray-900 dark:text-gray-100">{gap.message}</span>
                     </li>
                   ))}
                 </ul>
@@ -606,26 +606,26 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* Packaging materials stock watch */}
-          <div className="bg-white rounded-lg shadow overflow-x-auto">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Packaging Materials Stock Watch</h3>
-              <p className="text-xs text-gray-500 mt-1">Labels, seals (bottle vs. refill jerrican), stickers, bailing papers. Edit reorder levels in Production &gt; Materials.</p>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Packaging Materials Stock Watch</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Labels, seals (bottle vs. refill jerrican), stickers, bailing papers. Edit reorder levels in Production &gt; Materials.</p>
             </div>
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">On Hand</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Reorder At</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Item</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">On Hand</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Reorder At</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {packagingWatch.map(row => (
-                  <tr key={row.material.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 text-sm text-gray-900">{row.material.name}</td>
-                    <td className="px-4 py-2 text-sm text-right text-gray-900">{row.qty_on_hand.toLocaleString()} {row.material.uom}</td>
-                    <td className="px-4 py-2 text-sm text-right text-gray-500">{row.reorder_level > 0 ? row.reorder_level.toLocaleString() : 'not set'}</td>
+                  <tr key={row.material.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{row.material.name}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-900 dark:text-gray-100">{row.qty_on_hand.toLocaleString()} {row.material.uom}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-500 dark:text-gray-400">{row.reorder_level > 0 ? row.reorder_level.toLocaleString() : 'not set'}</td>
                     <td className="px-4 py-2"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${severityBadge(row.severity)}`}>{row.status.replace('_', ' ')}</span></td>
                   </tr>
                 ))}
@@ -634,26 +634,26 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* Chemicals & water testing log */}
-          <div className="bg-white rounded-lg shadow overflow-x-auto">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Chemicals & Water Testing Log</h3>
-              <p className="text-xs text-gray-500 mt-1">Chlorine stock and expiry. Edit stock/expiry in Production &gt; Materials.</p>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Chemicals & Water Testing Log</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Chlorine stock and expiry. Edit stock/expiry in Production &gt; Materials.</p>
             </div>
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Chemical</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">On Hand</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Expiry</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Chemical</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">On Hand</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Expiry</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {chemicalsWatch.map(row => (
-                  <tr key={row.material.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 text-sm text-gray-900">{row.material.name}</td>
-                    <td className="px-4 py-2 text-sm text-right text-gray-900">{row.qty_on_hand.toLocaleString()} {row.material.uom}</td>
-                    <td className="px-4 py-2 text-sm text-gray-500">{row.expiry_date ? new Date(row.expiry_date).toLocaleDateString() : 'not set'}</td>
+                  <tr key={row.material.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{row.material.name}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-900 dark:text-gray-100">{row.qty_on_hand.toLocaleString()} {row.material.uom}</td>
+                    <td className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">{row.expiry_date ? new Date(row.expiry_date).toLocaleDateString() : 'not set'}</td>
                     <td className="px-4 py-2"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${severityBadge(row.severity)}`}>{row.status.replace('_', ' ')}{row.expiry_status && row.expiry_status !== 'valid' && row.expiry_status !== 'not_set' ? ` / ${row.expiry_status.replace('_', ' ')}` : ''}</span></td>
                   </tr>
                 ))}
@@ -662,28 +662,28 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* PPE tracking */}
-          <div className="bg-white rounded-lg shadow overflow-x-auto">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">PPE Tracking</h3>
-              <p className="text-xs text-gray-500 mt-1">Gunboots, raincoats, hair coverings -- against active headcount from HR.</p>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">PPE Tracking</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Gunboots, raincoats, hair coverings -- against active headcount from HR.</p>
             </div>
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">On Hand</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Active Staff</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Shortfall</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Item</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">On Hand</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Active Staff</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Shortfall</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {ppeWatch.map(row => (
-                  <tr key={row.material.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 text-sm text-gray-900">{row.material.name}</td>
-                    <td className="px-4 py-2 text-sm text-right text-gray-900">{row.qty_on_hand.toLocaleString()}</td>
-                    <td className="px-4 py-2 text-sm text-right text-gray-500">{row.headcount}</td>
-                    <td className="px-4 py-2 text-sm text-right text-gray-900">{row.shortfall > 0 ? row.shortfall : '—'}</td>
+                  <tr key={row.material.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{row.material.name}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-900 dark:text-gray-100">{row.qty_on_hand.toLocaleString()}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-500 dark:text-gray-400">{row.headcount}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-900 dark:text-gray-100">{row.shortfall > 0 ? row.shortfall : '—'}</td>
                     <td className="px-4 py-2"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${severityBadge(row.severity)}`}>{row.status}</span></td>
                   </tr>
                 ))}
@@ -692,26 +692,26 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* Stationery stock */}
-          <div className="bg-white rounded-lg shadow overflow-x-auto">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Stationery Stock</h3>
-              <p className="text-xs text-gray-500 mt-1">Receipt books, delivery books, invoice books.</p>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Stationery Stock</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Receipt books, delivery books, invoice books.</p>
             </div>
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">On Hand</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Reorder At</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Item</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">On Hand</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Reorder At</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {stationeryWatch.map(row => (
-                  <tr key={row.material.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 text-sm text-gray-900">{row.material.name}</td>
-                    <td className="px-4 py-2 text-sm text-right text-gray-900">{row.qty_on_hand.toLocaleString()} {row.material.uom}</td>
-                    <td className="px-4 py-2 text-sm text-right text-gray-500">{row.reorder_level > 0 ? row.reorder_level.toLocaleString() : 'not set'}</td>
+                  <tr key={row.material.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{row.material.name}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-900 dark:text-gray-100">{row.qty_on_hand.toLocaleString()} {row.material.uom}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-500 dark:text-gray-400">{row.reorder_level > 0 ? row.reorder_level.toLocaleString() : 'not set'}</td>
                     <td className="px-4 py-2"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${severityBadge(row.severity)}`}>{row.status.replace('_', ' ')}</span></td>
                   </tr>
                 ))}
@@ -720,36 +720,36 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* Equipment & machinery log */}
-          <div className="bg-white rounded-lg shadow overflow-x-auto">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-medium text-gray-900">Equipment & Machinery Log</h3>
-                <p className="text-xs text-gray-500 mt-1">Batching machine, heat guns, booster pumps/valves, production basins, backwash system.</p>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Equipment & Machinery Log</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Batching machine, heat guns, booster pumps/valves, production basins, backwash system.</p>
               </div>
               <button onClick={() => openNewEquipment('equipment')} className="flex items-center px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">
                 <Plus className="w-4 h-4 mr-1" /> Add
               </button>
             </div>
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Equipment</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Count / Min</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Condition</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last Service</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Next Due</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Equipment</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Count / Min</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Condition</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Last Service</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Next Due</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {equipmentWatch.map(row => (
-                  <tr key={row.item.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 text-sm text-gray-900">{row.item.name}</td>
-                    <td className="px-4 py-2 text-sm text-right text-gray-900">{row.item.qty_on_hand ?? '—'} / {row.item.minimum_required ?? '—'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-500">{row.item.condition ?? 'not set'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-500">{row.item.last_service_date ? new Date(row.item.last_service_date).toLocaleDateString() : '—'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-500">{row.item.next_service_due ? new Date(row.item.next_service_due).toLocaleDateString() : '—'}</td>
+                  <tr key={row.item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{row.item.name}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-900 dark:text-gray-100">{row.item.qty_on_hand ?? '—'} / {row.item.minimum_required ?? '—'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">{row.item.condition ?? 'not set'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">{row.item.last_service_date ? new Date(row.item.last_service_date).toLocaleDateString() : '—'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">{row.item.next_service_due ? new Date(row.item.next_service_due).toLocaleDateString() : '—'}</td>
                     <td className="px-4 py-2"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${severityBadge(row.severity)}`}>{row.service_status.replace('_', ' ')}</span></td>
                     <td className="px-4 py-2 text-sm">
                       <div className="flex items-center space-x-2">
@@ -764,34 +764,34 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* Test equipment */}
-          <div className="bg-white rounded-lg shadow overflow-x-auto">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-medium text-gray-900">Test Equipment</h3>
-                <p className="text-xs text-gray-500 mt-1">pH tester availability and calibration status.</p>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Test Equipment</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">pH tester availability and calibration status.</p>
               </div>
               <button onClick={() => openNewEquipment('test_equipment')} className="flex items-center px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">
                 <Plus className="w-4 h-4 mr-1" /> Add
               </button>
             </div>
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">On Hand</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Calibration</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Next Due</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Item</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">On Hand</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Calibration</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Next Due</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {testEquipmentWatch.map(row => (
-                  <tr key={row.item.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 text-sm text-gray-900">{row.item.name}</td>
-                    <td className="px-4 py-2 text-sm text-right text-gray-900">{row.item.qty_on_hand ?? '—'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-500">{row.item.calibration_status?.replace('_', ' ') ?? 'not set'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-500">{row.item.next_service_due ? new Date(row.item.next_service_due).toLocaleDateString() : '—'}</td>
+                  <tr key={row.item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{row.item.name}</td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-900 dark:text-gray-100">{row.item.qty_on_hand ?? '—'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">{row.item.calibration_status?.replace('_', ' ') ?? 'not set'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">{row.item.next_service_due ? new Date(row.item.next_service_due).toLocaleDateString() : '—'}</td>
                     <td className="px-4 py-2"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${severityBadge(row.severity)}`}>{row.service_status.replace('_', ' ')}</span></td>
                     <td className="px-4 py-2 text-sm">
                       <div className="flex items-center space-x-2">
@@ -812,15 +812,15 @@ const QAPage: React.FC = () => {
       {/* Water Test Form Modal */}
       {showWaterTestForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">New Water Test</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">New Water Test</h3>
             <form onSubmit={handleWaterTestSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Test Type</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Test Type</label>
                 <select
                   value={waterTestForm.test_type}
                   onChange={(e) => setWaterTestForm({...waterTestForm, test_type: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="baseline">Baseline</option>
                   <option value="random">Random</option>
@@ -828,62 +828,62 @@ const QAPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Date &amp; Time</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date &amp; Time</label>
                 <input
                   type="datetime-local"
                   required
                   value={waterTestForm.recorded_at}
                   onChange={(e) => setWaterTestForm({...waterTestForm, recorded_at: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <p className="text-xs text-gray-500 mt-1">Recorded by: you ({user?.full_name || 'logged-in user'}) -- not editable.</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Recorded by: you ({user?.full_name || 'logged-in user'}) -- not editable.</p>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">pH</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">pH</label>
                   <input
                     type="number"
                     step="0.1"
                     value={waterTestForm.ph}
                     onChange={(e) => setWaterTestForm({...waterTestForm, ph: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">TDS</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">TDS</label>
                   <input
                     type="number"
                     value={waterTestForm.tds}
                     onChange={(e) => setWaterTestForm({...waterTestForm, tds: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Chlorine</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Chlorine</label>
                   <input
                     type="number"
                     step="0.1"
                     value={waterTestForm.chlorine}
                     onChange={(e) => setWaterTestForm({...waterTestForm, chlorine: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Location</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Location</label>
                 <input
                   type="text"
                   value={waterTestForm.location_text}
                   onChange={(e) => setWaterTestForm({...waterTestForm, location_text: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
                 <textarea
                   value={waterTestForm.unit_notes}
                   onChange={(e) => setWaterTestForm({...waterTestForm, unit_notes: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
                 />
               </div>
@@ -891,7 +891,7 @@ const QAPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowWaterTestForm(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
                   Cancel
                 </button>
@@ -910,16 +910,16 @@ const QAPage: React.FC = () => {
       {/* Batch Form Modal */}
       {showBatchForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">New Batch</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">New Batch</h3>
             <form onSubmit={handleBatchSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">SKU</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">SKU</label>
                 <select
                   required
                   value={batchForm.sku_id}
                   onChange={(e) => setBatchForm({...batchForm, sku_id: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select SKU</option>
                   {skus.map(s => (
@@ -928,31 +928,31 @@ const QAPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Planned Quantity</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Planned Quantity</label>
                 <input
                   type="number"
                   value={batchForm.planned_qty}
                   onChange={(e) => setBatchForm({...batchForm, planned_qty: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Manufacture Date</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Manufacture Date</label>
                   <input
                     type="date"
                     value={batchForm.manufacture_date}
                     onChange={(e) => setBatchForm({...batchForm, manufacture_date: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Expiry Date</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Expiry Date</label>
                   <input
                     type="date"
                     value={batchForm.expiry_date}
                     onChange={(e) => setBatchForm({...batchForm, expiry_date: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
@@ -960,7 +960,7 @@ const QAPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowBatchForm(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
                   Cancel
                 </button>
@@ -979,45 +979,45 @@ const QAPage: React.FC = () => {
       {/* Equipment Form Modal */}
       {showEquipmentForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-medium text-gray-900">{editingEquipmentId ? 'Edit' : 'Add'} {equipmentForm.category === 'test_equipment' ? 'Test Equipment' : 'Equipment'}</h3>
-              <button onClick={() => setShowEquipmentForm(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">{editingEquipmentId ? 'Edit' : 'Add'} {equipmentForm.category === 'test_equipment' ? 'Test Equipment' : 'Equipment'}</h3>
+              <button onClick={() => setShowEquipmentForm(false)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleEquipmentSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Name</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
                 <input required type="text" value={equipmentForm.name}
                   onChange={(e) => setEquipmentForm({...equipmentForm, name: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Unit</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit</label>
                   <input type="text" value={equipmentForm.unit}
                     onChange={(e) => setEquipmentForm({...equipmentForm, unit: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Count on Hand</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Count on Hand</label>
                   <input type="number" min={0} value={equipmentForm.qty_on_hand}
                     onChange={(e) => setEquipmentForm({...equipmentForm, qty_on_hand: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Minimum Needed</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Minimum Needed</label>
                   <input type="number" min={0} value={equipmentForm.minimum_required}
                     onChange={(e) => setEquipmentForm({...equipmentForm, minimum_required: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
               {equipmentForm.category === 'equipment' ? (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Condition</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Condition</label>
                     <select value={equipmentForm.condition}
                       onChange={(e) => setEquipmentForm({...equipmentForm, condition: e.target.value})}
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                       <option value="">Not set</option>
                       <option value="good">Good</option>
                       <option value="fair">Fair</option>
@@ -1027,26 +1027,26 @@ const QAPage: React.FC = () => {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Last Serviced</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Last Serviced</label>
                       <input type="date" value={equipmentForm.last_service_date}
                         onChange={(e) => setEquipmentForm({...equipmentForm, last_service_date: e.target.value})}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Next Service Due</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Next Service Due</label>
                       <input type="date" value={equipmentForm.next_service_due}
                         onChange={(e) => setEquipmentForm({...equipmentForm, next_service_due: e.target.value})}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                   </div>
                 </>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Calibration Status</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Calibration Status</label>
                     <select value={equipmentForm.calibration_status}
                       onChange={(e) => setEquipmentForm({...equipmentForm, calibration_status: e.target.value})}
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                       <option value="">Not set</option>
                       <option value="calibrated">Calibrated</option>
                       <option value="due">Due</option>
@@ -1054,22 +1054,22 @@ const QAPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Next Calibration Due</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Next Calibration Due</label>
                     <input type="date" value={equipmentForm.next_service_due}
                       onChange={(e) => setEquipmentForm({...equipmentForm, next_service_due: e.target.value})}
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
                 <textarea value={equipmentForm.notes}
                   onChange={(e) => setEquipmentForm({...equipmentForm, notes: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={2} />
               </div>
               <div className="flex justify-end space-x-3">
-                <button type="button" onClick={() => setShowEquipmentForm(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button type="button" onClick={() => setShowEquipmentForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">{editingEquipmentId ? 'Save Changes' : 'Add Item'}</button>
               </div>
             </form>

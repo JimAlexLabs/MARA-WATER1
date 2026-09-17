@@ -322,7 +322,7 @@ const FinancePage: React.FC = () => {
       case 'pending': return 'text-yellow-600 bg-yellow-100';
       case 'paid': return 'text-green-600 bg-green-100';
       case 'overdue': return 'text-red-600 bg-red-100';
-      default: return 'text-gray-600 bg-gray-100';
+      default: return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700';
     }
   };
 
@@ -348,8 +348,8 @@ const FinancePage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Finance Management</h1>
-          <p className="text-gray-600">Invoices, petty cash, debtors ledger, and costing</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Finance Management</h1>
+          <p className="text-gray-600 dark:text-gray-400">Invoices, petty cash, debtors ledger, and costing</p>
         </div>
         <div className="flex space-x-3">
           {activeTab === 'invoices' && (
@@ -374,8 +374,8 @@ const FinancePage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex space-x-8 px-6">
             {[
               { key: 'invoices', label: 'Invoices' },
@@ -389,7 +389,7 @@ const FinancePage: React.FC = () => {
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.key
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
                 }`}
               >
                 {tab.label}
@@ -402,45 +402,45 @@ const FinancePage: React.FC = () => {
       {/* Stats Cards */}
       {activeTab === 'invoices' && (
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <DollarSign className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Revenue</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 KES {invoices.reduce((sum, inv) => sum + Number(inv.total_amount), 0).toLocaleString()}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <CheckCircle className="w-8 h-8 text-green-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Paid Invoices</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Paid Invoices</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {invoices.filter(inv => inv.payment_status === 'paid').length}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <AlertTriangle className="w-8 h-8 text-red-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Overdue</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Overdue</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {invoices.filter(inv => inv.payment_status === 'overdue').length}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <TrendingUp className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Pending</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Pending</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {invoices.filter(inv => inv.payment_status === 'pending').length}
               </p>
             </div>
@@ -451,22 +451,22 @@ const FinancePage: React.FC = () => {
 
       {/* Invoices Table */}
       {activeTab === 'invoices' && (
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Invoices</h3>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Invoices</h3>
         </div>
         <div className="p-6">
           {/* Search and Filters */}
           <div className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="flex-1">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
                 <input
                   type="text"
                   placeholder="Search invoices..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
             </div>
@@ -474,18 +474,18 @@ const FinancePage: React.FC = () => {
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
                 <option value="paid">Paid</option>
                 <option value="overdue">Overdue</option>
               </select>
-              <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <button className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                 <Filter className="w-4 h-4 mr-2" />
                 More Filters
               </button>
-              <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <button className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                 <Download className="w-4 h-4 mr-2" />
                 Export
               </button>
@@ -493,55 +493,55 @@ const FinancePage: React.FC = () => {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Invoice Details
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Customer
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Amount (KES)
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Dates
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {filteredInvoices.map((invoice) => (
-                  <tr key={invoice.id} className="hover:bg-gray-50">
+                  <tr key={invoice.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{invoice.invoice_no}</div>
-                        <div className="text-sm text-gray-500">
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{invoice.invoice_no}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
                           By: {invoice.created_by ? `${invoice.created_by.first_name} ${invoice.created_by.last_name}` : '—'}
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{invoice.customer?.name ?? '—'}</div>
-                        <div className="text-sm text-gray-500">{invoice.customer?.code ?? ''}</div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{invoice.customer?.name ?? '—'}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{invoice.customer?.code ?? ''}</div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
+                      <div className="text-sm text-gray-900 dark:text-gray-100">
                         <div>Subtotal: KES {invoice.subtotal.toLocaleString()}</div>
                         <div>Tax: KES {invoice.tax_amount.toLocaleString()}</div>
                         <div className="font-medium">Total: KES {invoice.total_amount.toLocaleString()}</div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
+                      <div className="text-sm text-gray-900 dark:text-gray-100">
                         <div>Date: {new Date(invoice.invoice_date).toLocaleDateString()}</div>
                         <div>Due: {new Date(invoice.due_date).toLocaleDateString()}</div>
                       </div>
@@ -577,15 +577,15 @@ const FinancePage: React.FC = () => {
       {/* Invoice Form Modal */}
       {showInvoiceForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">New Invoice</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">New Invoice</h3>
             <form onSubmit={handleInvoiceSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Customer</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Customer</label>
                 <select
                   value={invoiceForm.customer_id}
                   onChange={(e) => setInvoiceForm({...invoiceForm, customer_id: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select Customer</option>
                   {customers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
@@ -593,52 +593,52 @@ const FinancePage: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Invoice Date</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Invoice Date</label>
                   <input
                     type="date"
                     value={invoiceForm.invoice_date}
                     onChange={(e) => setInvoiceForm({...invoiceForm, invoice_date: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Due Date</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Due Date</label>
                   <input
                     type="date"
                     value={invoiceForm.due_date}
                     onChange={(e) => setInvoiceForm({...invoiceForm, due_date: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Subtotal (KES)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Subtotal (KES)</label>
                   <input
                     type="number"
                     step="0.01"
                     value={invoiceForm.subtotal}
                     onChange={(e) => setInvoiceForm({...invoiceForm, subtotal: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Tax Amount (KES)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tax Amount (KES)</label>
                   <input
                     type="number"
                     step="0.01"
                     value={invoiceForm.tax_amount}
                     onChange={(e) => setInvoiceForm({...invoiceForm, tax_amount: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
                 <textarea
                   value={invoiceForm.notes}
                   onChange={(e) => setInvoiceForm({...invoiceForm, notes: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
                 />
               </div>
@@ -646,7 +646,7 @@ const FinancePage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowInvoiceForm(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
                   Cancel
                 </button>
@@ -666,45 +666,45 @@ const FinancePage: React.FC = () => {
       {activeTab === 'pettycash' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-lg shadow">
-              <p className="text-sm font-medium text-gray-600">Opening Balance</p>
-              <p className="text-2xl font-bold text-gray-900">KES {pettyCashOpening.toLocaleString()}</p>
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Opening Balance</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">KES {pettyCashOpening.toLocaleString()}</p>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow">
-              <p className="text-sm font-medium text-gray-600">Closing Balance</p>
-              <p className="text-2xl font-bold text-gray-900">KES {pettyCashClosing.toLocaleString()}</p>
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Closing Balance</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">KES {pettyCashClosing.toLocaleString()}</p>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Account</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M-Pesa Ref</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requestor</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">In</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Out</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Description</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Account</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">M-Pesa Ref</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Requestor</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">In</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Out</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Balance</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {pettyCashEntries.length === 0 && (
-                  <tr><td colSpan={9} className="px-4 py-4 text-sm text-gray-400">No petty cash entries yet</td></tr>
+                  <tr><td colSpan={9} className="px-4 py-4 text-sm text-gray-400 dark:text-gray-500">No petty cash entries yet</td></tr>
                 )}
                 {pettyCashEntries.map(entry => (
-                  <tr key={entry.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">{new Date(entry.entry_date).toLocaleDateString()}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900">{entry.description}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{entry.account?.code} · {entry.account?.description}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{entry.mpesa_reference || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{entry.requestor_name || (entry.requestor ? `${entry.requestor.first_name} ${entry.requestor.last_name}` : '—')}</td>
+                  <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">{new Date(entry.entry_date).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">{entry.description}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">{entry.account?.code} · {entry.account?.description}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{entry.mpesa_reference || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{entry.requestor_name || (entry.requestor ? `${entry.requestor.first_name} ${entry.requestor.last_name}` : '—')}</td>
                     <td className="px-4 py-3 text-sm text-green-600 text-right">{Number(entry.amount_in) > 0 ? Number(entry.amount_in).toLocaleString() : ''}</td>
                     <td className="px-4 py-3 text-sm text-red-600 text-right">{Number(entry.amount_out) > 0 ? Number(entry.amount_out).toLocaleString() : ''}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900 text-right">{entry.running_balance.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100 text-right">{entry.running_balance.toLocaleString()}</td>
                     <td className="px-4 py-3 text-sm">
                       <button onClick={() => handleDeletePettyCash(entry.id)} className="text-red-600 hover:text-red-900">
                         <Trash2 className="w-4 h-4" />
@@ -721,66 +721,66 @@ const FinancePage: React.FC = () => {
       {/* Petty Cash Entry Modal */}
       {showPettyCashForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-medium text-gray-900">New Petty Cash Entry</h3>
-              <button onClick={() => setShowPettyCashForm(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">New Petty Cash Entry</h3>
+              <button onClick={() => setShowPettyCashForm(false)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handlePettyCashSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Date</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
                   <input required type="date" value={pettyCashForm.entry_date}
                     onChange={(e) => setPettyCashForm({...pettyCashForm, entry_date: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">M-Pesa Reference</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">M-Pesa Reference</label>
                   <input type="text" value={pettyCashForm.mpesa_reference}
                     onChange={(e) => setPettyCashForm({...pettyCashForm, mpesa_reference: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Account</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Account</label>
                 <select required value={pettyCashForm.account_id}
                   onChange={(e) => setPettyCashForm({...pettyCashForm, account_id: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                   <option value="">Select account</option>
                   {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.description}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Transaction Description</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Transaction Description</label>
                 <input required type="text" value={pettyCashForm.description}
                   onChange={(e) => setPettyCashForm({...pettyCashForm, description: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Requestor</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Requestor</label>
                 <input type="text" placeholder="Name" value={pettyCashForm.requestor_name}
                   onChange={(e) => setPettyCashForm({...pettyCashForm, requestor_name: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Direction</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Direction</label>
                   <select value={pettyCashForm.direction}
                     onChange={(e) => setPettyCashForm({...pettyCashForm, direction: e.target.value as 'in' | 'out'})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="out">Money Out</option>
                     <option value="in">Money In</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Amount (KES)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Amount (KES)</label>
                   <input required type="number" min={0.01} step="0.01" value={pettyCashForm.amount}
                     onChange={(e) => setPettyCashForm({...pettyCashForm, amount: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
               <div className="flex justify-end space-x-3">
-                <button type="button" onClick={() => setShowPettyCashForm(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button type="button" onClick={() => setShowPettyCashForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Record Entry</button>
               </div>
             </form>
@@ -791,10 +791,10 @@ const FinancePage: React.FC = () => {
       {/* Debtors Ledger Tab */}
       {activeTab === 'debtors' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-lg shadow">
-            <label className="block text-sm font-medium text-gray-700">Customer</label>
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Customer</label>
             <select value={debtorCustomerId} onChange={(e) => setDebtorCustomerId(e.target.value)}
-              className="mt-1 block w-full max-w-md border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              className="mt-1 block w-full max-w-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">Select a customer to view their ledger</option>
               {customers.map(c => (
                 <option key={c.id} value={c.id}>{c.name} ({c.code}){(c.debtor_balance || 0) > 0 ? ` — owes KES ${Number(c.debtor_balance).toLocaleString()}` : ''}</option>
@@ -805,21 +805,21 @@ const FinancePage: React.FC = () => {
           {debtorCustomerId && (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white p-6 rounded-lg shadow flex items-center justify-between">
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Outstanding Balance</p>
-                    <p className={`text-2xl font-bold ${debtorBalance > 0 ? 'text-red-600' : 'text-gray-900'}`}>KES {debtorBalance.toLocaleString()}</p>
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Outstanding Balance</p>
+                    <p className={`text-2xl font-bold ${debtorBalance > 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>KES {debtorBalance.toLocaleString()}</p>
                   </div>
                   <div className="flex space-x-2">
-                    <button onClick={() => setShowManualLedgerForm(true)} className="px-3 py-2 border border-gray-300 rounded-md text-sm hover:bg-gray-50">Manual Entry</button>
+                    <button onClick={() => setShowManualLedgerForm(true)} className="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-sm hover:bg-gray-50 dark:hover:bg-gray-700">Manual Entry</button>
                     <button onClick={() => setShowPaymentForm(true)} disabled={openDebts.length === 0}
                       className="px-3 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 disabled:opacity-50">Record Payment</button>
                   </div>
                 </div>
-                <div className="bg-white p-6 rounded-lg shadow">
-                  <p className="text-sm font-medium text-gray-600 mb-2">Open Invoices</p>
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Open Invoices</p>
                   {openDebts.length === 0 ? (
-                    <p className="text-sm text-gray-400">No outstanding invoices</p>
+                    <p className="text-sm text-gray-400 dark:text-gray-500">No outstanding invoices</p>
                   ) : (
                     <ul className="text-sm space-y-1">
                       {openDebts.map(d => (
@@ -833,32 +833,32 @@ const FinancePage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-white rounded-lg shadow overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-900">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ref (Cheque/Invoice)</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Voucher No.</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Debit</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Credit</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Details</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Ref (Cheque/Invoice)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Voucher No.</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Debit</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Credit</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Balance</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                     {debtorLedger.length === 0 && (
-                      <tr><td colSpan={7} className="px-4 py-4 text-sm text-gray-400">No ledger entries for this customer</td></tr>
+                      <tr><td colSpan={7} className="px-4 py-4 text-sm text-gray-400 dark:text-gray-500">No ledger entries for this customer</td></tr>
                     )}
                     {debtorLedger.map(entry => (
-                      <tr key={entry.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">{new Date(entry.entry_date).toLocaleDateString()}</td>
-                        <td className="px-4 py-3 text-sm text-gray-900">{entry.details}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{entry.reference_no || '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{entry.voucher_no || '—'}</td>
+                      <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">{new Date(entry.entry_date).toLocaleDateString()}</td>
+                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">{entry.details}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{entry.reference_no || '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{entry.voucher_no || '—'}</td>
                         <td className="px-4 py-3 text-sm text-red-600 text-right">{Number(entry.debit) > 0 ? Number(entry.debit).toLocaleString() : ''}</td>
                         <td className="px-4 py-3 text-sm text-green-600 text-right">{Number(entry.credit) > 0 ? Number(entry.credit).toLocaleString() : ''}</td>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900 text-right">{entry.running_balance.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100 text-right">{entry.running_balance.toLocaleString()}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -872,17 +872,17 @@ const FinancePage: React.FC = () => {
       {/* Record Payment Modal */}
       {showPaymentForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-medium text-gray-900">Record Payment</h3>
-              <button onClick={() => setShowPaymentForm(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Record Payment</h3>
+              <button onClick={() => setShowPaymentForm(false)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleRecordPayment} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Invoice</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Invoice</label>
                 <select required value={paymentForm.debt_id}
                   onChange={(e) => setPaymentForm({...paymentForm, debt_id: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                   <option value="">Select invoice</option>
                   {openDebts.map(d => (
                     <option key={d.id} value={d.id}>{d.invoice?.invoice_no || 'Invoice'} — owes KES {Number(d.balance).toLocaleString()}</option>
@@ -891,34 +891,34 @@ const FinancePage: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Date</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
                   <input required type="date" value={paymentForm.entry_date}
                     onChange={(e) => setPaymentForm({...paymentForm, entry_date: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Amount (KES)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Amount (KES)</label>
                   <input required type="number" min={0.01} step="0.01" value={paymentForm.amount}
                     onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Reference No.</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference No.</label>
                   <input type="text" placeholder="M-Pesa code, cheque no." value={paymentForm.reference_no}
                     onChange={(e) => setPaymentForm({...paymentForm, reference_no: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Payment Voucher No.</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Voucher No.</label>
                   <input type="text" value={paymentForm.voucher_no}
                     onChange={(e) => setPaymentForm({...paymentForm, voucher_no: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
               <div className="flex justify-end space-x-3">
-                <button type="button" onClick={() => setShowPaymentForm(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button type="button" onClick={() => setShowPaymentForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">Record Payment</button>
               </div>
             </form>
@@ -929,58 +929,58 @@ const FinancePage: React.FC = () => {
       {/* Manual Ledger Entry Modal */}
       {showManualLedgerForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-medium text-gray-900">Manual Ledger Entry</h3>
-              <button onClick={() => setShowManualLedgerForm(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Manual Ledger Entry</h3>
+              <button onClick={() => setShowManualLedgerForm(false)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
-            <p className="text-sm text-gray-500 mb-4">For adjustments or opening balances -- not tied to a specific invoice.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">For adjustments or opening balances -- not tied to a specific invoice.</p>
             <form onSubmit={handleManualLedgerSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Date</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
                 <input required type="date" value={manualLedgerForm.entry_date}
                   onChange={(e) => setManualLedgerForm({...manualLedgerForm, entry_date: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Details</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Details</label>
                 <input required type="text" value={manualLedgerForm.details}
                   onChange={(e) => setManualLedgerForm({...manualLedgerForm, details: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Reference No.</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference No.</label>
                   <input type="text" value={manualLedgerForm.reference_no}
                     onChange={(e) => setManualLedgerForm({...manualLedgerForm, reference_no: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Voucher No.</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Voucher No.</label>
                   <input type="text" value={manualLedgerForm.voucher_no}
                     onChange={(e) => setManualLedgerForm({...manualLedgerForm, voucher_no: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Type</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
                   <select value={manualLedgerForm.direction}
                     onChange={(e) => setManualLedgerForm({...manualLedgerForm, direction: e.target.value as 'debit' | 'credit'})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="debit">Debit (increases balance owed)</option>
                     <option value="credit">Credit (decreases balance owed)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Amount (KES)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Amount (KES)</label>
                   <input required type="number" min={0.01} step="0.01" value={manualLedgerForm.amount}
                     onChange={(e) => setManualLedgerForm({...manualLedgerForm, amount: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
               <div className="flex justify-end space-x-3">
-                <button type="button" onClick={() => setShowManualLedgerForm(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button type="button" onClick={() => setShowManualLedgerForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Record Entry</button>
               </div>
             </form>
@@ -991,61 +991,61 @@ const FinancePage: React.FC = () => {
       {/* Costing & P&L Tab */}
       {activeTab === 'costing' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-lg shadow flex flex-wrap items-end gap-4">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow flex flex-wrap items-end gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">From</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">From</label>
               <input type="date" value={plDateFrom} onChange={(e) => setPlDateFrom(e.target.value)}
-                className="mt-1 block border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="mt-1 block border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">To</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">To</label>
               <input type="date" value={plDateTo} onChange={(e) => setPlDateTo(e.target.value)}
-                className="mt-1 block border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="mt-1 block border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <button onClick={fetchCosting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Update</button>
           </div>
 
           {profitLoss && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-lg shadow">
-                <p className="text-xs text-gray-500">Revenue</p>
-                <p className="text-xl font-bold text-gray-900">KES {profitLoss.revenue.toLocaleString()}</p>
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Revenue</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-gray-100">KES {profitLoss.revenue.toLocaleString()}</p>
               </div>
-              <div className="bg-white p-4 rounded-lg shadow">
-                <p className="text-xs text-gray-500">COGS</p>
-                <p className="text-xl font-bold text-gray-900">KES {profitLoss.cogs.toLocaleString()}</p>
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <p className="text-xs text-gray-500 dark:text-gray-400">COGS</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-gray-100">KES {profitLoss.cogs.toLocaleString()}</p>
               </div>
-              <div className="bg-white p-4 rounded-lg shadow">
-                <p className="text-xs text-gray-500">Gross Margin</p>
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Gross Margin</p>
                 <p className="text-xl font-bold text-green-600">KES {profitLoss.gross_margin.toLocaleString()}</p>
-                <p className="text-xs text-gray-400">{profitLoss.gross_margin_pct != null ? `${profitLoss.gross_margin_pct}%` : '—'}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">{profitLoss.gross_margin_pct != null ? `${profitLoss.gross_margin_pct}%` : '—'}</p>
               </div>
-              <div className="bg-white p-4 rounded-lg shadow">
-                <p className="text-xs text-gray-500">Net Margin</p>
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Net Margin</p>
                 <p className={`text-xl font-bold ${profitLoss.net_margin >= 0 ? 'text-green-600' : 'text-red-600'}`}>KES {profitLoss.net_margin.toLocaleString()}</p>
-                <p className="text-xs text-gray-400">after payroll (KES {profitLoss.monthly_payroll.toLocaleString()}/mo) & overhead (KES {profitLoss.overhead_expenses.toLocaleString()})</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">after payroll (KES {profitLoss.monthly_payroll.toLocaleString()}/mo) & overhead (KES {profitLoss.overhead_expenses.toLocaleString()})</p>
               </div>
             </div>
           )}
 
-          <div className="bg-white rounded-lg shadow overflow-x-auto">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Per-Bottle Material Cost</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Per-Bottle Material Cost</h3>
             </div>
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Material Cost (KES)</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bill of Materials</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Product</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Material Cost (KES)</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Bill of Materials</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {perBottleCosts.map(row => (
-                  <tr key={row.sku_id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-900">{row.sku.brand ? `${row.sku.brand} — ` : ''}{row.sku.name}</td>
-                    <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">{row.material_cost.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
+                  <tr key={row.sku_id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">{row.sku.brand ? `${row.sku.brand} — ` : ''}{row.sku.name}</td>
+                    <td className="px-4 py-3 text-sm text-right font-medium text-gray-900 dark:text-gray-100">{row.material_cost.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       {row.has_bom
                         ? row.bom_lines.map(l => `${l.material} (${l.qty_per_unit}×${l.unit_cost})`).join(', ')
                         : <span className="text-amber-600">No recipe set</span>}

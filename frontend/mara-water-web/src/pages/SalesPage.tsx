@@ -350,12 +350,12 @@ const SalesPage: React.FC = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'draft': return 'text-gray-600 bg-gray-100';
+      case 'draft': return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700';
       case 'confirmed': return 'text-blue-600 bg-blue-100';
       case 'dispatched': return 'text-yellow-600 bg-yellow-100';
       case 'delivered': return 'text-green-600 bg-green-100';
       case 'cancelled': return 'text-red-600 bg-red-100';
-      default: return 'text-gray-600 bg-gray-100';
+      default: return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700';
     }
   };
 
@@ -365,7 +365,7 @@ const SalesPage: React.FC = () => {
       case 'wholesale': return 'text-green-600 bg-green-100';
       case 'corporate': return 'text-purple-600 bg-purple-100';
       case 'hotel_restaurant': return 'text-orange-600 bg-orange-100';
-      default: return 'text-gray-600 bg-gray-100';
+      default: return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700';
     }
   };
 
@@ -382,8 +382,8 @@ const SalesPage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Sales Management</h1>
-          <p className="text-gray-600">Manage customers and orders</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Sales Management</h1>
+          <p className="text-gray-600 dark:text-gray-400">Manage customers and orders</p>
         </div>
         <div className="flex space-x-3">
           <button
@@ -405,41 +405,41 @@ const SalesPage: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <ShoppingCart className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Orders</p>
-              <p className="text-2xl font-bold text-gray-900">{orders.length}</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Orders</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{orders.length}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <DollarSign className="w-8 h-8 text-green-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Revenue</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 KES {orders.reduce((sum, order) => sum + Number(order.total_amount), 0).toLocaleString()}
               </p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <Users className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Customers</p>
-              <p className="text-2xl font-bold text-gray-900">{customers.length}</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Customers</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{customers.length}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <TrendingUp className="w-8 h-8 text-orange-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Avg Order Value</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Avg Order Value</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 KES {orders.length > 0 ? (orders.reduce((sum, order) => sum + Number(order.total_amount), 0) / orders.length).toFixed(0) : 0}
               </p>
             </div>
@@ -448,15 +448,15 @@ const SalesPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex space-x-8 px-6">
             <button
               onClick={() => setActiveTab('orders')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'orders'
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
               }`}
             >
               Orders ({orders.length})
@@ -466,7 +466,7 @@ const SalesPage: React.FC = () => {
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'customers'
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
               }`}
             >
               Customers ({customers.length})
@@ -479,13 +479,13 @@ const SalesPage: React.FC = () => {
           <div className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="flex-1">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
                 <input
                   type="text"
                   placeholder={`Search ${activeTab}...`}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
             </div>
@@ -494,7 +494,7 @@ const SalesPage: React.FC = () => {
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="all">All Status</option>
                   <option value="draft">Draft</option>
@@ -505,11 +505,11 @@ const SalesPage: React.FC = () => {
                   <option value="cancelled">Cancelled</option>
                 </select>
               )}
-              <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <button className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                 <Filter className="w-4 h-4 mr-2" />
                 More Filters
               </button>
-              <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <button className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                 <Download className="w-4 h-4 mr-2" />
                 Export
               </button>
@@ -519,56 +519,56 @@ const SalesPage: React.FC = () => {
           {/* Orders Table */}
           {activeTab === 'orders' && (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-900">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Order Details
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Outlet
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Customer
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Amount (KES)
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Payment
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Sales Officer
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredOrders.map((order) => (
-                    <tr key={order.id} className="hover:bg-gray-50">
+                    <tr key={order.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{order.order_no}</div>
-                          <div className="text-sm text-gray-500">
+                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{order.order_no}</div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400">
                             {new Date(order.order_date).toLocaleDateString()}
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {order.warehouse?.name || '—'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{order.customer?.name || 'Walk-in'}</div>
-                          <div className="text-sm text-gray-500">{order.customer?.code || ''}</div>
+                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{order.customer?.name || 'Walk-in'}</div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400">{order.customer?.code || ''}</div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
                         KES {Number(order.total_amount).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -578,14 +578,14 @@ const SalesPage: React.FC = () => {
                           }`}>
                             {PAYMENT_METHOD_LABELS[order.payment_method] || order.payment_method}
                           </span>
-                        ) : <span className="text-gray-400 text-sm">—</span>}
+                        ) : <span className="text-gray-400 dark:text-gray-500 text-sm">—</span>}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
                           {order.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {order.sales_officer.first_name} {order.sales_officer.last_name}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -605,58 +605,58 @@ const SalesPage: React.FC = () => {
           {/* Customers Table */}
           {activeTab === 'customers' && (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-900">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Customer Details
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Contact
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Type
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Route
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Debtor Balance
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredCustomers.map((customer) => (
-                    <tr key={customer.id} className="hover:bg-gray-50">
+                    <tr key={customer.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{customer.name}</div>
-                        <div className="text-sm text-gray-500">{customer.code}{customer.contact_person ? ` · ${customer.contact_person}` : ''}</div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{customer.name}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{customer.code}{customer.contact_person ? ` · ${customer.contact_person}` : ''}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{customer.phone}</div>
-                        <div className="text-sm text-gray-500">{customer.email}</div>
+                        <div className="text-sm text-gray-900 dark:text-gray-100">{customer.phone}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{customer.email}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${getTypeColor(customer.type)}`}>
                           {CUSTOMER_TYPE_LABELS[customer.type] || customer.type}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {customer.route?.name || 'No Route'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={(customer.debtor_balance || 0) > 0 ? 'text-red-600 font-medium' : 'text-gray-500'}>
+                        <span className={(customer.debtor_balance || 0) > 0 ? 'text-red-600 font-medium' : 'text-gray-500 dark:text-gray-400'}>
                           KES {(customer.debtor_balance || 0).toLocaleString()}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${customer.status === 'inactive' ? 'text-gray-600 bg-gray-100' : 'text-green-600 bg-green-100'}`}>
+                        <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${customer.status === 'inactive' ? 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700' : 'text-green-600 bg-green-100'}`}>
                           {customer.status || 'active'}
                         </span>
                       </td>
@@ -682,26 +682,26 @@ const SalesPage: React.FC = () => {
       {/* Customer Form Modal */}
       {showCustomerForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">{editingCustomerId ? 'Edit Customer' : 'New Customer'}</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{editingCustomerId ? 'Edit Customer' : 'New Customer'}</h3>
             <form onSubmit={handleCustomerSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Customer Code</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Customer Code</label>
                   <input
                     required
                     type="text"
                     value={customerForm.code}
                     onChange={(e) => setCustomerForm({...customerForm, code: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Type</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
                   <select
                     value={customerForm.type}
                     onChange={(e) => setCustomerForm({...customerForm, type: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {Object.entries(CUSTOMER_TYPE_LABELS).map(([value, label]) => (
                       <option key={value} value={value}>{label}</option>
@@ -710,71 +710,71 @@ const SalesPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Organization / Shop Name</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Organization / Shop Name</label>
                 <input
                   required
                   type="text"
                   value={customerForm.name}
                   onChange={(e) => setCustomerForm({...customerForm, name: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Contact Person</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact Person</label>
                 <input
                   type="text"
                   value={customerForm.contact_person}
                   onChange={(e) => setCustomerForm({...customerForm, contact_person: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Phone</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
                   <input
                     type="tel"
                     value={customerForm.phone}
                     onChange={(e) => setCustomerForm({...customerForm, phone: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Email</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
                   <input
                     type="email"
                     value={customerForm.email}
                     onChange={(e) => setCustomerForm({...customerForm, email: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Delivery Address</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Delivery Address</label>
                 <textarea
                   value={customerForm.address}
                   onChange={(e) => setCustomerForm({...customerForm, address: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={2}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Route / Zone</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Route / Zone</label>
                   <select
                     value={customerForm.route_id}
                     onChange={(e) => setCustomerForm({...customerForm, route_id: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">No route</option>
                     {routes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Price Tier</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Price Tier</label>
                   <select
                     value={customerForm.price_tier}
                     onChange={(e) => setCustomerForm({...customerForm, price_tier: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="standard">Standard</option>
                     <option value="premium">Premium</option>
@@ -784,33 +784,33 @@ const SalesPage: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Preferred Products</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Preferred Products</label>
                   <input
                     type="text"
                     placeholder="e.g. Premium 1L, 5L"
                     value={customerForm.preferred_products}
                     onChange={(e) => setCustomerForm({...customerForm, preferred_products: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Typical Order Size</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Typical Order Size</label>
                   <input
                     type="text"
                     placeholder="e.g. 50 crates/week"
                     value={customerForm.typical_order_size}
                     onChange={(e) => setCustomerForm({...customerForm, typical_order_size: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Payment Terms</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Terms</label>
                   <select
                     value={customerForm.payment_terms}
                     onChange={(e) => setCustomerForm({...customerForm, payment_terms: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Not set</option>
                     <option value="cash">Cash</option>
@@ -819,11 +819,11 @@ const SalesPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
                   <select
                     value={customerForm.status}
                     onChange={(e) => setCustomerForm({...customerForm, status: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
@@ -831,11 +831,11 @@ const SalesPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
                 <textarea
                   value={customerForm.notes}
                   onChange={(e) => setCustomerForm({...customerForm, notes: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={2}
                   placeholder="Interaction history, preferences, anything worth remembering..."
                 />
@@ -844,7 +844,7 @@ const SalesPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowCustomerForm(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
                   Cancel
                 </button>
@@ -863,46 +863,46 @@ const SalesPage: React.FC = () => {
       {/* Log a Sale Modal */}
       {showSaleForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-medium text-gray-900">Log a Sale</h3>
-              <button onClick={() => setShowSaleForm(false)} className="text-gray-400 hover:text-gray-600">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Log a Sale</h3>
+              <button onClick={() => setShowSaleForm(false)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleSaleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Outlet / Branch</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Outlet / Branch</label>
                   <select
                     required
                     value={saleForm.warehouse_id}
                     onChange={(e) => setSaleForm({...saleForm, warehouse_id: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select outlet</option>
                     {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Date</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
                   <input
                     type="date"
                     value={saleForm.order_date}
                     onChange={(e) => setSaleForm({...saleForm, order_date: e.target.value})}
                     placeholder="Today"
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Payment Method</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Method</label>
                   <select
                     value={saleForm.payment_method}
                     onChange={(e) => setSaleForm({...saleForm, payment_method: e.target.value as any})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="cash">Cash</option>
                     <option value="mpesa">M-Pesa</option>
@@ -910,14 +910,14 @@ const SalesPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Customer {saleForm.payment_method === 'credit' ? '(required)' : '(optional)'}
                   </label>
                   <select
                     required={saleForm.payment_method === 'credit'}
                     value={saleForm.customer_id}
                     onChange={(e) => setSaleForm({...saleForm, customer_id: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">{saleForm.payment_method === 'credit' ? 'Select customer' : 'Walk-in / none'}</option>
                     {customers.map(customer => (
@@ -926,31 +926,31 @@ const SalesPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Reference / Receipt No.</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference / Receipt No.</label>
                   <input
                     type="text"
                     value={saleForm.payment_reference}
                     onChange={(e) => setSaleForm({...saleForm, payment_reference: e.target.value})}
                     placeholder="e.g. M-Pesa code"
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Price List</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Price List</label>
                 <select
                   value={saleForm.price_list_id}
                   onChange={(e) => setSaleForm({...saleForm, price_list_id: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {priceLists.map(pl => <option key={pl.id} value={pl.id}>{pl.name}{pl.is_default ? ' (default)' : ''}</option>)}
                 </select>
               </div>
 
               {/* Line items */}
-              <div className="border border-gray-200 rounded-md">
-                <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 text-xs font-medium text-gray-500 uppercase">
+              <div className="border border-gray-200 dark:border-gray-700 rounded-md">
+                <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-900 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                   <div className="col-span-4">Product</div>
                   <div className="col-span-2">Qty Dispatched</div>
                   <div className="col-span-2">Qty Returned</div>
@@ -973,7 +973,7 @@ const SalesPage: React.FC = () => {
                               const sku_id = e.target.value;
                               updateSaleItem(item.id, { sku_id, unit_price: listPriceFor(sku_id) || item.unit_price });
                             }}
-                            className="block w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
                             <option value="">Select product</option>
                             {skus.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -984,7 +984,7 @@ const SalesPage: React.FC = () => {
                             type="number" min={1} required
                             value={item.qty}
                             onChange={(e) => updateSaleItem(item.id, { qty: parseInt(e.target.value) || 0 })}
-                            className="block w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
                         <div className="col-span-2">
@@ -992,7 +992,7 @@ const SalesPage: React.FC = () => {
                             type="number" min={0} max={item.qty}
                             value={item.qty_returned}
                             onChange={(e) => updateSaleItem(item.id, { qty_returned: parseInt(e.target.value) || 0 })}
-                            className="block w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
                         <div className="col-span-2">
@@ -1001,10 +1001,10 @@ const SalesPage: React.FC = () => {
                             value={item.unit_price}
                             onChange={(e) => updateSaleItem(item.id, { unit_price: e.target.value })}
                             placeholder={listPrice || '0.00'}
-                            className="block w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
-                        <div className="col-span-1 text-sm text-gray-700 pt-2">
+                        <div className="col-span-1 text-sm text-gray-700 dark:text-gray-300 pt-2">
                           {saleLineTotal(item).toLocaleString()}
                         </div>
                         <div className="col-span-1 pt-1">
@@ -1039,24 +1039,24 @@ const SalesPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
                 <textarea
                   value={saleForm.notes}
                   onChange={(e) => setSaleForm({...saleForm, notes: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={2}
                 />
               </div>
 
-              <div className="flex justify-between items-center pt-2 border-t border-gray-200">
-                <div className="text-lg font-semibold text-gray-900">
+              <div className="flex justify-between items-center pt-2 border-t border-gray-200 dark:border-gray-700">
+                <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   Total: KES {saleTotal.toLocaleString()}
                 </div>
                 <div className="flex space-x-3">
                   <button
                     type="button"
                     onClick={() => setShowSaleForm(false)}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                   >
                     Cancel
                   </button>
@@ -1077,26 +1077,26 @@ const SalesPage: React.FC = () => {
       {/* Order Detail Modal */}
       {viewingOrder && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-medium text-gray-900">{viewingOrder.order_no}</h3>
-              <button onClick={() => setViewingOrder(null)} className="text-gray-400 hover:text-gray-600">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">{viewingOrder.order_no}</h3>
+              <button onClick={() => setViewingOrder(null)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="space-y-1 text-sm text-gray-700 mb-4">
-              <p><span className="text-gray-500">Outlet:</span> {viewingOrder.warehouse?.name || '—'}</p>
-              <p><span className="text-gray-500">Customer:</span> {viewingOrder.customer?.name || 'Walk-in'}</p>
-              <p><span className="text-gray-500">Payment:</span> {viewingOrder.payment_method ? (PAYMENT_METHOD_LABELS[viewingOrder.payment_method] || viewingOrder.payment_method) : '—'}
+            <div className="space-y-1 text-sm text-gray-700 dark:text-gray-300 mb-4">
+              <p><span className="text-gray-500 dark:text-gray-400">Outlet:</span> {viewingOrder.warehouse?.name || '—'}</p>
+              <p><span className="text-gray-500 dark:text-gray-400">Customer:</span> {viewingOrder.customer?.name || 'Walk-in'}</p>
+              <p><span className="text-gray-500 dark:text-gray-400">Payment:</span> {viewingOrder.payment_method ? (PAYMENT_METHOD_LABELS[viewingOrder.payment_method] || viewingOrder.payment_method) : '—'}
                 {viewingOrder.payment_reference ? ` (${viewingOrder.payment_reference})` : ''}</p>
-              <p><span className="text-gray-500">Date:</span> {new Date(viewingOrder.order_date).toLocaleDateString()}</p>
+              <p><span className="text-gray-500 dark:text-gray-400">Date:</span> {new Date(viewingOrder.order_date).toLocaleDateString()}</p>
               {viewingOrder.invoice && (
-                <p><span className="text-gray-500">Invoice:</span> {viewingOrder.invoice.invoice_no} (due {new Date(viewingOrder.invoice.due_date).toLocaleDateString()})</p>
+                <p><span className="text-gray-500 dark:text-gray-400">Invoice:</span> {viewingOrder.invoice.invoice_no} (due {new Date(viewingOrder.invoice.due_date).toLocaleDateString()})</p>
               )}
             </div>
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-gray-500 uppercase">
+                <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase">
                   <th className="pb-2">Product</th>
                   <th className="pb-2">Dispatched</th>
                   <th className="pb-2">Returned</th>
@@ -1104,7 +1104,7 @@ const SalesPage: React.FC = () => {
                   <th className="pb-2 text-right">Total</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {(viewingOrder.items || []).map(item => (
                   <tr key={item.id}>
                     <td className="py-1.5">{item.sku?.name}</td>
@@ -1116,7 +1116,7 @@ const SalesPage: React.FC = () => {
                 ))}
               </tbody>
             </table>
-            <div className="flex justify-end mt-4 pt-3 border-t border-gray-200 text-lg font-semibold text-gray-900">
+            <div className="flex justify-end mt-4 pt-3 border-t border-gray-200 dark:border-gray-700 text-lg font-semibold text-gray-900 dark:text-gray-100">
               Total: KES {Number(viewingOrder.total_amount).toLocaleString()}
             </div>
           </div>

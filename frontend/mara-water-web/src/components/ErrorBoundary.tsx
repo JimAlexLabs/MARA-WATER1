@@ -40,13 +40,13 @@ class ErrorBoundary extends React.Component<Props, State> {
         <div className="min-h-[50vh] flex items-center justify-center px-4">
           <div className="max-w-md text-center">
             <AlertTriangle className="w-10 h-10 text-red-500 mx-auto mb-3" />
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">This page hit a problem</h2>
-            <p className="text-sm text-gray-600 mb-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">This page hit a problem</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
               Something didn't load the way it should have. Your data is safe -- this is a display
               error, not a lost save. Try again, and if it keeps happening, tell whoever manages
               the system what you were doing when it happened.
             </p>
-            <p className="text-xs text-gray-400 font-mono mb-4 break-words">{this.state.error.message}</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 font-mono mb-4 break-words">{this.state.error.message}</p>
             <button
               onClick={() => { this.setState({ error: null }); window.location.reload(); }}
               className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"

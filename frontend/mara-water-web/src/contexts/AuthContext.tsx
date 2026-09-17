@@ -14,6 +14,7 @@ interface User {
   full_name: string;
   phone: string;
   avatar_url?: string;
+  theme?: 'light' | 'dark';
   status: string;
   role: {
     id: string;
@@ -39,15 +40,71 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   updateProfile: (data: Partial<User>) => Promise<boolean>;
+  theme: 'light' | 'dark';
+  toggleTheme: () => void;
 }
 
 // Create Context
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Round 2 Phase 2 (dark mode): applies/removes the `dark` class Tailwind's
+// class-strategy dark mode looks for, and caches the choice in
+// localStorage purely so the very first paint (before the user object has
+// loaded from /auth/me) doesn't flash the wrong theme. localStorage is
+// never the source of truth here -- the user's `theme` column is -- it's
+// just a same-browser guess for the instant before that response arrives.
+const applyThemeToDom = (theme: 'light' | 'dark') => {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  try {
+    localStorage.setItem('theme_hint', theme);
+  } catch {
+    // Private browsing / storage blocked -- the toggle still works for
+    // this page load, it just won't have a hint on the next one.
+  }
+};
+
+const getThemeHint = (): 'light' | 'dark' => {
+  try {
+    return localStorage.getItem('theme_hint') === 'dark' ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
+};
+
 // Auth Provider Component
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [theme, setThemeState] = useState<'light' | 'dark'>(getThemeHint());
+
+  // Apply the hinted theme immediately on first mount, before /auth/me has
+  // had a chance to respond, so there's no flash of the wrong theme.
+  useEffect(() => {
+    applyThemeToDom(theme);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Once the real user loads (or changes), their saved theme is the
+  // authority -- switch to it if it differs from the hint.
+  useEffect(() => {
+    if (user?.theme && user.theme !== theme) {
+      setThemeState(user.theme);
+      applyThemeToDom(user.theme);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.theme]);
+
+  const toggleTheme = () => {
+    const next: 'light' | 'dark' = theme === 'dark' ? 'light' : 'dark';
+    setThemeState(next);
+    applyThemeToDom(next);
+    if (user) {
+      setUser({ ...user, theme: next });
+      // Silent, best-effort -- a failed save just means it reverts to the
+      // old theme next login, not worth interrupting the toggle over.
+      axios.patch('/auth/profile', { theme: next }).catch(() => {});
+    }
+  };
 
   // Initialize axios with base URL
   useEffect(() => {
@@ -171,6 +228,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     login,
     logout,
     updateProfile,
+    theme,
+    toggleTheme,
   };
 
   return (

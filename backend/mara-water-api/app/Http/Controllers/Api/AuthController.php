@@ -35,6 +35,7 @@ class AuthController extends Controller
             'full_name' => $user->full_name,
             'phone' => $user->phone,
             'avatar_url' => $user->avatar_url,
+            'theme' => $user->theme,
             'status' => $user->status,
             'last_login_at' => $user->last_login_at,
             'role' => $user->role ? [
@@ -147,6 +148,10 @@ class AuthController extends Controller
             'first_name' => 'sometimes|string|max:255',
             'last_name' => 'sometimes|string|max:255',
             'phone' => 'sometimes|string|max:20',
+            // Round 2 Phase 2 (dark mode) -- the toggle in the top bar
+            // PATCHes just this field, so it has to be independently
+            // valid without requiring the other profile fields.
+            'theme' => 'sometimes|in:light,dark',
             'current_password' => 'required_with:new_password|string',
             'new_password' => 'sometimes|string|min:8|confirmed',
         ]);
@@ -169,7 +174,7 @@ class AuthController extends Controller
             }
         }
 
-        $updateData = $request->only(['first_name', 'last_name', 'phone']);
+        $updateData = $request->only(['first_name', 'last_name', 'phone', 'theme']);
         
         if ($request->has('new_password')) {
             $updateData['password_hash'] = Hash::make($request->new_password);

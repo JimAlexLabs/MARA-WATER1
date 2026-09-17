@@ -167,7 +167,7 @@ const FleetPage: React.FC = () => {
   };
 
   const getExpiryStatus = (expiryDate?: string) => {
-    if (!expiryDate) return { color: 'text-gray-600 bg-gray-100', text: 'No Date' };
+    if (!expiryDate) return { color: 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700', text: 'No Date' };
     const today = new Date();
     const expiry = new Date(expiryDate);
     const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
@@ -309,8 +309,8 @@ const FleetPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Fleet Management</h1>
-          <p className="text-gray-600">Vehicles, driver trips, and reconciliation</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Fleet Management</h1>
+          <p className="text-gray-600 dark:text-gray-400">Vehicles, driver trips, and reconciliation</p>
         </div>
         <div className="flex space-x-3">
           {activeTab === 'vehicles' ? (
@@ -326,12 +326,12 @@ const FleetPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex space-x-1 bg-gray-100 rounded-lg p-1 w-fit">
+      <div className="flex space-x-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1 w-fit">
         {[{ id: 'vehicles', name: 'Vehicles' }, { id: 'trips', name: 'Driver Trips' }].map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium ${activeTab === tab.id ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium ${activeTab === tab.id ? 'bg-white dark:bg-gray-800 shadow text-gray-900 dark:text-gray-100' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'}`}
           >
             {tab.name}
           </button>
@@ -342,39 +342,39 @@ const FleetPage: React.FC = () => {
         <>
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
               <div className="flex items-center">
                 <Truck className="w-8 h-8 text-blue-600" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Vehicles</p>
-                  <p className="text-2xl font-bold text-gray-900">{vehicles.length}</p>
+                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Vehicles</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{vehicles.length}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
               <div className="flex items-center">
                 <CheckCircle className="w-8 h-8 text-green-600" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Active Vehicles</p>
-                  <p className="text-2xl font-bold text-gray-900">{vehicles.filter(v => v.active).length}</p>
+                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Vehicles</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{vehicles.filter(v => v.active).length}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
               <div className="flex items-center">
                 <Wrench className="w-8 h-8 text-yellow-600" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">In Maintenance</p>
-                  <p className="text-2xl font-bold text-gray-900">{vehicles.filter(v => v.speed_gov_status === 'maintenance').length}</p>
+                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">In Maintenance</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{vehicles.filter(v => v.speed_gov_status === 'maintenance').length}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
               <div className="flex items-center">
                 <AlertTriangle className="w-8 h-8 text-red-600" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Expiring Soon</p>
-                  <p className="text-2xl font-bold text-gray-900">
+                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Expiring Soon</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                     {vehicles.filter(v => {
                       const d = getExpiryStatus(v.insurance_expiry);
                       const i = getExpiryStatus(v.inspection_expiry);
@@ -387,16 +387,16 @@ const FleetPage: React.FC = () => {
           </div>
 
           {/* Vehicles Table */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200"><h3 className="text-lg font-medium text-gray-900">Vehicles</h3></div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700"><h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Vehicles</h3></div>
             <div className="p-6">
               <div className="flex flex-col md:flex-row gap-4 mb-6">
                 <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
                   <input type="text" placeholder="Search vehicles..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
                 </div>
-                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-4 py-2 border border-gray-300 rounded-lg">
+                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg">
                   <option value="all">All Status</option>
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
@@ -404,38 +404,38 @@ const FleetPage: React.FC = () => {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-900">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle Details</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Driver</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Capacity</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Insurance</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Inspection</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Vehicle Details</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Driver</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Capacity</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Insurance</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Inspection</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                     {filteredVehicles.map((vehicle) => {
                       const insuranceStatus = getExpiryStatus(vehicle.insurance_expiry);
                       const inspectionStatus = getExpiryStatus(vehicle.inspection_expiry);
                       return (
-                        <tr key={vehicle.id} className="hover:bg-gray-50">
+                        <tr key={vehicle.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">{vehicle.reg_no}</div>
-                            <div className="text-sm text-gray-500">{vehicle.make} {vehicle.model} ({vehicle.year})</div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{vehicle.reg_no}</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">{vehicle.make} {vehicle.model} ({vehicle.year})</div>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                             {vehicle.driver ? `${vehicle.driver.first_name} ${vehicle.driver.last_name}` : 'No Driver Assigned'}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{(vehicle.capacity || 0).toLocaleString()}L</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{(vehicle.capacity || 0).toLocaleString()}L</td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{vehicle.insurance_expiry ? new Date(vehicle.insurance_expiry).toLocaleDateString() : 'N/A'}</div>
+                            <div className="text-sm text-gray-900 dark:text-gray-100">{vehicle.insurance_expiry ? new Date(vehicle.insurance_expiry).toLocaleDateString() : 'N/A'}</div>
                             <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${insuranceStatus.color}`}>{insuranceStatus.text}</span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{vehicle.inspection_expiry ? new Date(vehicle.inspection_expiry).toLocaleDateString() : 'N/A'}</div>
+                            <div className="text-sm text-gray-900 dark:text-gray-100">{vehicle.inspection_expiry ? new Date(vehicle.inspection_expiry).toLocaleDateString() : 'N/A'}</div>
                             <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${inspectionStatus.color}`}>{inspectionStatus.text}</span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
@@ -464,15 +464,15 @@ const FleetPage: React.FC = () => {
         <>
           {mileageTrend.length > 0 && (
             <div>
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Mileage &amp; Fuel Efficiency (last 30 days)</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Mileage &amp; Fuel Efficiency (last 30 days)</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {mileageTrend.map((v: any) => (
-                  <div key={v.vehicle_id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                  <div key={v.vehicle_id} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-sm font-semibold text-gray-900">{v.reg_no}</h4>
-                      <span className="text-xs text-gray-500">{v.trips} trip{v.trips === 1 ? '' : 's'}</span>
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{v.reg_no}</h4>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{v.trips} trip{v.trips === 1 ? '' : 's'}</span>
                     </div>
-                    <p className="text-xs text-gray-500 mb-2">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
                       {v.total_km.toLocaleString()} km · {v.total_fuel_liters.toLocaleString()} L
                       {v.km_per_liter ? ` · ${v.km_per_liter} km/L` : ''}
                     </p>
@@ -491,39 +491,39 @@ const FleetPage: React.FC = () => {
             </div>
           )}
 
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200"><h3 className="text-lg font-medium text-gray-900">Driver Trips</h3></div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700"><h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Driver Trips</h3></div>
             <div className="p-6">
               {tripsLoading ? (
-                <p className="text-sm text-gray-500">Loading…</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
               ) : trips.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-8">No trips logged yet.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">No trips logged yet.</p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-900">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date / Driver</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle / Route</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">KM</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Collected</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reconciliation</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date / Driver</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Vehicle / Route</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">KM</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Collected</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Reconciliation</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
+                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                       {trips.map((t) => (
-                        <tr key={t.id} className="hover:bg-gray-50">
+                        <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                           <td className="px-4 py-3 whitespace-nowrap text-sm">
-                            <div className="text-gray-900">{new Date(t.trip_date).toLocaleDateString()}</div>
-                            <div className="text-gray-500">{t.driver?.first_name} {t.driver?.last_name}</div>
+                            <div className="text-gray-900 dark:text-gray-100">{new Date(t.trip_date).toLocaleDateString()}</div>
+                            <div className="text-gray-500 dark:text-gray-400">{t.driver?.first_name} {t.driver?.last_name}</div>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm">
-                            <div className="text-gray-900">{t.vehicle?.reg_no}</div>
-                            <div className="text-gray-500 flex items-center"><MapPin className="w-3 h-3 mr-1" />{t.route?.name || '—'}</div>
+                            <div className="text-gray-900 dark:text-gray-100">{t.vehicle?.reg_no}</div>
+                            <div className="text-gray-500 dark:text-gray-400 flex items-center"><MapPin className="w-3 h-3 mr-1" />{t.route?.name || '—'}</div>
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{t.km_covered ?? '—'}</td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">KES {t.total_collected.toLocaleString()}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{t.km_covered ?? '—'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">KES {t.total_collected.toLocaleString()}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             {t.reconciliation.matches ? (
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
@@ -552,35 +552,35 @@ const FleetPage: React.FC = () => {
       {/* Vehicle Form Modal */}
       {showVehicleForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">{editingVehicleId ? 'Edit Vehicle' : 'New Vehicle'}</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{editingVehicleId ? 'Edit Vehicle' : 'New Vehicle'}</h3>
             <form onSubmit={handleVehicleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Registration Number</label>
-                <input required type="text" value={vehicleForm.reg_no} onChange={(e) => setVehicleForm({ ...vehicleForm, reg_no: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Registration Number</label>
+                <input required type="text" value={vehicleForm.reg_no} onChange={(e) => setVehicleForm({ ...vehicleForm, reg_no: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Make</label>
-                  <input required type="text" value={vehicleForm.make} onChange={(e) => setVehicleForm({ ...vehicleForm, make: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Make</label>
+                  <input required type="text" value={vehicleForm.make} onChange={(e) => setVehicleForm({ ...vehicleForm, make: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Model</label>
-                  <input required type="text" value={vehicleForm.model} onChange={(e) => setVehicleForm({ ...vehicleForm, model: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Model</label>
+                  <input required type="text" value={vehicleForm.model} onChange={(e) => setVehicleForm({ ...vehicleForm, model: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Year</label>
-                  <input required type="number" value={vehicleForm.year} onChange={(e) => setVehicleForm({ ...vehicleForm, year: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Year</label>
+                  <input required type="number" value={vehicleForm.year} onChange={(e) => setVehicleForm({ ...vehicleForm, year: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Capacity (L)</label>
-                  <input required type="number" value={vehicleForm.capacity} onChange={(e) => setVehicleForm({ ...vehicleForm, capacity: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Capacity (L)</label>
+                  <input required type="number" value={vehicleForm.capacity} onChange={(e) => setVehicleForm({ ...vehicleForm, capacity: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Fuel Type</label>
-                  <select value={vehicleForm.fuel_type} onChange={(e) => setVehicleForm({ ...vehicleForm, fuel_type: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Fuel Type</label>
+                  <select value={vehicleForm.fuel_type} onChange={(e) => setVehicleForm({ ...vehicleForm, fuel_type: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
                     <option value="">—</option>
                     <option value="diesel">Diesel</option>
                     <option value="petrol">Petrol</option>
@@ -589,27 +589,27 @@ const FleetPage: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Insurance Expiry</label>
-                  <input required type="date" value={vehicleForm.insurance_expiry} onChange={(e) => setVehicleForm({ ...vehicleForm, insurance_expiry: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Insurance Expiry</label>
+                  <input required type="date" value={vehicleForm.insurance_expiry} onChange={(e) => setVehicleForm({ ...vehicleForm, insurance_expiry: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Inspection Expiry</label>
-                  <input required type="date" value={vehicleForm.inspection_expiry} onChange={(e) => setVehicleForm({ ...vehicleForm, inspection_expiry: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Inspection Expiry</label>
+                  <input required type="date" value={vehicleForm.inspection_expiry} onChange={(e) => setVehicleForm({ ...vehicleForm, inspection_expiry: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Status</label>
-                <select value={vehicleForm.speed_gov_status} onChange={(e) => setVehicleForm({ ...vehicleForm, speed_gov_status: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
+                <select value={vehicleForm.speed_gov_status} onChange={(e) => setVehicleForm({ ...vehicleForm, speed_gov_status: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
                   <option value="active">Active</option>
                   <option value="maintenance">In Maintenance</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Notes</label>
-                <textarea value={vehicleForm.notes} onChange={(e) => setVehicleForm({ ...vehicleForm, notes: e.target.value })} rows={2} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
+                <textarea value={vehicleForm.notes} onChange={(e) => setVehicleForm({ ...vehicleForm, notes: e.target.value })} rows={2} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
               </div>
               <div className="flex justify-end space-x-3">
-                <button type="button" onClick={() => setShowVehicleForm(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button type="button" onClick={() => setShowVehicleForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">{editingVehicleId ? 'Save Changes' : 'Create Vehicle'}</button>
               </div>
             </form>
@@ -620,24 +620,24 @@ const FleetPage: React.FC = () => {
       {/* Trip Form Modal */}
       {showTripForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Log Driver Trip</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Log Driver Trip</h3>
             <form onSubmit={handleTripSubmit} className="space-y-4">
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Date</label>
-                  <input required type="date" value={tripForm.trip_date} onChange={(e) => setTripForm({ ...tripForm, trip_date: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
+                  <input required type="date" value={tripForm.trip_date} onChange={(e) => setTripForm({ ...tripForm, trip_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Driver</label>
-                  <select required value={tripForm.driver_id} onChange={(e) => setTripForm({ ...tripForm, driver_id: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Driver</label>
+                  <select required value={tripForm.driver_id} onChange={(e) => setTripForm({ ...tripForm, driver_id: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
                     <option value="">Select driver</option>
                     {people.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}{p.role ? ` (${p.role.name})` : ''}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Vehicle</label>
-                  <select required value={tripForm.vehicle_id} onChange={(e) => setTripForm({ ...tripForm, vehicle_id: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Vehicle</label>
+                  <select required value={tripForm.vehicle_id} onChange={(e) => setTripForm({ ...tripForm, vehicle_id: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
                     <option value="">Select vehicle</option>
                     {vehicles.map(v => <option key={v.id} value={v.id}>{v.reg_no}</option>)}
                   </select>
@@ -645,108 +645,108 @@ const FleetPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Route</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Route</label>
                 <div className="flex gap-2 mt-1">
-                  <select value={tripForm.route_id} onChange={(e) => setTripForm({ ...tripForm, route_id: e.target.value })} className="flex-1 border border-gray-300 rounded-md px-3 py-2">
+                  <select value={tripForm.route_id} onChange={(e) => setTripForm({ ...tripForm, route_id: e.target.value })} className="flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
                     <option value="">Select route</option>
                     {routes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
-                  <input type="text" placeholder="Add new route…" value={newRouteName} onChange={(e) => setNewRouteName(e.target.value)} className="flex-1 border border-gray-300 rounded-md px-3 py-2" />
-                  <button type="button" onClick={handleAddRoute} disabled={addingRoute || !newRouteName.trim()} className="px-3 py-2 border border-gray-300 rounded-md text-sm hover:bg-gray-50 disabled:opacity-50">Add</button>
+                  <input type="text" placeholder="Add new route…" value={newRouteName} onChange={(e) => setNewRouteName(e.target.value)} className="flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  <button type="button" onClick={handleAddRoute} disabled={addingRoute || !newRouteName.trim()} className="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-sm hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50">Add</button>
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Mileage Start</label>
-                  <input type="number" value={tripForm.mileage_start} onChange={(e) => setTripForm({ ...tripForm, mileage_start: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Mileage Start</label>
+                  <input type="number" value={tripForm.mileage_start} onChange={(e) => setTripForm({ ...tripForm, mileage_start: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Mileage End</label>
-                  <input type="number" value={tripForm.mileage_end} onChange={(e) => setTripForm({ ...tripForm, mileage_end: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Mileage End</label>
+                  <input type="number" value={tripForm.mileage_end} onChange={(e) => setTripForm({ ...tripForm, mileage_end: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div className="flex flex-col justify-end">
-                  <label className="block text-sm font-medium text-gray-700">KM Covered</label>
-                  <div className="mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm text-gray-700">{kmCovered ?? '—'}</div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">KM Covered</label>
+                  <div className="mt-1 px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-700 dark:text-gray-300">{kmCovered ?? '—'}</div>
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Fuel (Litres)</label>
-                  <input type="number" step="0.1" value={tripForm.fuel_liters} onChange={(e) => setTripForm({ ...tripForm, fuel_liters: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Fuel (Litres)</label>
+                  <input type="number" step="0.1" value={tripForm.fuel_liters} onChange={(e) => setTripForm({ ...tripForm, fuel_liters: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Fuel Cost (KES)</label>
-                  <input type="number" value={tripForm.fuel_cost} onChange={(e) => setTripForm({ ...tripForm, fuel_cost: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Fuel Cost (KES)</label>
+                  <input type="number" value={tripForm.fuel_cost} onChange={(e) => setTripForm({ ...tripForm, fuel_cost: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Oil (Litres)</label>
-                  <input type="number" step="0.1" value={tripForm.oil_liters} onChange={(e) => setTripForm({ ...tripForm, oil_liters: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Oil (Litres)</label>
+                  <input type="number" step="0.1" value={tripForm.oil_liters} onChange={(e) => setTripForm({ ...tripForm, oil_liters: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Time Out</label>
-                  <input type="time" value={tripForm.time_out} onChange={(e) => setTripForm({ ...tripForm, time_out: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Time Out</label>
+                  <input type="time" value={tripForm.time_out} onChange={(e) => setTripForm({ ...tripForm, time_out: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Time In</label>
-                  <input type="time" value={tripForm.time_in} onChange={(e) => setTripForm({ ...tripForm, time_in: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Time In</label>
+                  <input type="time" value={tripForm.time_in} onChange={(e) => setTripForm({ ...tripForm, time_in: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Authorizing Officer</label>
-                  <select value={tripForm.authorizing_officer_id} onChange={(e) => setTripForm({ ...tripForm, authorizing_officer_id: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Authorizing Officer</label>
+                  <select value={tripForm.authorizing_officer_id} onChange={(e) => setTripForm({ ...tripForm, authorizing_officer_id: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
                     <option value="">—</option>
                     {people.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
                   </select>
                 </div>
               </div>
 
-              <div className="border-t border-gray-200 pt-4">
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="block text-sm font-medium text-gray-700">Stock Carried / Returned</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Stock Carried / Returned</label>
                   <button type="button" onClick={addItemRow} className="text-sm text-blue-600 hover:text-blue-800">+ Add product</button>
                 </div>
                 <div className="space-y-2">
                   {tripItems.map((row, i) => (
                     <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                      <select value={row.sku_id} onChange={(e) => updateItemRow(i, 'sku_id', e.target.value)} className="col-span-4 border border-gray-300 rounded-md px-2 py-1.5 text-sm">
+                      <select value={row.sku_id} onChange={(e) => updateItemRow(i, 'sku_id', e.target.value)} className="col-span-4 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm">
                         <option value="">Product</option>
                         {skus.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
-                      <input type="number" placeholder="Carried" value={row.qty_carried} onChange={(e) => updateItemRow(i, 'qty_carried', e.target.value)} className="col-span-2 border border-gray-300 rounded-md px-2 py-1.5 text-sm" />
-                      <input type="number" placeholder="Returned" value={row.qty_returned} onChange={(e) => updateItemRow(i, 'qty_returned', e.target.value)} className="col-span-2 border border-gray-300 rounded-md px-2 py-1.5 text-sm" />
-                      <input type="number" placeholder="Unit price" value={row.unit_price} onChange={(e) => updateItemRow(i, 'unit_price', e.target.value)} className="col-span-3 border border-gray-300 rounded-md px-2 py-1.5 text-sm" />
-                      <button type="button" onClick={() => removeItemRow(i)} className="col-span-1 text-gray-400 hover:text-red-600"><X className="w-4 h-4" /></button>
+                      <input type="number" placeholder="Carried" value={row.qty_carried} onChange={(e) => updateItemRow(i, 'qty_carried', e.target.value)} className="col-span-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+                      <input type="number" placeholder="Returned" value={row.qty_returned} onChange={(e) => updateItemRow(i, 'qty_returned', e.target.value)} className="col-span-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+                      <input type="number" placeholder="Unit price" value={row.unit_price} onChange={(e) => updateItemRow(i, 'unit_price', e.target.value)} className="col-span-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+                      <button type="button" onClick={() => removeItemRow(i)} className="col-span-1 text-gray-400 dark:text-gray-500 hover:text-red-600"><X className="w-4 h-4" /></button>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4 border-t border-gray-200 pt-4">
+              <div className="grid grid-cols-3 gap-4 border-t border-gray-200 dark:border-gray-700 pt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Cash Collected</label>
-                  <input type="number" value={tripForm.cash_collected} onChange={(e) => setTripForm({ ...tripForm, cash_collected: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Cash Collected</label>
+                  <input type="number" value={tripForm.cash_collected} onChange={(e) => setTripForm({ ...tripForm, cash_collected: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">M-Pesa Collected</label>
-                  <input type="number" value={tripForm.mpesa_collected} onChange={(e) => setTripForm({ ...tripForm, mpesa_collected: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">M-Pesa Collected</label>
+                  <input type="number" value={tripForm.mpesa_collected} onChange={(e) => setTripForm({ ...tripForm, mpesa_collected: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">M-Pesa Reference</label>
-                  <input type="text" value={tripForm.mpesa_reference} onChange={(e) => setTripForm({ ...tripForm, mpesa_reference: e.target.value })} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">M-Pesa Reference</label>
+                  <input type="text" value={tripForm.mpesa_reference} onChange={(e) => setTripForm({ ...tripForm, mpesa_reference: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Notes</label>
-                <textarea value={tripForm.notes} onChange={(e) => setTripForm({ ...tripForm, notes: e.target.value })} rows={2} className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2" />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
+                <textarea value={tripForm.notes} onChange={(e) => setTripForm({ ...tripForm, notes: e.target.value })} rows={2} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
               </div>
 
               <div className="flex justify-end space-x-3">
-                <button type="button" onClick={() => setShowTripForm(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button type="button" onClick={() => setShowTripForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
                 <button type="submit" disabled={savingTrip} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingTrip ? 'Logging…' : 'Log Trip'}</button>
               </div>
             </form>

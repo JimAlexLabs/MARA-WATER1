@@ -146,14 +146,14 @@ const ReportsPage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Analytics & Reports</h1>
-          <p className="text-gray-600">Comprehensive business insights and performance metrics</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics & Reports</h1>
+          <p className="text-gray-600 dark:text-gray-400">Comprehensive business insights and performance metrics</p>
         </div>
         <div className="flex space-x-3">
           <select
             value={dateRange}
             onChange={(e) => setDateRange(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="7">Last 7 days</option>
             <option value="30">Last 30 days</option>
@@ -169,12 +169,12 @@ const ReportsPage: React.FC = () => {
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <DollarSign className="w-8 h-8 text-green-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Revenue</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 KES {dashboardStats?.total_revenue?.toLocaleString() || '0'}
               </p>
               <div className="flex items-center text-sm text-green-600">
@@ -185,12 +185,12 @@ const ReportsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <Package className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Orders</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Orders</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {dashboardStats?.total_orders?.toLocaleString() || '0'}
               </p>
               <div className="flex items-center text-sm text-blue-600">
@@ -201,12 +201,12 @@ const ReportsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <Users className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Customers</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Customers</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {dashboardStats?.total_customers?.toLocaleString() || '0'}
               </p>
               <div className="flex items-center text-sm text-purple-600">
@@ -217,12 +217,12 @@ const ReportsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <Truck className="w-8 h-8 text-orange-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Active Vehicles</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Vehicles</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {dashboardStats?.total_vehicles || '0'}
               </p>
               <div className="flex items-center text-sm text-orange-600">
@@ -236,8 +236,8 @@ const ReportsPage: React.FC = () => {
 
       {/* Performance Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Production Efficiency</h3>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Production Efficiency</h3>
           <div className="flex items-center justify-between">
             <div className="text-3xl font-bold text-blue-600">
               {dashboardStats?.production_efficiency || 0}%
@@ -262,19 +262,19 @@ const ReportsPage: React.FC = () => {
                 />
               </svg>
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-sm font-medium text-gray-600">
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
                   {dashboardStats?.production_efficiency || 0}%
                 </span>
               </div>
             </div>
           </div>
-          <p className="text-sm text-gray-600 mt-2">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
             Target: 95% | Current: {dashboardStats?.production_efficiency || 0}%
           </p>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Water Quality Score</h3>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Water Quality Score</h3>
           <div className="flex items-center justify-between">
             <div className="text-3xl font-bold text-green-600">
               {dashboardStats?.water_quality_score || 0}/100
@@ -299,13 +299,13 @@ const ReportsPage: React.FC = () => {
                 />
               </svg>
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-sm font-medium text-gray-600">
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
                   {dashboardStats?.water_quality_score || 0}
                 </span>
               </div>
             </div>
           </div>
-          <p className="text-sm text-gray-600 mt-2">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
             Target: 98+ | Current: {dashboardStats?.water_quality_score || 0}
           </p>
         </div>
@@ -313,12 +313,12 @@ const ReportsPage: React.FC = () => {
 
       {/* Additional Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Inventory Turnover</h3>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Inventory Turnover</h3>
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600">Current Ratio</span>
-              <span className="text-sm font-medium text-gray-900">
+              <span className="text-sm text-gray-600 dark:text-gray-400">Current Ratio</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                 {dashboardStats?.inventory_turnover || 0}
               </span>
             </div>
@@ -328,18 +328,18 @@ const ReportsPage: React.FC = () => {
                 style={{ width: `${Math.min((dashboardStats?.inventory_turnover || 0) * 10, 100)}%` }}
               ></div>
             </div>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
               Industry average: 8.5 | Target: 10+
             </p>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Employee Productivity</h3>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Employee Productivity</h3>
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600">Efficiency Score</span>
-              <span className="text-sm font-medium text-gray-900">
+              <span className="text-sm text-gray-600 dark:text-gray-400">Efficiency Score</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                 {dashboardStats?.employee_productivity || 0}%
               </span>
             </div>
@@ -349,7 +349,7 @@ const ReportsPage: React.FC = () => {
                 style={{ width: `${dashboardStats?.employee_productivity || 0}%` }}
               ></div>
             </div>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
               Target: 85% | Current: {dashboardStats?.employee_productivity || 0}%
             </p>
           </div>
@@ -357,30 +357,30 @@ const ReportsPage: React.FC = () => {
       </div>
 
       {/* Quick Actions */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Reports</h3>
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Quick Reports</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button onClick={toggleSalesReport} className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
+          <button onClick={toggleSalesReport} className="flex items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
             <BarChart3 className="w-6 h-6 text-blue-600 mr-3" />
             <div className="text-left">
-              <div className="font-medium text-gray-900">Sales Report</div>
-              <div className="text-sm text-gray-600">By outlet & product, dispatched vs returned vs net</div>
+              <div className="font-medium text-gray-900 dark:text-gray-100">Sales Report</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">By outlet & product, dispatched vs returned vs net</div>
             </div>
           </button>
 
-          <button onClick={toggleProductionReport} className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
+          <button onClick={toggleProductionReport} className="flex items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
             <Package className="w-6 h-6 text-green-600 mr-3" />
             <div className="text-left">
-              <div className="font-medium text-gray-900">Production Report</div>
-              <div className="text-sm text-gray-600">Stock reconciliation & raw materials usage</div>
+              <div className="font-medium text-gray-900 dark:text-gray-100">Production Report</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">Stock reconciliation & raw materials usage</div>
             </div>
           </button>
           
-          <button className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
+          <button className="flex items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
             <Truck className="w-6 h-6 text-orange-600 mr-3" />
             <div className="text-left">
-              <div className="font-medium text-gray-900">Fleet Report</div>
-              <div className="text-sm text-gray-600">Vehicle performance & maintenance</div>
+              <div className="font-medium text-gray-900 dark:text-gray-100">Fleet Report</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">Vehicle performance & maintenance</div>
             </div>
           </button>
         </div>
@@ -389,10 +389,10 @@ const ReportsPage: React.FC = () => {
       {/* Sales Report -- replaces the 31-tabs-per-month-per-outlet Excel
           pattern with a live report, grouped by outlet and by product. */}
       {showSalesReport && (
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Sales Report — last {dateRange} days</h3>
-            <button onClick={() => setShowSalesReport(false)} className="text-sm text-gray-500 hover:text-gray-700">Hide</button>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Sales Report — last {dateRange} days</h3>
+            <button onClick={() => setShowSalesReport(false)} className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">Hide</button>
           </div>
           {salesReportLoading ? (
             <div className="flex justify-center py-8">
@@ -401,11 +401,11 @@ const ReportsPage: React.FC = () => {
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div>
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">By Outlet / Branch</h4>
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">By Outlet / Branch</h4>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead>
-                      <tr className="text-left text-xs text-gray-500 uppercase border-b">
+                      <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase border-b">
                         <th className="py-2">Outlet</th>
                         <th className="py-2">Dispatched</th>
                         <th className="py-2">Returned</th>
@@ -413,9 +413,9 @@ const ReportsPage: React.FC = () => {
                         <th className="py-2 text-right">Revenue (KES)</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                       {byOutlet.length === 0 && (
-                        <tr><td colSpan={5} className="py-3 text-gray-400">No sales in this period</td></tr>
+                        <tr><td colSpan={5} className="py-3 text-gray-400 dark:text-gray-500">No sales in this period</td></tr>
                       )}
                       {byOutlet.map((row, i) => (
                         <tr key={row.warehouse_id || i}>
@@ -431,11 +431,11 @@ const ReportsPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">By Product (Brand & Size)</h4>
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">By Product (Brand & Size)</h4>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead>
-                      <tr className="text-left text-xs text-gray-500 uppercase border-b">
+                      <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase border-b">
                         <th className="py-2">Product</th>
                         <th className="py-2">Dispatched</th>
                         <th className="py-2">Returned</th>
@@ -443,9 +443,9 @@ const ReportsPage: React.FC = () => {
                         <th className="py-2 text-right">Revenue (KES)</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                       {bySku.length === 0 && (
-                        <tr><td colSpan={5} className="py-3 text-gray-400">No sales in this period</td></tr>
+                        <tr><td colSpan={5} className="py-3 text-gray-400 dark:text-gray-500">No sales in this period</td></tr>
                       )}
                       {bySku.map((row, i) => (
                         <tr key={row.sku_id || i}>
@@ -470,10 +470,10 @@ const ReportsPage: React.FC = () => {
           usage (opening/received/used/closing), read straight from the
           movement ledger instead of a manually re-entered table. */}
       {showProductionReport && (
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Production Report — last {dateRange} days</h3>
-            <button onClick={() => setShowProductionReport(false)} className="text-sm text-gray-500 hover:text-gray-700">Hide</button>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Production Report — last {dateRange} days</h3>
+            <button onClick={() => setShowProductionReport(false)} className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">Hide</button>
           </div>
           {productionReportLoading ? (
             <div className="flex justify-center py-8">
@@ -482,11 +482,11 @@ const ReportsPage: React.FC = () => {
           ) : (
             <div className="space-y-8">
               <div>
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Stock Reconciliation (Finished Goods)</h4>
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Stock Reconciliation (Finished Goods)</h4>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead>
-                      <tr className="text-left text-xs text-gray-500 uppercase border-b">
+                      <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase border-b">
                         <th className="py-2">Product</th>
                         <th className="py-2">Opening</th>
                         <th className="py-2">Produced</th>
@@ -496,9 +496,9 @@ const ReportsPage: React.FC = () => {
                         <th className="py-2 text-right">Closing Value (KES)</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                       {reconciliation.filter(r => r.produced_qty || r.issued_qty || r.returned_qty || r.opening_qty || r.closing_qty).length === 0 && (
-                        <tr><td colSpan={7} className="py-3 text-gray-400">No production movement in this period</td></tr>
+                        <tr><td colSpan={7} className="py-3 text-gray-400 dark:text-gray-500">No production movement in this period</td></tr>
                       )}
                       {reconciliation.filter(r => r.produced_qty || r.issued_qty || r.returned_qty || r.opening_qty || r.closing_qty).map((row) => (
                         <tr key={row.sku_id}>
@@ -517,11 +517,11 @@ const ReportsPage: React.FC = () => {
               </div>
 
               <div>
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Raw Materials Usage</h4>
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Raw Materials Usage</h4>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead>
-                      <tr className="text-left text-xs text-gray-500 uppercase border-b">
+                      <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase border-b">
                         <th className="py-2">Material</th>
                         <th className="py-2">Opening</th>
                         <th className="py-2">Received</th>
@@ -529,9 +529,9 @@ const ReportsPage: React.FC = () => {
                         <th className="py-2">Closing</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                       {materialsUsage.filter(m => m.received || m.used || m.opening_balance || m.closing_balance).length === 0 && (
-                        <tr><td colSpan={5} className="py-3 text-gray-400">No material movement in this period</td></tr>
+                        <tr><td colSpan={5} className="py-3 text-gray-400 dark:text-gray-500">No material movement in this period</td></tr>
                       )}
                       {materialsUsage.filter(m => m.received || m.used || m.opening_balance || m.closing_balance).map((row) => (
                         <tr key={row.material_id}>
