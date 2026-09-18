@@ -426,7 +426,15 @@ class CustomerController extends Controller
                 ], 422);
             }
 
-            $query = $request->query;
+            // Round 3 Phase 3 finding: $request->query is Symfony's own
+            // public InputBag property (the whole query-string bag), not
+            // a magic-getter for a field literally named "query" -- the
+            // property always wins over Laravel's __get() input lookup,
+            // so this was silently fatal-erroring (InputBag can't cast to
+            // string) on every real call. Nothing in the live frontend
+            // called this endpoint before this round (the customer picker
+            // used a plain full-list dropdown), so it went unnoticed.
+            $query = $request->input('query');
             $customers = Customer::whereNull('deleted_at')
                 ->where(function($q) use ($query) {
                     $q->where('name', 'like', "%{$query}%")
