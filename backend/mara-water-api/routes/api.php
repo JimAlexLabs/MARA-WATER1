@@ -263,11 +263,29 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/customers/statistics', [CustomerController::class, 'statistics']);
             Route::get('/customers/route/{routeId}', [CustomerController::class, 'byRoute']);
-            Route::get('/customers/search', [CustomerController::class, 'search']);
             Route::post('/customers/bulk-assign-route', [CustomerController::class, 'bulkAssignRoute']);
             Route::get('/customers', [CustomerController::class, 'index']);
+        });
+
+        // Round 3 Phase 3: a driver logging a trip sale needs to search
+        // for/add a customer too ("typing a name/phone searches existing
+        // customers first, with add new customer as a fallback") -- this
+        // also fixes a real pre-existing bug where DriverPage's customer
+        // picker called the Manager/Director-only /sales/customers index
+        // and silently degraded to an empty list for every driver.
+        // Registered before the Manager/Director-only /customers/{id}
+        // wildcard below, same route-registration-order reasoning as
+        // every other fixed-segment-before-wildcard fix in this file --
+        // /customers/search would otherwise match /customers/{id} with
+        // id="search" first.
+        Route::middleware('tier:driver,manager,director')->prefix('sales')->group(function () {
+            Route::get('/customers/search', [CustomerController::class, 'search']);
             Route::post('/customers', [CustomerController::class, 'store']);
+        });
+
+        Route::middleware('tier:manager,director')->prefix('sales')->group(function () {
             Route::get('/customers/{id}', [CustomerController::class, 'show']);
+            Route::get('/customers/{id}/purchase-history', [CustomerController::class, 'purchaseHistory']);
             Route::put('/customers/{id}', [CustomerController::class, 'update']);
             Route::delete('/customers/{id}', [CustomerController::class, 'destroy']);
         });

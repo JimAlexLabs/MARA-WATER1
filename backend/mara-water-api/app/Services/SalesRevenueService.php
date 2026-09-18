@@ -114,4 +114,76 @@ class SalesRevenueService
             ];
         })->values();
     }
+
+    /**
+     * Round 3 Phase 3: a customer's running totals -- "computed from
+     * their sales history, not manually entered" per the spec. Combines
+     * Order (counter/outlet) and DriverTripSale (on-the-road) the same
+     * way every other report here does.
+     */
+    public function customerStats(string $customerId): array
+    {
+        $orders = Order::completedSale()->whereNull('deleted_at')->where('customer_id', $customerId)
+            ->get(['total_amount', 'payment_method', 'order_date']);
+        $trips = DriverTripSale::whereNull('deleted_at')->where('customer_id', $customerId)
+            ->get(['amount', 'payment_method', 'created_at']);
+
+        $lifetimePurchases = round((float) $orders->sum('total_amount') + (float) $trips->sum('amount'), 2);
+
+        $lastOrderDate = $orders->max('order_date');
+        $lastTripDate = optional($trips->sortByDesc('created_at')->first())->created_at;
+        $lastPurchaseDate = collect([$lastOrderDate, $lastTripDate])->filter()->map(fn ($d) => (string) $d)->sort()->last();
+
+        // Preferred payment method: whichever appears most often across
+        // both sources, counted by number of sales (not by KES value) --
+        // "how do they usually pay", not "which method moved more money".
+        $methodCounts = $orders->pluck('payment_method')
+            ->merge($trips->pluck('payment_method'))
+            ->filter()
+            ->countBy();
+        $preferredMethod = $methodCounts->sortDesc()->keys()->first();
+
+        return [
+            'lifetime_purchases' => $lifetimePurchases,
+            'last_purchase_date' => $lastPurchaseDate,
+            'preferred_payment_method' => $preferredMethod,
+            'payment_method_breakdown' => $methodCounts,
+            'order_count' => $orders->count(),
+            'trip_sale_count' => $trips->count(),
+        ];
+    }
+
+    /**
+     * Round 3 Phase 3: one chronological list combining every Order and
+     * DriverTripSale for this customer -- the Customer Detail page's
+     * purchase history table + purchases-over-time chart read this.
+     */
+    public function customerPurchaseHistory(string $customerId): Collection
+    {
+        $orders = Order::completedSale()->whereNull('deleted_at')->where('customer_id', $customerId)
+            ->orderByDesc('order_date')
+            ->get()
+            ->map(fn ($o) => [
+                'source' => 'order',
+                'id' => $o->id,
+                'date' => (string) $o->order_date,
+                'reference' => $o->order_no,
+                'amount' => (float) $o->total_amount,
+                'payment_method' => $o->payment_method,
+            ]);
+
+        $trips = DriverTripSale::with('trip')->whereNull('deleted_at')->where('customer_id', $customerId)
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn ($s) => [
+                'source' => 'driver_trip',
+                'id' => $s->id,
+                'date' => optional($s->trip)->trip_date ? (string) $s->trip->trip_date : (string) $s->created_at->toDateString(),
+                'reference' => $s->physical_receipt_no ?: ('Trip ' . substr($s->driver_trip_id, 0, 8)),
+                'amount' => (float) $s->amount,
+                'payment_method' => $s->payment_method,
+            ]);
+
+        return $orders->merge($trips)->sortByDesc('date')->values();
+    }
 }

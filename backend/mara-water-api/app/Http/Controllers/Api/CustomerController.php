@@ -79,11 +79,17 @@ class CustomerController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'code' => 'required|string|max:50|unique:customers,code',
+                // Round 3 Phase 3: code is optional now -- auto-generated
+                // below when omitted, so a driver quick-adding a new
+                // customer from the road (Log a Sale's "+ Add new
+                // customer" fallback) never has to invent a unique code.
+                'code' => 'nullable|string|max:50|unique:customers,code',
                 'name' => 'required|string|max:255',
                 'contact_person' => 'nullable|string|max:150',
-                'type' => 'required|in:retail,wholesale,corporate,hotel_restaurant',
-                'phone' => 'nullable|string|max:20',
+                'type' => 'required|in:retail,wholesale,corporate,hotel_restaurant,walk_in',
+                // Required -- "used for communication and dedupe
+                // matching" per the spec (was nullable pre-Phase 3).
+                'phone' => 'required|string|max:20',
                 'email' => 'nullable|email|max:255',
                 'address' => 'nullable|string|max:500',
                 'route_id' => 'nullable|exists:routes,id',
@@ -103,8 +109,10 @@ class CustomerController extends Controller
                 ], 422);
             }
 
+            $code = $request->filled('code') ? $request->code : $this->generateCustomerCode();
+
             $customer = Customer::create([
-                'code' => $request->code,
+                'code' => $code,
                 'name' => $request->name,
                 'contact_person' => $request->contact_person,
                 'type' => $request->type,
@@ -179,7 +187,7 @@ class CustomerController extends Controller
                 'code' => 'nullable|string|max:50|unique:customers,code,' . $id,
                 'name' => 'nullable|string|max:255',
                 'contact_person' => 'nullable|string|max:150',
-                'type' => 'nullable|in:retail,wholesale,corporate,hotel_restaurant',
+                'type' => 'nullable|in:retail,wholesale,corporate,hotel_restaurant,walk_in',
                 'phone' => 'nullable|string|max:20',
                 'email' => 'nullable|email|max:255',
                 'address' => 'nullable|string|max:500',
@@ -488,5 +496,40 @@ class CustomerController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Round 3 Phase 3: CUST-XXXXXX, retried on the rare collision --
+     * used when a customer is created without an explicit code (the
+     * quick-add-from-the-road path).
+     */
+    private function generateCustomerCode(): string
+    {
+        do {
+            $code = 'CUST-' . strtoupper(\Illuminate\Support\Str::random(6));
+        } while (Customer::where('code', $code)->exists());
+
+        return $code;
+    }
+
+    /**
+     * Round 3 Phase 3: full purchase history for the Customer Detail
+     * page -- combines Order (counter/outlet sales) and DriverTripSale
+     * (on-the-road sales) into one chronological list, same "both
+     * revenue sources" combination SalesRevenueService already does for
+     * every other report.
+     */
+    public function purchaseHistory(Request $request, $id)
+    {
+        $customer = Customer::whereNull('deleted_at')->findOrFail($id);
+        $service = new \App\Services\SalesRevenueService();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'stats' => $service->customerStats($customer->id),
+                'history' => $service->customerPurchaseHistory($customer->id),
+            ],
+        ]);
     }
 }

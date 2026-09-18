@@ -18,7 +18,12 @@ class DriverTripSale extends Model
 
     protected $fillable = [
         'driver_trip_id', 'customer_id', 'payment_method', 'amount',
+        // Round 3 Phase 3: mpesa_reference is dual-purpose -- also holds
+        // the QR/reference code for payment_method='pay_direct', rather
+        // than a separate column for what's the same "a reference string
+        // for a non-cash, non-debt payment" concept.
         'mpesa_reference', 'debt_signatory', 'debt_expected_repayment_date', 'debt_id',
+        'physical_receipt_no', 'physical_delivery_note_no',
         'created_by', 'updated_by',
     ];
 

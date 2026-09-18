@@ -327,11 +327,18 @@ class DriverTripController extends Controller
 
         $validator = Validator::make($request->all(), [
             'customer_id' => 'required|exists:customers,id',
-            'payment_method' => 'required|in:cash,mpesa,debt',
+            'payment_method' => 'required|in:cash,mpesa,debt,pay_direct',
             'amount' => 'required|numeric|min:0.01',
+            // Dual-purpose: M-Pesa code for 'mpesa', QR/reference note for
+            // 'pay_direct' -- see DriverTripSale model docblock.
             'mpesa_reference' => 'nullable|string|max:100',
             'debt_signatory' => 'required_if:payment_method,debt|nullable|string|max:150',
             'debt_expected_repayment_date' => 'required_if:payment_method,debt|nullable|date',
+            // Round 3 Phase 3: optional paper-book cross-reference -- the
+            // driver keeps writing the physical receipt/delivery note as
+            // today, this just lets the number also be looked up here.
+            'physical_receipt_no' => 'nullable|string|max:50',
+            'physical_delivery_note_no' => 'nullable|string|max:50',
             'items' => 'nullable|array',
             'items.*.sku_id' => 'required_with:items|exists:skus,id',
             'items.*.qty_bales' => 'required_with:items|numeric|min:0.01',
@@ -388,6 +395,8 @@ class DriverTripController extends Controller
                 'debt_signatory' => $request->payment_method === 'debt' ? $request->debt_signatory : null,
                 'debt_expected_repayment_date' => $request->payment_method === 'debt' ? $request->debt_expected_repayment_date : null,
                 'debt_id' => $debtId,
+                'physical_receipt_no' => $request->physical_receipt_no,
+                'physical_delivery_note_no' => $request->physical_delivery_note_no,
                 'created_by' => Auth::id(),
                 'updated_by' => Auth::id(),
             ]);
