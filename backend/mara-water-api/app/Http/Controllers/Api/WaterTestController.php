@@ -91,15 +91,17 @@ class WaterTestController extends Controller
                 ], 422);
             }
 
-            // Validate water quality thresholds
-            $validationErrors = $this->validateWaterQualityThresholds($request);
-            if (!empty($validationErrors)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Water quality thresholds exceeded',
-                    'errors' => $validationErrors
-                ], 422);
-            }
+            // Round 3 Phase 11: a water test that fails a threshold is
+            // exactly the record a QA system most needs to keep -- the old
+            // behavior rejected it outright (422) before it could ever be
+            // saved, which is why every test that *did* save was
+            // structurally guaranteed to be a pass, yet the status column
+            // was still hardcoded to 'pending' and nothing ever moved it
+            // to 'pass'. Fix: compute pass/fail from the same values in
+            // this same write (no separate, never-called step), and save
+            // either outcome -- a fail becomes a real, visible record
+            // instead of a silently-blocked one.
+            $statusResult = $this->determineTestStatus($request);
 
             $waterTest = WaterTest::create([
                 'test_type' => $request->test_type,
@@ -111,7 +113,7 @@ class WaterTestController extends Controller
                 'location_text' => $request->location_text,
                 'warehouse_id' => $request->warehouse_id,
                 'recorded_by' => Auth::id(),
-                'status' => 'pending',
+                'status' => $statusResult['status'],
                 'created_by' => Auth::id(),
                 'updated_by' => Auth::id(),
             ]);
@@ -120,9 +122,12 @@ class WaterTestController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Water test created successfully',
+                'message' => $statusResult['status'] === 'fail'
+                    ? 'Water test recorded -- FAILED threshold check, see failed_checks'
+                    : 'Water test created successfully',
                 'data' => [
-                    'water_test' => $waterTest
+                    'water_test' => $waterTest,
+                    'failed_checks' => $statusResult['failed_checks'],
                 ]
             ], 201);
 
@@ -185,16 +190,22 @@ class WaterTestController extends Controller
                 ], 422);
             }
 
-            // Validate water quality thresholds if values are being updated
-            if ($request->has('ph') || $request->has('tds') || $request->has('chlorine')) {
-                $validationErrors = $this->validateWaterQualityThresholds($request);
-                if (!empty($validationErrors)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Water quality thresholds exceeded',
-                        'errors' => $validationErrors
-                    ], 422);
-                }
+            // Round 3 Phase 11: recompute status from the corrected values,
+            // in this same write, same as store() -- but only while the
+            // test hasn't been RIC-verified yet. Once verify() has signed
+            // off a status, a later value edit shouldn't silently flip
+            // their verdict; re-verify explicitly instead.
+            $recomputeStatus = ($request->has('ph') || $request->has('tds') || $request->has('chlorine'))
+                && $waterTest->ric_verified_by === null;
+            $status = $waterTest->status;
+            if ($recomputeStatus) {
+                $merged = Request::create('', 'PUT', [
+                    'ph' => $request->ph ?? $waterTest->ph,
+                    'tds' => $request->tds ?? $waterTest->tds,
+                    'chlorine' => $request->chlorine ?? $waterTest->chlorine,
+                ]);
+                $statusResult = $this->determineTestStatus($merged);
+                $status = $statusResult['status'];
             }
 
             $waterTest->update([
@@ -203,6 +214,7 @@ class WaterTestController extends Controller
                 'chlorine' => $request->chlorine ?? $waterTest->chlorine,
                 'unit_notes' => $request->unit_notes ?? $waterTest->unit_notes,
                 'location_text' => $request->location_text ?? $waterTest->location_text,
+                'status' => $status,
                 'updated_by' => Auth::id(),
             ]);
 
@@ -368,36 +380,50 @@ class WaterTestController extends Controller
     }
 
     /**
-     * Validate water quality thresholds
+     * Round 3 Phase 11: compute pass/fail from water quality thresholds --
+     * replaces the old validateWaterQualityThresholds(), which returned
+     * these same checks as hard 422 validation errors and so could never
+     * let a real failing test be saved at all. This version always
+     * returns a status; store()/update() save it either way.
+     *
+     * Chlorine is free chlorine residual in mg/L (== ppm for water).
+     * KEBS/WHO guidance: free chlorine residual should be maintained in
+     * the 0.2-0.5 mg/L range at point of use; treatment-stage dosing may
+     * run higher before residual settles -- the 2.0 mg/L ceiling here is
+     * a hard upper safety bound, not the target range itself.
      */
-    private function validateWaterQualityThresholds(Request $request)
+    private function determineTestStatus(Request $request): array
     {
-        $errors = [];
+        $failedChecks = [];
 
-        // pH validation (acceptable range: 6.5 - 8.5)
-        if ($request->has('ph')) {
+        // pH (acceptable range: 6.5 - 8.5)
+        if ($request->has('ph') && $request->ph !== null) {
             $ph = $request->ph;
             if ($ph < 6.5 || $ph > 8.5) {
-                $errors['ph'] = ['pH value must be between 6.5 and 8.5'];
+                $failedChecks['ph'] = "pH {$ph} is outside the acceptable 6.5-8.5 range";
             }
         }
 
-        // TDS validation (max 500 ppm)
-        if ($request->has('tds')) {
+        // TDS (max 500 ppm)
+        if ($request->has('tds') && $request->tds !== null) {
             $tds = $request->tds;
             if ($tds > 500) {
-                $errors['tds'] = ['TDS value must not exceed 500 ppm'];
+                $failedChecks['tds'] = "TDS {$tds} ppm exceeds the 500 ppm maximum";
             }
         }
 
-        // Chlorine validation (max 2.0 ppm)
-        if ($request->has('chlorine')) {
+        // Chlorine (free residual, mg/L -- see docblock above)
+        if ($request->has('chlorine') && $request->chlorine !== null) {
             $chlorine = $request->chlorine;
             if ($chlorine > 2.0) {
-                $errors['chlorine'] = ['Chlorine value must not exceed 2.0 ppm'];
+                $failedChecks['chlorine'] = "Free chlorine residual {$chlorine} mg/L exceeds the 2.0 mg/L safety ceiling";
             }
         }
 
-        return $errors;
+        return [
+            'status' => empty($failedChecks) ? 'pass' : 'fail',
+            'failed_checks' => $failedChecks,
+        ];
     }
+
 }

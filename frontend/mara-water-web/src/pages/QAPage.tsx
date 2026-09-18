@@ -541,7 +541,7 @@ const QAPage: React.FC = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                     <div>pH: {test.ph}</div>
                     <div>TDS: {test.tds}</div>
-                    <div>Cl: {test.chlorine}</div>
+                    <div>Cl: {test.chlorine} mg/L</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                     {test.location_text}
@@ -859,7 +859,7 @@ const QAPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Chlorine</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Chlorine (mg/L, free residual)</label>
                   <input
                     type="number"
                     step="0.1"
@@ -867,6 +867,9 @@ const QAPage: React.FC = () => {
                     onChange={(e) => setWaterTestForm({...waterTestForm, chlorine: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    KEBS/WHO guidance: free chlorine residual should be 0.2-0.5 mg/L at point of use; treatment-stage dosing may run higher before residual settles. Hard ceiling: 2.0 mg/L.
+                  </p>
                 </div>
               </div>
               <div>
