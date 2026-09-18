@@ -17,7 +17,7 @@ import { api } from '../services/api';
 interface SalesTrendPoint { period: string; orders_revenue: number; driver_trip_revenue: number; total_revenue: number; }
 interface ByBrand { brand: string; qty_sold: number; revenue: number; }
 interface ByOutlet { id: string; name: string; revenue: number; orders: number; }
-interface ByRoute { route_id: string | null; route: string; revenue: number; }
+interface ByRoute { route: string; revenue: number; }
 interface SalesSection { trend: SalesTrendPoint[]; total_revenue: number; by_brand: ByBrand[]; by_outlet: ByOutlet[]; by_route: ByRoute[]; }
 
 interface MoneyFlow {
