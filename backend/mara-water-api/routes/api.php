@@ -96,6 +96,13 @@ Route::prefix('v1')->group(function () {
         // "own trips only" scoping itself once tier=driver).
         Route::middleware('tier:driver,manager,director')->group(function () {
             Route::get('/driver/summary', [\App\Http\Controllers\Api\DriverSummaryController::class, 'summary']);
+            // Round 3 Phase 4: a driver/salesperson's own analytics.
+            Route::get('/driver/analytics', [\App\Http\Controllers\Api\DriverSummaryController::class, 'analytics']);
+            // Round 3 Phase 12: "Invoices"/"Debtors Ledger" scoped to
+            // their own sales -- Petty Cash and Costing & P&L are
+            // deliberately NOT exposed here at all (spec default: a
+            // driver-tier user doesn't see either).
+            Route::get('/driver/sales', [\App\Http\Controllers\Api\DriverSummaryController::class, 'mySales']);
         });
 
         // Round 2 Phase 11: a plain staff directory (name/role/department,
