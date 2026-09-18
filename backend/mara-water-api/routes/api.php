@@ -22,6 +22,8 @@ use App\Http\Controllers\Api\ReportsController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\FileUploadController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\IssueController;
+use App\Http\Controllers\Api\MaterialBatchController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\AdminController;
@@ -234,6 +236,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/reconciliation', [InventoryController::class, 'reconciliation']);
             Route::get('/materials-usage', [InventoryController::class, 'materialsUsage']);
             Route::get('/refills', [InventoryController::class, 'refills']);
+
+            // Round 3 Phase 10: material purchase batches (traceability --
+            // see MaterialBatchController docblock).
+            Route::get('/material-batches', [MaterialBatchController::class, 'index']);
+            Route::post('/material-batches', [MaterialBatchController::class, 'store']);
         });
 
         // Sales routes -- Manager/Director operational access.
@@ -407,10 +414,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/financial', [ReportsController::class, 'financialReport']);
         });
 
-        // File upload routes -- not currently called from anywhere in the
-        // frontend (verified before this phase); Manager/Director default
-        // rather than open to every tier for something unused today.
-        Route::middleware('tier:manager,director')->prefix('files')->group(function () {
+        // File upload routes. Round 3 Phase 5: now actually called from the
+        // frontend for the first time -- a Driver attaching an optional
+        // photo to an issue report -- so this widens from
+        // tier:manager,director to include driver.
+        Route::middleware('tier:driver,manager,director')->prefix('files')->group(function () {
             Route::post('/upload', [FileUploadController::class, 'upload']);
             Route::delete('/{id}', [FileUploadController::class, 'delete']);
             Route::get('/by-entity', [FileUploadController::class, 'getByEntity']);
@@ -429,6 +437,21 @@ Route::prefix('v1')->group(function () {
         });
         Route::middleware('tier:manager,director')->prefix('notifications')->group(function () {
             Route::post('/send', [NotificationController::class, 'send']);
+        });
+
+        // Round 3 Phase 5: in-app issue reporting. Driver raises + views
+        // + replies to their own; Manager/Director see and reply to all;
+        // only Manager/Director can move status (open/acknowledged/
+        // resolved) -- reply-triggered auto-acknowledge is handled inside
+        // IssueController::reply(), not here.
+        Route::middleware('tier:driver,manager,director')->prefix('issues')->group(function () {
+            Route::get('/', [IssueController::class, 'index']);
+            Route::post('/', [IssueController::class, 'store']);
+            Route::get('/{id}', [IssueController::class, 'show']);
+            Route::post('/{id}/reply', [IssueController::class, 'reply']);
+        });
+        Route::middleware('tier:manager,director')->prefix('issues')->group(function () {
+            Route::put('/{id}/status', [IssueController::class, 'updateStatus']);
         });
     });
 });

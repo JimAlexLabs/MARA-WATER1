@@ -25,6 +25,7 @@ const FinancePage = lazy(() => import('./pages/FinancePage'));
 const FleetPage = lazy(() => import('./pages/FleetPage'));
 const HRPage = lazy(() => import('./pages/HRPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
+const IssuesPage = lazy(() => import('./pages/IssuesPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const UsersPage = lazy(() => import('./pages/UsersPage'));
 
@@ -238,6 +239,16 @@ function App() {
               <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <ReportsPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
+            {/* Round 3 Phase 5: Issues inbox (Manager/Director side --
+                Driver's own report/reply UI lives inline on /driver) */}
+            <Route path="/issues" element={
+              <ProtectedRoute tiers={['manager', 'director']}>
+                <Layout>
+                  <IssuesPage />
                 </Layout>
               </ProtectedRoute>
             } />

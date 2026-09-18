@@ -24,7 +24,8 @@ import {
   Sun,
   Moon,
   TrendingUp,
-  Tag
+  Tag,
+  MessageSquare
 } from 'lucide-react';
 
 interface SearchResult {
@@ -183,11 +184,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       icon: Users,
       description: 'Staff attendance and management'
     },
-    { 
-      name: 'Reports', 
-      href: '/reports', 
+    {
+      name: 'Reports',
+      href: '/reports',
       icon: FileText,
       description: 'Analytics and reporting'
+    },
+    {
+      name: 'Issues',
+      href: '/issues',
+      icon: MessageSquare,
+      description: 'Issues reported by drivers/salespeople'
     },
     {
       name: 'Users',
