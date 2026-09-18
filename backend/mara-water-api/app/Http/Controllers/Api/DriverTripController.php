@@ -8,13 +8,27 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Models\DriverTrip;
+use App\Models\DriverTripUnlock;
 use App\Models\FuelLog;
 use App\Models\Route as RouteModel;
 use App\Models\Sku;
 
+/**
+ * Round 3 Phase 2: the trip log is now a staged, lockable workflow
+ * instead of a single-shot form -- see DriverTrip::STATUSES. One
+ * endpoint per stage transition:
+ *   store()   -- stage 1+2 (pending_departure), fully editable
+ *   update()  -- edit stage 1+2 fields, pending_departure only
+ *   start()   -- stage 3 trigger: locks dispatch, deducts stock
+ *   addSale() -- stage 4: one sale at a time against an in_transit trip
+ *   end()     -- stage 5 trigger: locks returns, posts return stock,
+ *                computes the discrepancy flag
+ *   unlock()  -- Director-only, reverses exactly one stage transition,
+ *                logs to driver_trip_unlocks
+ */
 class DriverTripController extends Controller
 {
-    private const WITH = ['driver', 'vehicle', 'route', 'warehouse', 'authorizingOfficer', 'items.sku', 'sales.customer', 'sales.debt'];
+    private const WITH = ['driver', 'vehicle', 'warehouse', 'authorizingOfficer', 'items.sku', 'sales.customer', 'sales.debt', 'sales.items.sku'];
 
     public function index(Request $request)
     {
@@ -34,16 +48,14 @@ class DriverTripController extends Controller
             if ($request->filled('vehicle_id')) {
                 $query->where('vehicle_id', $request->vehicle_id);
             }
+            if ($request->filled('status')) {
+                $query->where('status', $request->status);
+            }
             if ($request->filled('date_from')) {
                 $query->whereDate('trip_date', '>=', $request->date_from);
             }
             if ($request->filled('date_to')) {
                 $query->whereDate('trip_date', '<=', $request->date_to);
-            }
-            if ($request->filled('mismatched') && $request->boolean('mismatched')) {
-                // Filtered in PHP below (reconciliation is a computed accessor,
-                // not a column) -- trip volumes here don't warrant a raw SQL
-                // version of this yet.
             }
 
             $trips = $query->orderByDesc('trip_date')->orderByDesc('created_at')
@@ -73,12 +85,17 @@ class DriverTripController extends Controller
         }
     }
 
+    /**
+     * Stage 1+2 -- Pre-departure + Dispatched. Creates a trip in
+     * pending_departure status: date/vehicle/route/warehouse/mileage
+     * start/authorizing officer, plus the per-brand/size dispatched
+     * quantities (bottles and bales -- see the migration docblock for
+     * why bales don't convert to/from bottles). Nothing here posts a
+     * stock move or touches sales yet -- that's start()/addSale()/end()
+     * below. Fully editable via update() until start() locks it.
+     */
     public function store(Request $request)
     {
-        // Round 2 Phase 11: a driver logs their own trip, full stop -- not
-        // whatever driver_id the request happens to carry. Forced here
-        // rather than merely defaulted, so a driver-tier user can't log a
-        // trip against another driver even by editing the request body.
         if ($request->user()->hasAccessTier('driver')) {
             $request->merge(['driver_id' => $request->user()->id]);
         }
@@ -87,233 +104,65 @@ class DriverTripController extends Controller
             'trip_date' => 'required|date',
             'driver_id' => 'required|exists:users,id',
             'vehicle_id' => 'required|exists:vehicles,id',
-            'route_id' => 'nullable|exists:routes,id',
-            // Round 2 Phase 8: the depot the vehicle loaded stock from and
-            // returns unsold stock to -- required so the trip's stock
-            // movements can post to the real ledger the moment it's logged.
+            'route' => 'required|string|max:255',
             'warehouse_id' => 'required|exists:warehouses,id',
-            'mileage_start' => 'nullable|integer|min:0',
-            'mileage_end' => 'nullable|integer|min:0|gte:mileage_start',
-            'fuel_liters' => 'nullable|numeric|min:0',
-            'fuel_cost' => 'nullable|numeric|min:0',
-            // Round 2 Phase 7: Oil (Litres) dropped entirely, per the spec.
-            'authorizing_officer_id' => 'nullable|exists:users,id',
-            'time_out' => 'nullable|date_format:H:i',
-            'time_in' => 'nullable|date_format:H:i',
+            'mileage_start' => 'required|integer|min:0',
+            // Required -- someone has to be accountable for authorizing
+            // the dispatch. A Manager creating their own trip defaults to
+            // themselves (frontend); a Driver has no "logged-in manager"
+            // to default to, so must pick one explicitly.
+            'authorizing_officer_id' => 'required|exists:users,id',
             'notes' => 'nullable|string|max:1000',
-            'items' => 'nullable|array',
-            'items.*.sku_id' => 'required_with:items|exists:skus,id',
+            'items' => 'required|array|min:1',
+            'items.*.sku_id' => 'required|exists:skus,id',
             'items.*.qty_carried' => 'nullable|integer|min:0',
-            'items.*.qty_returned' => 'nullable|integer|min:0',
-            'items.*.qty_sold' => 'nullable|integer|min:0',
+            'items.*.qty_carried_bales' => 'nullable|integer|min:0',
             'items.*.unit_price' => 'nullable|numeric|min:0',
-            // Round 2 Phase 7: replaces the old single cash_collected/
-            // mpesa_collected/debt_* trip totals -- one row per sale made
-            // on the trip (one per customer/stop), "traceable to a real
-            // buyer, not just a total".
-            'sales' => 'nullable|array',
-            'sales.*.customer_id' => 'required_with:sales|exists:customers,id',
-            'sales.*.payment_method' => 'required_with:sales|in:cash,mpesa,debt',
-            'sales.*.amount' => 'required_with:sales|numeric|min:0.01',
-            'sales.*.mpesa_reference' => 'nullable|string|max:100',
-            'sales.*.debt_signatory' => 'required_if:sales.*.payment_method,debt|nullable|string|max:150',
-            'sales.*.debt_expected_repayment_date' => 'required_if:sales.*.payment_method,debt|nullable|date',
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
-        // Round 2 Phase 6/7: "never more than 7 days from the sale date",
-        // checked per sale so the message can point at exactly which one.
-        $tripDate = \Carbon\Carbon::parse($request->trip_date)->startOfDay();
-        foreach ($request->input('sales', []) as $i => $sale) {
-            if (($sale['payment_method'] ?? null) !== 'debt') {
-                continue;
-            }
-            $repaymentDate = \Carbon\Carbon::parse($sale['debt_expected_repayment_date'])->startOfDay();
-            if ($repaymentDate->lt($tripDate)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "Sale #" . ($i + 1) . ": expected repayment date cannot be before the trip date",
-                    'errors' => ["sales.{$i}.debt_expected_repayment_date" => ['Cannot be before the trip date']],
-                ], 422);
-            }
-            if ($repaymentDate->gt($tripDate->copy()->addDays(7))) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "Sale #" . ($i + 1) . ": expected repayment date cannot be more than 7 days from the trip date",
-                    'errors' => ["sales.{$i}.debt_expected_repayment_date" => ['Cannot be more than 7 days from the trip date']],
-                ], 422);
-            }
-        }
+        $trip = DB::transaction(function () use ($request) {
+            $trip = DriverTrip::create([
+                'trip_date' => $request->trip_date,
+                'driver_id' => $request->driver_id,
+                'vehicle_id' => $request->vehicle_id,
+                'route' => $request->route,
+                'warehouse_id' => $request->warehouse_id,
+                'status' => 'pending_departure',
+                'mileage_start' => $request->mileage_start,
+                'authorizing_officer_id' => $request->authorizing_officer_id,
+                'notes' => $request->notes,
+                'created_by' => Auth::id(),
+                'updated_by' => Auth::id(),
+            ]);
 
-        try {
-            $stockWarnings = [];
-            $trip = DB::transaction(function () use ($request, &$stockWarnings) {
-                $trip = DriverTrip::create([
-                    'trip_date' => $request->trip_date,
-                    'driver_id' => $request->driver_id,
-                    'vehicle_id' => $request->vehicle_id,
-                    'route_id' => $request->route_id,
-                    'warehouse_id' => $request->warehouse_id,
-                    'mileage_start' => $request->mileage_start,
-                    'mileage_end' => $request->mileage_end,
-                    'fuel_liters' => $request->fuel_liters,
-                    'fuel_cost' => $request->fuel_cost,
-                    'authorizing_officer_id' => $request->authorizing_officer_id,
-                    'time_out' => $request->time_out,
-                    'time_in' => $request->time_in,
-                    'notes' => $request->notes,
-                    'created_by' => Auth::id(),
-                    'updated_by' => Auth::id(),
+            foreach ($request->input('items', []) as $item) {
+                $qtyCarried = $item['qty_carried'] ?? 0;
+                $qtyCarriedBales = $item['qty_carried_bales'] ?? 0;
+                if ($qtyCarried == 0 && $qtyCarriedBales == 0) {
+                    continue;
+                }
+                $trip->items()->create([
+                    'sku_id' => $item['sku_id'],
+                    'qty_carried' => $qtyCarried,
+                    'qty_carried_bales' => $qtyCarriedBales,
+                    'unit_price' => $item['unit_price'] ?? 0,
                 ]);
+            }
 
-                // Round 2 Phase 8: stock leaves/returns to this warehouse the
-                // moment the trip is logged -- one single stock ledger, the
-                // same recordMove()/deductStock() every other sales entry
-                // point (OrderController::logSale()) writes to, so Inventory
-                // Management reflects this trip in real time, not after a
-                // separate manual adjustment.
-                $inventoryController = new InventoryController();
+            return $trip;
+        });
 
-                foreach ($request->input('items', []) as $item) {
-                    $qtyCarried = $item['qty_carried'] ?? 0;
-                    $qtyReturned = $item['qty_returned'] ?? 0;
-                    $qtySold = $item['qty_sold'] ?? 0;
-                    if ($qtyCarried == 0 && $qtyReturned == 0 && $qtySold == 0) {
-                        continue;
-                    }
-                    $trip->items()->create([
-                        'sku_id' => $item['sku_id'],
-                        'qty_carried' => $qtyCarried,
-                        'qty_returned' => $qtyReturned,
-                        'qty_sold' => $qtySold,
-                        'unit_price' => $item['unit_price'] ?? 0,
-                    ]);
-
-                    $sku = Sku::find($item['sku_id']);
-                    $uom = $sku->unit ?? 'BOTTLE';
-
-                    // What came back goes straight into recorded stock at
-                    // this warehouse -- same "return" move type, same
-                    // no-specific-batch bucket, as an outlet sale's return.
-                    if ($qtyReturned > 0) {
-                        $inventoryController->recordMove([
-                            'move_type' => 'return',
-                            'item_type' => 'sku',
-                            'sku_id' => $item['sku_id'],
-                            'warehouse_to_id' => $request->warehouse_id,
-                            'qty' => $qtyReturned,
-                            'uom' => $uom,
-                            'ref_entity' => 'driver_trip',
-                            'ref_id' => $trip->id,
-                        ]);
-                    }
-
-                    // What didn't come back permanently left the warehouse
-                    // the moment it was loaded onto the vehicle -- deducted
-                    // here regardless of whether the driver's reported
-                    // qty_sold matches (a mismatch there is a reconciliation
-                    // signal, not a reason to under- or over-deduct real
-                    // physical stock).
-                    $netDispatched = max(0, $qtyCarried - $qtyReturned);
-                    if ($netDispatched > 0) {
-                        $stockWarnings = array_merge(
-                            $stockWarnings,
-                            $inventoryController->deductStock($item['sku_id'], $sku, $request->warehouse_id, $netDispatched, 'driver_trip', $trip->id)
-                        );
-                    }
-                }
-
-                foreach ($request->input('sales', []) as $sale) {
-                    $debtId = null;
-
-                    // Round 2 Phase 6/7: a trip-side debt is informal shop
-                    // credit -- no formal invoice, just a named, accountable
-                    // signatory -- so it posts straight to Debt + the
-                    // debtor ledger the same way OrderController::logSale()'s
-                    // credit sales do, just without an Invoice record.
-                    if ($sale['payment_method'] === 'debt') {
-                        $debt = \App\Models\Debt::create([
-                            'customer_id' => $sale['customer_id'],
-                            'invoice_id' => null,
-                            'signatory' => $sale['debt_signatory'],
-                            'expected_repayment_date' => $sale['debt_expected_repayment_date'],
-                            'principal' => $sale['amount'],
-                            'balance' => $sale['amount'],
-                            'created_by' => Auth::id(),
-                            'updated_by' => Auth::id(),
-                        ]);
-                        \App\Models\DebtorLedgerEntry::create([
-                            'customer_id' => $sale['customer_id'],
-                            'debt_id' => $debt->id,
-                            'entry_date' => $request->trip_date,
-                            'details' => 'Credit sale via driver trip -- signed for by ' . $sale['debt_signatory'],
-                            'debit' => $sale['amount'],
-                            'credit' => 0,
-                            'created_by' => Auth::id(),
-                            'updated_by' => Auth::id(),
-                        ]);
-                        $debtId = $debt->id;
-                    }
-
-                    $trip->sales()->create([
-                        'customer_id' => $sale['customer_id'],
-                        'payment_method' => $sale['payment_method'],
-                        'amount' => $sale['amount'],
-                        'mpesa_reference' => $sale['mpesa_reference'] ?? null,
-                        'debt_signatory' => $sale['payment_method'] === 'debt' ? $sale['debt_signatory'] : null,
-                        'debt_expected_repayment_date' => $sale['payment_method'] === 'debt' ? $sale['debt_expected_repayment_date'] : null,
-                        'debt_id' => $debtId,
-                        'created_by' => Auth::id(),
-                        'updated_by' => Auth::id(),
-                    ]);
-                }
-
-                // Feed the same fuel_logs table the Dashboard's fuel-cost
-                // trend already reads from, so trip logging is the one place
-                // fuel gets recorded rather than a second, disconnected form.
-                if ($request->filled('fuel_liters') && $request->fuel_liters > 0) {
-                    FuelLog::create([
-                        'vehicle_id' => $request->vehicle_id,
-                        'date' => $request->trip_date,
-                        'liters' => $request->fuel_liters,
-                        'cost' => $request->fuel_cost ?? 0,
-                        'odometer' => $request->mileage_end ?? $request->mileage_start,
-                        'created_by' => Auth::id(),
-                        'updated_by' => Auth::id(),
-                    ]);
-                }
-
-                return $trip;
-            });
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Trip logged successfully',
-                'data' => $trip->load(self::WITH),
-                'stock_warnings' => $stockWarnings,
-            ], 201);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to log trip',
-                'error' => $e->getMessage(),
-            ], 500);
-        }
+        return response()->json([
+            'success' => true,
+            'message' => 'Trip created -- pending departure',
+            'data' => $trip->load(self::WITH),
+        ], 201);
     }
 
-    /**
-     * Round 2 Phase 11: a driver can't view, edit, or delete another
-     * driver's trip just by knowing its id -- the route-level 'tier'
-     * middleware only checks that the requester is *some* driver, not
-     * which one, so ownership has to be checked once the trip is loaded.
-     */
     private function denyIfNotOwnTrip(Request $request, DriverTrip $trip)
     {
         if ($request->user()->hasAccessTier('driver') && $trip->driver_id !== $request->user()->id) {
@@ -335,14 +184,135 @@ class DriverTripController extends Controller
     }
 
     /**
-     * Mainly for closing out an open trip (mileage_end, time_in) or fixing
-     * a typo -- not for changing the stock lines or sales, which stay
-     * create-once to keep the reconciliation trail honest. Delete and
-     * re-log instead (Round 2 Phase 7: cash/M-Pesa/debt totals moved to
-     * the per-sale driver_trip_sales table, so they're no longer editable
-     * trip-level fields here).
+     * Stage 1+2 fields only, and only while pending_departure -- once
+     * start() locks the trip, these become read-only to everyone below
+     * Director (unlock() is the only way back).
      */
     public function update(Request $request, $id)
+    {
+        $trip = DriverTrip::with('items')->find($id);
+        if (!$trip) {
+            return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
+        }
+        if ($deny = $this->denyIfNotOwnTrip($request, $trip)) {
+            return $deny;
+        }
+        if ($trip->status !== 'pending_departure') {
+            return response()->json(['success' => false, 'message' => 'This trip is locked -- only pending-departure trips can be edited directly. A Director can unlock it.'], 422);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'trip_date' => 'sometimes|date',
+            'vehicle_id' => 'sometimes|exists:vehicles,id',
+            'route' => 'sometimes|string|max:255',
+            'warehouse_id' => 'sometimes|exists:warehouses,id',
+            'mileage_start' => 'sometimes|integer|min:0',
+            'authorizing_officer_id' => 'sometimes|exists:users,id',
+            'notes' => 'nullable|string|max:1000',
+            'items' => 'sometimes|array',
+            'items.*.sku_id' => 'required_with:items|exists:skus,id',
+            'items.*.qty_carried' => 'nullable|integer|min:0',
+            'items.*.qty_carried_bales' => 'nullable|integer|min:0',
+            'items.*.unit_price' => 'nullable|numeric|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        DB::transaction(function () use ($request, $trip) {
+            $trip->update(array_merge(
+                $request->only(['trip_date', 'vehicle_id', 'route', 'warehouse_id', 'mileage_start', 'authorizing_officer_id', 'notes']),
+                ['updated_by' => Auth::id()]
+            ));
+
+            if ($request->has('items')) {
+                $trip->items()->delete();
+                foreach ($request->input('items', []) as $item) {
+                    $qtyCarried = $item['qty_carried'] ?? 0;
+                    $qtyCarriedBales = $item['qty_carried_bales'] ?? 0;
+                    if ($qtyCarried == 0 && $qtyCarriedBales == 0) {
+                        continue;
+                    }
+                    $trip->items()->create([
+                        'sku_id' => $item['sku_id'],
+                        'qty_carried' => $qtyCarried,
+                        'qty_carried_bales' => $qtyCarriedBales,
+                        'unit_price' => $item['unit_price'] ?? 0,
+                    ]);
+                }
+            }
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Trip updated successfully',
+            'data' => $trip->fresh(self::WITH),
+        ]);
+    }
+
+    /**
+     * Stage 3 trigger -- "Start Trip". Locks mileage_start + every
+     * dispatched quantity, timestamps the departure, and deducts the
+     * net-dispatched stock from the warehouse (same deductStock() every
+     * other sales entry point uses -- this used to happen inside the old
+     * single-shot store(), now it happens exactly when the vehicle
+     * actually leaves).
+     */
+    public function start(Request $request, $id)
+    {
+        $trip = DriverTrip::with('items.sku')->find($id);
+        if (!$trip) {
+            return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
+        }
+        if ($deny = $this->denyIfNotOwnTrip($request, $trip)) {
+            return $deny;
+        }
+        if ($trip->status !== 'pending_departure') {
+            return response()->json(['success' => false, 'message' => 'Trip already started'], 422);
+        }
+        if ($trip->items->isEmpty()) {
+            return response()->json(['success' => false, 'message' => 'Add at least one dispatched item before starting the trip'], 422);
+        }
+
+        $stockWarnings = [];
+        DB::transaction(function () use ($trip, &$stockWarnings) {
+            $inventoryController = new InventoryController();
+
+            foreach ($trip->items as $item) {
+                if ($item->qty_carried <= 0) {
+                    continue;
+                }
+                $stockWarnings = array_merge(
+                    $stockWarnings,
+                    $inventoryController->deductStock($item->sku_id, $item->sku, $trip->warehouse_id, $item->qty_carried, 'driver_trip', $trip->id)
+                );
+            }
+
+            $trip->update([
+                'status' => 'in_transit',
+                'time_out' => now()->format('H:i:s'),
+                'locked_at' => now(),
+                'updated_by' => Auth::id(),
+            ]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Trip started -- dispatch is now locked',
+            'data' => $trip->fresh(self::WITH),
+            'stock_warnings' => $stockWarnings,
+        ]);
+    }
+
+    /**
+     * Stage 4 -- one sale at a time against an in_transit trip. Same
+     * debt/signatory/7-day-repayment-cap discipline the old single-shot
+     * store() enforced, now checked per call instead of per array
+     * element. Optional per-brand/size line items (bales) feed the
+     * running tally the trip detail view reads.
+     */
+    public function addSale(Request $request, $id)
     {
         $trip = DriverTrip::find($id);
         if (!$trip) {
@@ -351,35 +321,290 @@ class DriverTripController extends Controller
         if ($deny = $this->denyIfNotOwnTrip($request, $trip)) {
             return $deny;
         }
+        if ($trip->status !== 'in_transit') {
+            return response()->json(['success' => false, 'message' => 'Sales can only be recorded on a trip that is in transit'], 422);
+        }
 
         $validator = Validator::make($request->all(), [
-            'mileage_end' => 'nullable|integer|min:0|gte:mileage_start',
-            'time_in' => 'nullable|date_format:H:i',
-            'fuel_liters' => 'nullable|numeric|min:0',
-            'fuel_cost' => 'nullable|numeric|min:0',
-            'notes' => 'nullable|string|max:1000',
+            'customer_id' => 'required|exists:customers,id',
+            'payment_method' => 'required|in:cash,mpesa,debt',
+            'amount' => 'required|numeric|min:0.01',
+            'mpesa_reference' => 'nullable|string|max:100',
+            'debt_signatory' => 'required_if:payment_method,debt|nullable|string|max:150',
+            'debt_expected_repayment_date' => 'required_if:payment_method,debt|nullable|date',
+            'items' => 'nullable|array',
+            'items.*.sku_id' => 'required_with:items|exists:skus,id',
+            'items.*.qty_bales' => 'required_with:items|numeric|min:0.01',
+            'items.*.unit_price' => 'required_with:items|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
-        $trip->update(array_merge(
-            $request->only(['mileage_end', 'time_in', 'fuel_liters', 'fuel_cost', 'notes']),
-            ['updated_by' => Auth::id()]
-        ));
+        if ($request->payment_method === 'debt') {
+            $tripDate = \Carbon\Carbon::parse($trip->trip_date)->startOfDay();
+            $repaymentDate = \Carbon\Carbon::parse($request->debt_expected_repayment_date)->startOfDay();
+            if ($repaymentDate->lt($tripDate)) {
+                return response()->json(['success' => false, 'message' => 'Expected repayment date cannot be before the trip date', 'errors' => ['debt_expected_repayment_date' => ['Cannot be before the trip date']]], 422);
+            }
+            if ($repaymentDate->gt($tripDate->copy()->addDays(7))) {
+                return response()->json(['success' => false, 'message' => 'Expected repayment date cannot be more than 7 days from the trip date', 'errors' => ['debt_expected_repayment_date' => ['Cannot be more than 7 days from the trip date']]], 422);
+            }
+        }
+
+        $sale = DB::transaction(function () use ($request, $trip) {
+            $debtId = null;
+
+            if ($request->payment_method === 'debt') {
+                $debt = \App\Models\Debt::create([
+                    'customer_id' => $request->customer_id,
+                    'invoice_id' => null,
+                    'signatory' => $request->debt_signatory,
+                    'expected_repayment_date' => $request->debt_expected_repayment_date,
+                    'principal' => $request->amount,
+                    'balance' => $request->amount,
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+                \App\Models\DebtorLedgerEntry::create([
+                    'customer_id' => $request->customer_id,
+                    'debt_id' => $debt->id,
+                    'entry_date' => $trip->trip_date,
+                    'details' => 'Credit sale via driver trip -- signed for by ' . $request->debt_signatory,
+                    'debit' => $request->amount,
+                    'credit' => 0,
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+                $debtId = $debt->id;
+            }
+
+            $sale = $trip->sales()->create([
+                'customer_id' => $request->customer_id,
+                'payment_method' => $request->payment_method,
+                'amount' => $request->amount,
+                'mpesa_reference' => $request->mpesa_reference,
+                'debt_signatory' => $request->payment_method === 'debt' ? $request->debt_signatory : null,
+                'debt_expected_repayment_date' => $request->payment_method === 'debt' ? $request->debt_expected_repayment_date : null,
+                'debt_id' => $debtId,
+                'created_by' => Auth::id(),
+                'updated_by' => Auth::id(),
+            ]);
+
+            foreach ($request->input('items', []) as $line) {
+                $sale->items()->create([
+                    'sku_id' => $line['sku_id'],
+                    'qty_bales' => $line['qty_bales'],
+                    'unit_price' => $line['unit_price'],
+                    'line_total' => round($line['qty_bales'] * $line['unit_price'], 2),
+                ]);
+            }
+
+            return $sale;
+        });
 
         return response()->json([
             'success' => true,
-            'message' => 'Trip updated successfully',
-            'data' => $trip->load(self::WITH),
+            'message' => 'Sale recorded',
+            'data' => [
+                'sale' => $sale->load(['customer', 'debt', 'items.sku']),
+                'trip' => $trip->fresh(self::WITH),
+            ],
+        ], 201);
+    }
+
+    /**
+     * Stage 5 trigger -- "End Trip". Captures mileage_end + returned
+     * quantities (bottles and bales), derives qty_sold per item
+     * (carried - returned, same "implied sold" math the reconciliation
+     * accessor already did, now the authoritative recorded value since
+     * there's no separate manual sold entry anymore), posts the 'return'
+     * stock move for what came back, and flags has_discrepancy if the
+     * money reconciliation doesn't match. A discrepancy still saves --
+     * it's a visible signal, not a block (Phase 2's spec: flag it, don't
+     * refuse to close the trip).
+     */
+    public function end(Request $request, $id)
+    {
+        $trip = DriverTrip::with('items.sku', 'sales')->find($id);
+        if (!$trip) {
+            return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
+        }
+        if ($deny = $this->denyIfNotOwnTrip($request, $trip)) {
+            return $deny;
+        }
+        if ($trip->status !== 'in_transit') {
+            return response()->json(['success' => false, 'message' => 'Only a trip that is in transit can be ended'], 422);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'mileage_end' => 'required|integer|min:' . ($trip->mileage_start ?? 0),
+            'fuel_liters' => 'nullable|numeric|min:0',
+            'fuel_cost' => 'nullable|numeric|min:0',
+            'items' => 'required|array',
+            'items.*.sku_id' => 'required|exists:skus,id',
+            'items.*.qty_returned' => 'nullable|integer|min:0',
+            'items.*.qty_returned_bales' => 'nullable|integer|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        $returnsBySkuId = collect($request->input('items', []))->keyBy('sku_id');
+        $stockWarnings = [];
+
+        DB::transaction(function () use ($request, $trip, $returnsBySkuId, &$stockWarnings) {
+            $inventoryController = new InventoryController();
+
+            foreach ($trip->items as $item) {
+                $returned = $returnsBySkuId->get($item->sku_id);
+                $qtyReturned = min((int) ($returned['qty_returned'] ?? 0), $item->qty_carried);
+                $qtyReturnedBales = (int) ($returned['qty_returned_bales'] ?? 0);
+                $qtySold = max(0, $item->qty_carried - $qtyReturned);
+
+                $item->update([
+                    'qty_returned' => $qtyReturned,
+                    'qty_returned_bales' => $qtyReturnedBales,
+                    'qty_sold' => $qtySold,
+                ]);
+
+                if ($qtyReturned > 0) {
+                    $inventoryController->recordMove([
+                        'move_type' => 'return',
+                        'item_type' => 'sku',
+                        'sku_id' => $item->sku_id,
+                        'warehouse_to_id' => $trip->warehouse_id,
+                        'qty' => $qtyReturned,
+                        'uom' => $item->sku->unit ?? 'BOTTLE',
+                        'ref_entity' => 'driver_trip',
+                        'ref_id' => $trip->id,
+                    ]);
+                }
+            }
+
+            if ($request->filled('fuel_liters') && $request->fuel_liters > 0) {
+                FuelLog::create([
+                    'vehicle_id' => $trip->vehicle_id,
+                    'date' => $trip->trip_date,
+                    'liters' => $request->fuel_liters,
+                    'cost' => $request->fuel_cost ?? 0,
+                    'odometer' => $request->mileage_end,
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+            }
+
+            $trip->update([
+                'mileage_end' => $request->mileage_end,
+                'fuel_liters' => $request->fuel_liters,
+                'fuel_cost' => $request->fuel_cost,
+                'status' => 'completed',
+                'time_in' => now()->format('H:i:s'),
+                'locked_at' => now(),
+                'updated_by' => Auth::id(),
+            ]);
+
+            // has_discrepancy is a stored column so Phase 6's dashboard
+            // alert can filter on it without loading every trip's full
+            // computed reconciliation -- reconciliation itself (the
+            // accessor) is recomputed fresh below, after items just
+            // changed, so this reads the real post-return numbers.
+            $trip->refresh();
+            $trip->update(['has_discrepancy' => !$trip->reconciliation['matches']]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Trip closed',
+            'data' => $trip->fresh(self::WITH),
+            'stock_warnings' => $stockWarnings,
         ]);
     }
 
+    /**
+     * Director-only. Reverses exactly one stage transition (the most
+     * recent lock), so a genuine mistake can be corrected instead of
+     * living in the record forever: completed -> in_transit undoes End
+     * Trip (reverses the 'return' stock moves, clears mileage_end/
+     * returns so End Trip can be resubmitted); in_transit ->
+     * pending_departure undoes Start Trip (reverses the dispatch
+     * deduction, clears the lock so items/mileage_start are editable
+     * again). Every unlock is logged with who/when/reason and a full
+     * snapshot of the trip as it stood before the reversal.
+     */
+    public function unlock(Request $request, $id)
+    {
+        $user = $request->user();
+        if (!$user->hasAccessTier('director')) {
+            return response()->json(['success' => false, 'message' => 'Only a Director can unlock a trip'], 403);
+        }
+
+        $trip = DriverTrip::with(self::WITH)->find($id);
+        if (!$trip) {
+            return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
+        }
+        if ($trip->status === 'pending_departure') {
+            return response()->json(['success' => false, 'message' => 'This trip is not locked'], 422);
+        }
+
+        $validator = Validator::make($request->all(), ['reason' => 'required|string|max:1000']);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        $fromStatus = $trip->status;
+        $snapshot = $trip->toArray();
+
+        DB::transaction(function () use ($trip, $fromStatus, $request, $snapshot) {
+            if ($fromStatus === 'completed') {
+                $this->reverseStockMoves($trip, ['return']);
+                foreach ($trip->items as $item) {
+                    $item->update(['qty_returned' => 0, 'qty_returned_bales' => 0, 'qty_sold' => 0]);
+                }
+                $trip->update([
+                    'status' => 'in_transit',
+                    'mileage_end' => null,
+                    'time_in' => null,
+                    'has_discrepancy' => false,
+                    'updated_by' => Auth::id(),
+                ]);
+                $toStatus = 'in_transit';
+            } else { // in_transit -> pending_departure
+                $this->reverseStockMoves($trip, ['issue']);
+                $trip->update([
+                    'status' => 'pending_departure',
+                    'time_out' => null,
+                    'locked_at' => null,
+                    'updated_by' => Auth::id(),
+                ]);
+                $toStatus = 'pending_departure';
+            }
+
+            DriverTripUnlock::create([
+                'driver_trip_id' => $trip->id,
+                'from_status' => $fromStatus,
+                'to_status' => $toStatus,
+                'reason' => $request->reason,
+                'snapshot' => $snapshot,
+                'unlocked_by' => Auth::id(),
+            ]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => "Trip unlocked -- reverted from {$fromStatus} to {$trip->fresh()->status}",
+            'data' => $trip->fresh(array_merge(self::WITH, ['unlocks.unlockedBy'])),
+        ]);
+    }
+
+    /**
+     * Only a pending_departure trip can be deleted outright -- it has no
+     * stock/sales effects yet. A locked trip has to be unlocked (above)
+     * back to pending_departure first, which already reverses whatever
+     * it posted, before it can be deleted.
+     */
     public function destroy(Request $request, $id)
     {
         $trip = DriverTrip::find($id);
@@ -389,35 +614,34 @@ class DriverTripController extends Controller
         if ($deny = $this->denyIfNotOwnTrip($request, $trip)) {
             return $deny;
         }
+        if ($trip->status !== 'pending_departure') {
+            return response()->json(['success' => false, 'message' => 'A locked trip must be unlocked by a Director before it can be deleted'], 422);
+        }
 
-        DB::transaction(function () use ($trip) {
-            $this->reverseStockMoves($trip);
-            $trip->delete();
-        });
+        $trip->delete();
 
         return response()->json(['success' => true, 'message' => 'Trip deleted successfully']);
     }
 
     /**
-     * Round 2 Phase 8: Phase 7's own doc comment on update() says "Delete
-     * and re-log instead" for correcting a trip's stock lines -- so
-     * deletion has to give back exactly what this trip's stock moves did,
-     * or "delete and re-log" would silently double-deduct every time
-     * someone corrects a mistake. Reverses each move this trip posted
-     * (an 'issue' gets its qty added back, a 'return' gets it taken back
-     * out) as new 'adjust' moves tagged 'driver_trip_deleted' so the
-     * ledger keeps a clean, traceable record of the reversal rather than
-     * just deleting the original entries. allowNegative on the 'return'
-     * reversal because that stock could theoretically have already been
-     * sold on since -- a correction should never be blocked by that.
+     * Round 2 Phase 8 (originally in store()/destroy()): reverses stock
+     * moves this trip posted, as new 'adjust' moves tagged
+     * 'driver_trip_deleted' -- a clean, traceable reversal rather than
+     * deleting the original ledger entries. $moveTypes narrows this to
+     * just the moves from one stage transition (unlock() above uses
+     * this so undoing End Trip doesn't also undo Start Trip's dispatch
+     * deduction); omit it to reverse everything a trip ever posted.
      */
-    private function reverseStockMoves(DriverTrip $trip): void
+    private function reverseStockMoves(DriverTrip $trip, ?array $moveTypes = null): void
     {
         $inventoryController = new InventoryController();
-        $moves = \App\Models\StockMove::where('ref_entity', 'driver_trip')
+        $query = \App\Models\StockMove::where('ref_entity', 'driver_trip')
             ->where('ref_id', $trip->id)
-            ->whereNull('deleted_at')
-            ->get();
+            ->whereNull('deleted_at');
+        if ($moveTypes) {
+            $query->whereIn('move_type', $moveTypes);
+        }
+        $moves = $query->get();
 
         foreach ($moves as $move) {
             if ($move->move_type === 'issue' && $move->warehouse_from_id) {
@@ -450,10 +674,6 @@ class DriverTripController extends Controller
 
     public function statistics(Request $request)
     {
-        // sales eager-loaded too -- total_collected/reconciliation are
-        // computed accessors that read $this->sales, and without this
-        // each trip would lazy-load its own sales query (N+1). items.sku
-        // likewise, for the stock-mismatch sku_name lookup.
         $query = DriverTrip::with(['items.sku', 'sales']);
         if ($request->filled('date_from')) {
             $query->whereDate('trip_date', '>=', $request->date_from);
@@ -469,6 +689,10 @@ class DriverTripController extends Controller
             'success' => true,
             'data' => [
                 'total_trips' => $trips->count(),
+                'pending_departure' => $trips->where('status', 'pending_departure')->count(),
+                'in_transit' => $trips->where('status', 'in_transit')->count(),
+                'completed' => $trips->where('status', 'completed')->count(),
+                'discrepancy_trips' => $trips->where('has_discrepancy', true)->count(),
                 'total_km' => $trips->sum('km_covered'),
                 'total_fuel_liters' => (float) $trips->sum('fuel_liters'),
                 'total_fuel_cost' => (float) $trips->sum('fuel_cost'),
@@ -483,13 +707,7 @@ class DriverTripController extends Controller
      * Round 2 Phase 7: one-click CSV (opens straight in Excel) export of
      * the trip log -- "every column above": a column per active SKU for
      * dispatched/returned/sold, plus payment method breakdown, buyer
-     * name/contact, and debt details when applicable. One row per sale on
-     * a trip (a trip with 3 sales prints 3 rows, with the trip-level and
-     * per-SKU columns repeated on each); a trip with no sales logged yet
-     * prints one row with the buyer/payment columns blank. Columns come
-     * from whatever SKUs are actually active right now rather than a
-     * hardcoded product list, so the export can't drift from Products &
-     * Prices (Phase 10) as the catalog changes.
+     * name/contact, and debt details when applicable.
      */
     public function export(Request $request)
     {
@@ -512,21 +730,23 @@ class DriverTripController extends Controller
         $skus = Sku::where('active', true)->orderBy('brand')->orderBy('name')->get();
 
         $header = [
-            'Trip Date', 'Driver', 'Vehicle', 'Route', 'Warehouse',
+            'Trip Date', 'Status', 'Driver', 'Vehicle', 'Route', 'Warehouse',
             'Mileage Start', 'Mileage End', 'KM Covered',
-            'Fuel Liters', 'Fuel Cost', 'Authorizing Officer', 'Time Out', 'Time In',
+            'Fuel Liters', 'Fuel Cost', 'Authorizing Officer', 'Departure Time', 'Return Time',
         ];
         foreach ($skus as $sku) {
             $label = trim(($sku->brand ? $sku->brand . ' ' : '') . $sku->name);
             $header[] = "{$label} Dispatched";
+            $header[] = "{$label} Dispatched (bales)";
             $header[] = "{$label} Returned";
+            $header[] = "{$label} Returned (bales)";
             $header[] = "{$label} Sold";
         }
         $header = array_merge($header, [
             'Buyer', 'Buyer Contact', 'Payment Method', 'Amount',
             'M-Pesa Reference', 'Debt Signatory', 'Debt Expected Repayment Date',
             'Trip Total Collected', 'Cash Collected', 'M-Pesa Collected', 'Debt Collected',
-            'Expected Revenue', 'Variance', 'Stock Matches', 'Notes',
+            'Expected Revenue', 'Variance', 'Discrepancy', 'Notes',
         ]);
 
         $escape = fn ($v) => '"' . str_replace('"', '""', (string) ($v ?? '')) . '"';
@@ -538,9 +758,10 @@ class DriverTripController extends Controller
 
             $base = [
                 $trip->trip_date->toDateString(),
+                $trip->status,
                 $trip->driver->full_name ?? '',
                 $trip->vehicle->reg_no ?? '',
-                $trip->route->name ?? '',
+                $trip->route ?? '',
                 $trip->warehouse->name ?? '',
                 $trip->mileage_start,
                 $trip->mileage_end,
@@ -554,7 +775,9 @@ class DriverTripController extends Controller
             foreach ($skus as $sku) {
                 $item = $itemsBySkuId->get($sku->id);
                 $base[] = $item->qty_carried ?? 0;
+                $base[] = $item->qty_carried_bales ?? 0;
                 $base[] = $item->qty_returned ?? 0;
+                $base[] = $item->qty_returned_bales ?? 0;
                 $base[] = $item->qty_sold ?? 0;
             }
 
@@ -565,7 +788,7 @@ class DriverTripController extends Controller
                 $trip->debt_collected,
                 $recon['expected_revenue'],
                 $recon['variance'],
-                $recon['stock_matches'] ? 'Yes' : 'No',
+                $trip->has_discrepancy ? 'Yes' : 'No',
                 $trip->notes,
             ];
 
@@ -596,9 +819,46 @@ class DriverTripController extends Controller
     }
 
     /**
-     * Mileage-per-vehicle history and trend, for maintenance scheduling and
-     * fuel-efficiency tracking.
+     * Stage 3's downloadable paperwork -- generated the moment Start
+     * Trip locks the dispatch, from the same trip record (no duplicate
+     * data entry). Signable: Driver + Authorizing Officer name lines.
      */
+    public function dispatchSheet(Request $request, $id)
+    {
+        $trip = DriverTrip::with(self::WITH)->find($id);
+        if (!$trip) {
+            return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
+        }
+        if ($deny = $this->denyIfNotOwnTrip($request, $trip)) {
+            return $deny;
+        }
+        if ($trip->status === 'pending_departure') {
+            return response()->json(['success' => false, 'message' => 'Dispatch sheet is available once the trip has started'], 422);
+        }
+
+        return (new \App\Services\DriverTripSheetService())->dispatchSheet($trip);
+    }
+
+    /**
+     * Stage 5's downloadable paperwork -- generated the moment End Trip
+     * closes the trip.
+     */
+    public function returnSheet(Request $request, $id)
+    {
+        $trip = DriverTrip::with(self::WITH)->find($id);
+        if (!$trip) {
+            return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
+        }
+        if ($deny = $this->denyIfNotOwnTrip($request, $trip)) {
+            return $deny;
+        }
+        if ($trip->status !== 'completed') {
+            return response()->json(['success' => false, 'message' => 'Return sheet is available once the trip is completed'], 422);
+        }
+
+        return (new \App\Services\DriverTripSheetService())->returnSheet($trip);
+    }
+
     public function mileageTrend(Request $request)
     {
         $days = min((int) $request->get('days', 30), 180);
@@ -630,60 +890,13 @@ class DriverTripController extends Controller
         return response()->json(['success' => true, 'data' => $byVehicle]);
     }
 
-    // --- Routes reference list (towns/zones drivers pick from) ---
+    // --- Routes reference list -- this is the general delivery-route
+    // concept Customers/Orders (Sales) still use, unrelated to Phase 2's
+    // free-text trip route below. Untouched by Phase 2.
 
     public function routes()
     {
         return response()->json(['success' => true, 'data' => RouteModel::orderBy('name')->get()]);
-    }
-
-    // Product catalog for the stock-carried/returned lines on the trip form.
-    /**
-     * Round 2 Phase 10: current_price comes from the default price list
-     * ("Products & Prices") -- the trip form pre-fills each row's unit
-     * price from this instead of a driver having to know/type it, per
-     * "single source of truth ... Sales, Driver Trip Logs ... pull unit
-     * prices from".
-     */
-    public function skus()
-    {
-        $prices = \App\Models\PriceListItem::whereHas('priceList', fn ($q) => $q->where('is_default', true))
-            ->pluck('unit_price', 'sku_id');
-
-        $skus = Sku::where('active', true)->orderBy('name')->get()->map(function ($sku) use ($prices) {
-            $sku->current_price = isset($prices[$sku->id]) ? (float) $prices[$sku->id] : null;
-            return $sku;
-        });
-
-        return response()->json(['success' => true, 'data' => $skus]);
-    }
-
-    /**
-     * Round 2 Phase 11: a plain vehicle picker for the trip form -- a
-     * driver needs to say which vehicle they took, but /fleet/vehicles
-     * itself (assign/unassign, documents, etc.) is Manager/Director-only
-     * vehicle *management*, not something a driver should reach.
-     */
-    public function vehicles()
-    {
-        return response()->json([
-            'success' => true,
-            'data' => \App\Models\Vehicle::where('active', true)->orderBy('reg_no')->get(['id', 'reg_no']),
-        ]);
-    }
-
-    /**
-     * Round 2 Phase 11: same reasoning as vehicles() above --
-     * /inventory/warehouses is Manager/Director-only (inventory
-     * management), but a driver still has to say which depot they
-     * loaded stock from.
-     */
-    public function warehouses()
-    {
-        return response()->json([
-            'success' => true,
-            'data' => \App\Models\Warehouse::orderBy('name')->get(['id', 'code', 'name']),
-        ]);
     }
 
     public function storeRoute(Request $request)
@@ -708,5 +921,72 @@ class DriverTripController extends Controller
         ]);
 
         return response()->json(['success' => true, 'data' => $route], 201);
+    }
+
+    /**
+     * Round 3 Phase 2: the trip form's own free-text Route field keeps a
+     * typing-convenience autocomplete of the last 20 distinct values
+     * actually entered -- purely a suggestion list, never a constraint
+     * (unlike the routes() picker above).
+     */
+    public function recentRoutes()
+    {
+        $recent = DriverTrip::whereNotNull('route')->where('route', '!=', '')
+            ->orderByDesc('created_at')
+            ->limit(200) // over-fetch before distinct() -- cheap, avoids a slower DISTINCT+ORDER BY across the whole table
+            ->pluck('route')
+            ->unique()
+            ->take(20)
+            ->values();
+
+        return response()->json(['success' => true, 'data' => $recent]);
+    }
+
+    public function skus()
+    {
+        $prices = \App\Models\PriceListItem::whereHas('priceList', fn ($q) => $q->where('is_default', true))
+            ->pluck('unit_price', 'sku_id');
+
+        $skus = Sku::where('active', true)->orderBy('name')->get()->map(function ($sku) use ($prices) {
+            $sku->current_price = isset($prices[$sku->id]) ? (float) $prices[$sku->id] : null;
+            return $sku;
+        });
+
+        return response()->json(['success' => true, 'data' => $skus]);
+    }
+
+    public function vehicles()
+    {
+        return response()->json([
+            'success' => true,
+            'data' => \App\Models\Vehicle::where('active', true)->orderBy('reg_no')->get(['id', 'reg_no']),
+        ]);
+    }
+
+    public function warehouses()
+    {
+        return response()->json([
+            'success' => true,
+            'data' => \App\Models\Warehouse::orderBy('name')->get(['id', 'code', 'name']),
+        ]);
+    }
+
+    /**
+     * Round 3 Phase 2: Authorizing Officer picker for the trip form --
+     * Manager/Director-role users only. Driver-accessible (like
+     * vehicles()/warehouses() above) since a Driver has to be able to
+     * name who authorized their dispatch even though /users itself is
+     * Manager/Director-only.
+     */
+    public function authorizingOfficers()
+    {
+        return response()->json([
+            'success' => true,
+            'data' => \App\Models\User::whereHas('role', fn ($q) => $q->whereIn('access_tier', ['manager', 'director']))
+                ->where('status', 'active')
+                ->orderBy('first_name')
+                ->get()
+                ->map(fn ($u) => ['id' => $u->id, 'full_name' => $u->full_name]),
+        ]);
     }
 }

@@ -11,7 +11,6 @@ use App\Models\DriverTripSale;
 use App\Models\PackagingRun;
 use App\Models\Debt;
 use App\Models\PayrollRun;
-use App\Models\Route as RouteModel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -147,20 +146,21 @@ class AnalyticsController extends Controller
             ->orderByDesc('revenue')
             ->get();
 
-        // By route (driver trips only).
-        $byRouteRaw = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
+        // By route (driver trips only). Round 3 Phase 2: route_id (FK to
+        // the fixed 4-option routes table) was dropped from driver_trips
+        // in favor of a free-text `route` column -- group on that
+        // directly now instead of joining out to a route name lookup.
+        $byRoute = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
             ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
             ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
-            ->selectRaw('driver_trips.route_id, SUM(driver_trip_sales.amount) as revenue')
-            ->groupBy('driver_trips.route_id')
+            ->selectRaw('driver_trips.route, SUM(driver_trip_sales.amount) as revenue')
+            ->groupBy('driver_trips.route')
             ->orderByDesc('revenue')
-            ->get();
-        $routeNames = RouteModel::whereIn('id', $byRouteRaw->pluck('route_id')->filter())->pluck('name', 'id');
-        $byRoute = $byRouteRaw->map(fn ($r) => [
-            'route_id' => $r->route_id,
-            'route' => $r->route_id ? ($routeNames[$r->route_id] ?? 'Unknown route') : 'No route set',
-            'revenue' => round((float) $r->revenue, 2),
-        ]);
+            ->get()
+            ->map(fn ($r) => [
+                'route' => $r->route ?: 'No route set',
+                'revenue' => round((float) $r->revenue, 2),
+            ]);
 
         return [
             'trend' => $trend,

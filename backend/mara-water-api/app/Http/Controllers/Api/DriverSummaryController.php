@@ -29,7 +29,7 @@ class DriverSummaryController extends Controller
             ->where('trip_date', '>=', $monthStart)
             ->get();
 
-        $recentTrips = DriverTrip::with(['vehicle', 'route', 'sales'])
+        $recentTrips = DriverTrip::with(['vehicle', 'sales'])
             ->where('driver_id', $userId)
             ->orderByDesc('trip_date')->orderByDesc('created_at')
             ->limit(5)
@@ -38,7 +38,9 @@ class DriverSummaryController extends Controller
                 'id' => $t->id,
                 'trip_date' => $t->trip_date,
                 'vehicle' => $t->vehicle->reg_no ?? null,
-                'route' => $t->route->name ?? null,
+                'route' => $t->route,
+                'status' => $t->status,
+                'has_discrepancy' => $t->has_discrepancy,
                 'km_covered' => $t->km_covered,
                 'total_collected' => $t->total_collected,
                 'reconciliation' => [

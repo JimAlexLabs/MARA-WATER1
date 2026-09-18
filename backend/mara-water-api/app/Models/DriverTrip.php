@@ -12,7 +12,8 @@ class DriverTrip extends Model
     use HasFactory, SoftDeletes, HasUuids;
 
     protected $fillable = [
-        'trip_date', 'driver_id', 'vehicle_id', 'route_id', 'warehouse_id',
+        'trip_date', 'driver_id', 'vehicle_id', 'route', 'warehouse_id',
+        'status', 'has_discrepancy', 'locked_at',
         'mileage_start', 'mileage_end', 'fuel_liters', 'fuel_cost',
         'authorizing_officer_id', 'time_out', 'time_in', 'notes',
         'created_by', 'updated_by',
@@ -24,10 +25,19 @@ class DriverTrip extends Model
         'mileage_end' => 'integer',
         'fuel_liters' => 'decimal:2',
         'fuel_cost' => 'decimal:2',
+        'has_discrepancy' => 'boolean',
+        'locked_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
+
+    // Round 3 Phase 2: the trip-log state machine. pending_departure is
+    // fully editable; in_transit locks mileage_start + dispatched
+    // quantities (Start Trip already fired, stock already deducted);
+    // completed locks everything (End Trip already fired). Director-only
+    // unlock() reverses one stage per driver_trip_unlocks below.
+    public const STATUSES = ['pending_departure', 'in_transit', 'completed'];
 
     protected $appends = ['km_covered', 'total_collected', 'reconciliation'];
 
@@ -39,11 +49,6 @@ class DriverTrip extends Model
     public function vehicle()
     {
         return $this->belongsTo(Vehicle::class);
-    }
-
-    public function route()
-    {
-        return $this->belongsTo(Route::class);
     }
 
     // Round 2 Phase 8: the depot the trip loaded stock from and returns
@@ -71,6 +76,12 @@ class DriverTrip extends Model
     public function sales()
     {
         return $this->hasMany(DriverTripSale::class);
+    }
+
+    // Round 3 Phase 2: Director-only unlock history for this trip.
+    public function unlocks()
+    {
+        return $this->hasMany(DriverTripUnlock::class)->orderByDesc('created_at');
     }
 
     public function getKmCoveredAttribute(): ?int

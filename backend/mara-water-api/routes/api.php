@@ -333,22 +333,45 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::middleware('tier:driver,manager,director')->prefix('fleet')->group(function () {
-            // Route/zone reference list drivers pick from on the trip form.
+            // Route/zone reference list drivers pick from on Sales/Customer
+            // forms -- unrelated to Phase 2's free-text trip route below.
             Route::get('/routes', [DriverTripController::class, 'routes']);
             Route::post('/routes', [DriverTripController::class, 'storeRoute']);
             Route::get('/skus', [DriverTripController::class, 'skus']);
             Route::get('/vehicles-list', [DriverTripController::class, 'vehicles']);
             Route::get('/warehouses', [DriverTripController::class, 'warehouses']);
+            Route::get('/authorizing-officers', [DriverTripController::class, 'authorizingOfficers']);
+
+            // Fixed segments before the /trips/{id} wildcard group below --
+            // same route-registration-order lesson as Round 2 Phase 11's
+            // /users/roles bug: a wildcard registered first silently
+            // swallows a same-shaped fixed segment registered after it.
+            Route::get('/trips/recent-routes', [DriverTripController::class, 'recentRoutes']);
 
             // Driver trips (the worksheet replacement) -- index/show/update/
-            // destroy are scoped to "own trips only" inside the controller
-            // itself when tier=driver, so a driver can't see or touch
-            // another driver's trip just by knowing its id.
+            // destroy/start/end/sales/sheets are scoped to "own trips only"
+            // inside the controller itself when tier=driver, so a driver
+            // can't see or touch another driver's trip just by knowing its
+            // id. Round 3 Phase 2: the trip is now a staged workflow --
+            // store() only creates stage 1+2 (pending_departure); start()/
+            // addSale()/end() below are the stage 3/4/5 transitions.
             Route::get('/trips', [DriverTripController::class, 'index']);
             Route::post('/trips', [DriverTripController::class, 'store']);
             Route::get('/trips/{id}', [DriverTripController::class, 'show']);
             Route::put('/trips/{id}', [DriverTripController::class, 'update']);
             Route::delete('/trips/{id}', [DriverTripController::class, 'destroy']);
+            Route::post('/trips/{id}/start', [DriverTripController::class, 'start']);
+            Route::post('/trips/{id}/sales', [DriverTripController::class, 'addSale']);
+            Route::post('/trips/{id}/end', [DriverTripController::class, 'end']);
+            Route::get('/trips/{id}/dispatch-sheet', [DriverTripController::class, 'dispatchSheet']);
+            Route::get('/trips/{id}/return-sheet', [DriverTripController::class, 'returnSheet']);
+        });
+
+        // Director-only unlock -- controller double-checks this too (same
+        // "declarative gate, not a replacement for the real check" pattern
+        // as every other Director-only route in this file).
+        Route::middleware('tier:director')->prefix('fleet')->group(function () {
+            Route::post('/trips/{id}/unlock', [DriverTripController::class, 'unlock']);
         });
 
         // HR routes -- clock-in/out is every employee's own action

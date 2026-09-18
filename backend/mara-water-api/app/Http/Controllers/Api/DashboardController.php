@@ -197,6 +197,24 @@ class DashboardController extends Controller
                 ];
             }
 
+            // Round 3 Phase 6: a trip's stage-5 reconciliation not matching
+            // its stage-4 sales tally is flagged (has_discrepancy, set by
+            // DriverTripController::end()) -- surfaced here rather than
+            // left as something only visible by opening the trip.
+            $discrepancyTrips = \App\Models\DriverTrip::with('driver')
+                ->where('has_discrepancy', true)
+                ->orderByDesc('trip_date')
+                ->limit(5)->get();
+            foreach ($discrepancyTrips as $t) {
+                $driverName = $t->driver->full_name ?? 'Driver';
+                $alerts[] = [
+                    'type' => 'trip_discrepancy',
+                    'severity' => 'high',
+                    'message' => "{$driverName}'s trip on {$t->trip_date->toDateString()} has a reconciliation discrepancy",
+                    'route' => '/fleet?tab=trips&q=' . urlencode($t->id),
+                ];
+            }
+
             $severityOrder = ['high' => 0, 'medium' => 1, 'low' => 2];
             usort($alerts, fn ($a, $b) => $severityOrder[$a['severity']] <=> $severityOrder[$b['severity']]);
 

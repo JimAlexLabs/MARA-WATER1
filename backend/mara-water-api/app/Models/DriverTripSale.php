@@ -41,4 +41,13 @@ class DriverTripSale extends Model
     {
         return $this->belongsTo(Debt::class);
     }
+
+    // Round 3 Phase 2/3: optional per-brand/size breakdown of this sale
+    // (bales, driver-entered price) -- feeds stage 4's running tally.
+    // `amount` above stays the authoritative total for cash/M-Pesa/debt
+    // reconciliation regardless of whether items were itemized.
+    public function items()
+    {
+        return $this->hasMany(DriverTripSaleItem::class);
+    }
 }
