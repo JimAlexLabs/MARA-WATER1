@@ -144,6 +144,18 @@ const ProductionPage: React.FC = () => {
     code: '', name: '', category: '', uom: 'PCS', min_level: '0', lead_time_days: '0',
   });
 
+  // Round 3 Phase 10: receive a material purchase as its own traceable
+  // batch (batch number, supplier, unit cost, qty) rather than only
+  // adding to the material's running-total line.
+  const [showBatchReceiveForm, setShowBatchReceiveForm] = useState(false);
+  const [submittingBatch, setSubmittingBatch] = useState(false);
+  const [batchReceiveForm, setBatchReceiveForm] = useState({
+    material_id: '', new_material_name: '', new_material_code: '', new_material_category: '', new_material_uom: 'PCS',
+    batch_number: '', purchase_date: new Date().toISOString().slice(0, 10), supplier_name: '',
+    unit_cost: '', qty_received: '', warehouse_id: '', notes: '',
+  });
+  const isNewMaterial = batchReceiveForm.material_id === '__new__';
+
   useEffect(() => {
     fetchData();
     api.get('/fleet/skus').then(res => setSkus(res.data.data)).catch(() => {});
@@ -230,6 +242,49 @@ const ProductionPage: React.FC = () => {
       const errors = error.response?.data?.errors;
       const firstError = errors ? Object.values(errors)[0] : null;
       toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to create material');
+    }
+  };
+
+  const handleBatchReceiveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!batchReceiveForm.warehouse_id) { toast.error('Select a warehouse'); return; }
+    const payload: any = {
+      batch_number: batchReceiveForm.batch_number || undefined,
+      purchase_date: batchReceiveForm.purchase_date,
+      supplier_name: batchReceiveForm.supplier_name || undefined,
+      unit_cost: batchReceiveForm.unit_cost,
+      qty_received: batchReceiveForm.qty_received,
+      warehouse_id: batchReceiveForm.warehouse_id,
+      notes: batchReceiveForm.notes || undefined,
+    };
+    if (isNewMaterial) {
+      payload.new_material = {
+        code: batchReceiveForm.new_material_code,
+        name: batchReceiveForm.new_material_name,
+        category: batchReceiveForm.new_material_category,
+        uom: batchReceiveForm.new_material_uom,
+      };
+    } else {
+      if (!batchReceiveForm.material_id) { toast.error('Select a material'); return; }
+      payload.material_id = batchReceiveForm.material_id;
+    }
+    setSubmittingBatch(true);
+    try {
+      await api.post('/inventory/material-batches', payload);
+      toast.success('Batch received -- stock updated');
+      setShowBatchReceiveForm(false);
+      setBatchReceiveForm({
+        material_id: '', new_material_name: '', new_material_code: '', new_material_category: '', new_material_uom: 'PCS',
+        batch_number: '', purchase_date: new Date().toISOString().slice(0, 10), supplier_name: '',
+        unit_cost: '', qty_received: '', warehouse_id: '', notes: '',
+      });
+      api.get('/production/materials').then(res => setMaterials(res.data.data)).catch(() => {});
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to record batch');
+    } finally {
+      setSubmittingBatch(false);
     }
   };
 
@@ -330,13 +385,22 @@ const ProductionPage: React.FC = () => {
             New Packaging Run
           </button>
           {activeTab === 'materials' && (
-            <button
-              onClick={() => setShowMaterialForm(true)}
-              className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              New Material
-            </button>
+            <>
+              <button
+                onClick={() => setShowMaterialForm(true)}
+                className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                New Material
+              </button>
+              <button
+                onClick={() => setShowBatchReceiveForm(true)}
+                className="flex items-center px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Receive Stock (New Batch)
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -1034,6 +1098,102 @@ const ProductionPage: React.FC = () => {
                   className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
                 >
                   Create Material
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Round 3 Phase 10: receive a purchase as its own traceable batch
+          (batch number, supplier, unit cost, qty) instead of only adding
+          to the material's running-total line. */}
+      {showBatchReceiveForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Receive Stock (New Batch)</h3>
+            <form onSubmit={handleBatchReceiveSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Material</label>
+                <select
+                  required
+                  value={batchReceiveForm.material_id}
+                  onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, material_id: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a material...</option>
+                  <option value="__new__">+ New material (never purchased before)</option>
+                  {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.code})</option>)}
+                </select>
+              </div>
+
+              {isNewMaterial && (
+                <div className="grid grid-cols-2 gap-4 p-3 bg-gray-50 dark:bg-gray-900 rounded-md">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">New material code</label>
+                    <input required type="text" value={batchReceiveForm.new_material_code} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, new_material_code: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">New material name</label>
+                    <input required type="text" value={batchReceiveForm.new_material_name} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, new_material_name: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
+                    <input required type="text" placeholder="e.g. preform, label, cap" value={batchReceiveForm.new_material_category} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, new_material_category: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit</label>
+                    <input required type="text" value={batchReceiveForm.new_material_uom} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, new_material_uom: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Batch Number</label>
+                  <input type="text" placeholder="auto-generated if left blank" value={batchReceiveForm.batch_number} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, batch_number: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Purchase Date</label>
+                  <input required type="date" value={batchReceiveForm.purchase_date} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, purchase_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
+                <input type="text" placeholder="optional" value={batchReceiveForm.supplier_name} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, supplier_name: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit Cost (KES)</label>
+                  <input required type="number" min={0} step="0.01" value={batchReceiveForm.unit_cost} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, unit_cost: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity Received</label>
+                  <input required type="number" min={0.001} step="0.001" value={batchReceiveForm.qty_received} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, qty_received: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Warehouse</label>
+                <select required value={batchReceiveForm.warehouse_id} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, warehouse_id: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
+                  <option value="">Select warehouse...</option>
+                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
+                <textarea rows={2} value={batchReceiveForm.notes} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, notes: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <button type="button" onClick={() => setShowBatchReceiveForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+                  Cancel
+                </button>
+                <button type="submit" disabled={submittingBatch} className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50">
+                  {submittingBatch ? 'Recording…' : 'Receive Stock'}
                 </button>
               </div>
             </form>

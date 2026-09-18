@@ -60,6 +60,17 @@ class Material extends Model
     }
 
     /**
+     * Round 3 Phase 10: individual purchase batches (batch number,
+     * supplier, unit cost, purchase date) -- traceability detail only;
+     * see the migration docblock for why this doesn't change how stock
+     * itself is rolled up or deducted.
+     */
+    public function materialBatches()
+    {
+        return $this->hasMany(MaterialBatch::class)->orderByDesc('purchase_date');
+    }
+
+    /**
      * Bill-of-materials lines that consume this material.
      */
     public function bomItems()
