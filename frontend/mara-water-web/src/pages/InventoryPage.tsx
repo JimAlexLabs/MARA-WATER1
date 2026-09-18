@@ -397,6 +397,34 @@ const InventoryPage: React.FC = () => {
               </button>
             </form>
 
+            {/* Round 3 Phase 9: exact-format export -- all finished-goods
+                SKUs at this warehouse, one sheet per day in range
+                (doesn't need a single item selected, unlike the card
+                above). */}
+            <div className="mb-6">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!stockCardForm.warehouse_id) { toast.error('Select a warehouse first'); return; }
+                  api.get('/inventory/stock-reconciliation-export', {
+                    params: { warehouse_id: stockCardForm.warehouse_id, date_from: stockCardForm.date_from, date_to: stockCardForm.date_to },
+                    responseType: 'blob',
+                  }).then((res) => {
+                    const url = window.URL.createObjectURL(new Blob([res.data]));
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `stock-reconciliation-${stockCardForm.date_from}-to-${stockCardForm.date_to}.xlsx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+                  }).catch(() => toast.error('Failed to export stock reconciliation'));
+                }}
+                className="flex items-center text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                <Download className="w-4 h-4 mr-2" /> Export Stock Reconciliation (selected warehouse/dates)
+              </button>
+            </div>
+
             {stockCard && (
               <div className="overflow-x-auto">
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Opening balance before this period: <span className="font-medium text-gray-900 dark:text-gray-100">{stockCard.opening_balance.toLocaleString()}</span></p>

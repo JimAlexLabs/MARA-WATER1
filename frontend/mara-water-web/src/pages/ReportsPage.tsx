@@ -61,6 +61,21 @@ interface RefillProductionRow { sku_id: string; sku: { name: string; size_liters
 interface RefillSalesRow { sku_id: string; sku: { name: string; size_liters: string }; qty_dispatched: number; qty_returned: number; qty_net_sold: number; }
 interface RefillsSummary { sku_id: string; name: string; qty_produced: number; qty_dispatched: number; qty_returned: number; qty_net_sold: number; }
 
+// Round 3 Phase 9: shared blob-download helper for the exact-format
+// .xlsx exports -- auth header can't ride a plain <a href>.
+const downloadBlob = (path: string, params: Record<string, string>, filename: string, onError: () => void) => {
+  api.get(path, { params, responseType: 'blob' }).then((res) => {
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }).catch(onError);
+};
+
 const ReportsPage: React.FC = () => {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -500,7 +515,27 @@ const ReportsPage: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Production Report — last {dateRange} days</h3>
-            <button onClick={() => setShowProductionReport(false)} className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">Hide</button>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => {
+                  const now = new Date();
+                  downloadBlob('/reports/production-export', { year: String(now.getFullYear()), month: String(now.getMonth() + 1) },
+                    `production-${now.toISOString().slice(0, 7)}.xlsx`, () => toast.error('Failed to export production report'));
+                }}
+                className="flex items-center text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                <Download className="w-3.5 h-3.5 mr-1" /> Export Production (this month)
+              </button>
+              <button
+                onClick={() => {
+                  const now = new Date();
+                  downloadBlob('/reports/daily-sales-debt-export', { year: String(now.getFullYear()), month: String(now.getMonth() + 1) },
+                    `daily-sales-debt-${now.toISOString().slice(0, 7)}.xlsx`, () => toast.error('Failed to export daily sales & debt report'));
+                }}
+                className="flex items-center text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                <Download className="w-3.5 h-3.5 mr-1" /> Export Daily Sales &amp; Debt (this month)
+              </button>
+              <button onClick={() => setShowProductionReport(false)} className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">Hide</button>
+            </div>
           </div>
           {productionReportLoading ? (
             <div className="flex justify-center py-8">

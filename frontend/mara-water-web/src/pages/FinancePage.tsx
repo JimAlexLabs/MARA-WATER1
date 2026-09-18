@@ -106,6 +106,22 @@ interface ProfitLoss {
   net_margin: number;
 }
 
+// Round 3 Phase 9: shared blob-download helper -- exact-format .xlsx
+// exports, same pattern used everywhere else this round (auth header
+// can't ride a plain <a href>, so fetch as a blob instead).
+const downloadBlob = (path: string, params: Record<string, string>, filename: string, onError: () => void) => {
+  api.get(path, { params, responseType: 'blob' }).then((res) => {
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }).catch(onError);
+};
+
 const FinancePage: React.FC = () => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -740,6 +756,20 @@ const FinancePage: React.FC = () => {
       {/* Petty Cash Tab */}
       {activeTab === 'pettycash' && (
         <div className="space-y-6">
+          <div className="flex justify-end">
+            <button
+              onClick={() => {
+                const from = new Date(); from.setDate(1);
+                const to = new Date();
+                downloadBlob('/finance/petty-cash/export',
+                  { date_from: from.toISOString().slice(0, 10), date_to: to.toISOString().slice(0, 10) },
+                  `petty-cash-${from.toISOString().slice(0, 7)}.xlsx`,
+                  () => toast.error('Failed to export petty cash'));
+              }}
+              className="flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700">
+              <Download className="w-4 h-4 mr-2" /> Export (this month)
+            </button>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Opening Balance</p>
@@ -962,6 +992,13 @@ const FinancePage: React.FC = () => {
       {/* Debtors Ledger Tab */}
       {activeTab === 'debtors' && (
         <div className="space-y-6">
+          <div className="flex justify-end">
+            <button
+              onClick={() => downloadBlob('/finance/debtors/export', {}, `debtors-ledger-${new Date().toISOString().slice(0, 10)}.xlsx`, () => toast.error('Failed to export debtors ledger'))}
+              className="flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700">
+              <Download className="w-4 h-4 mr-2" /> Export Full Ledger
+            </button>
+          </div>
           <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Customer</label>
             <select value={debtorCustomerId} onChange={(e) => setDebtorCustomerId(e.target.value)}

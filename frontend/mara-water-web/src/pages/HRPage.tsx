@@ -396,20 +396,24 @@ const HRPage: React.FC = () => {
     }
   };
 
-  const downloadBankFile = (run: PayrollRun) => {
-    // Auth header is added by the shared axios instance's interceptor,
-    // but a plain <a href> download can't carry it -- fetch as a blob instead.
-    api.get(`/hr/payroll/runs/${run.id}/bank-transfer-file`, { responseType: 'blob' }).then((res) => {
+  // Round 3 Phase 9: these three now download real .xlsx matching
+  // Finalis Payroll Beta's actual sheet layouts (bank-transfer-file was
+  // a flat CSV before this round; payroll/payslips exports are new).
+  const downloadPayrollFile = (run: PayrollRun, endpoint: string, prefix: string) => {
+    api.get(`/hr/payroll/runs/${run.id}/${endpoint}`, { responseType: 'blob' }).then((res) => {
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement('a');
       a.href = url;
-      a.download = `bank-transfer-${run.month.slice(0, 7)}.csv`;
+      a.download = `${prefix}-${run.month.slice(0, 7)}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-    }).catch(() => toast.error('Failed to download bank transfer file'));
+    }).catch(() => toast.error(`Failed to download ${prefix.replace('-', ' ')}`));
   };
+  const downloadBankFile = (run: PayrollRun) => downloadPayrollFile(run, 'bank-transfer-file', 'bank-transfer');
+  const downloadPayrollSheet = (run: PayrollRun) => downloadPayrollFile(run, 'payroll-export', 'payroll');
+  const downloadPayslipsFile = (run: PayrollRun) => downloadPayrollFile(run, 'payslips-export', 'payslips');
 
   // ============ LOANS & ADVANCES ============
   const [loans, setLoans] = useState<StaffLoan[]>([]);
@@ -751,6 +755,12 @@ const HRPage: React.FC = () => {
               <div className="flex items-center justify-between">
                 <button onClick={() => setSelectedRun(null)} className="text-sm text-blue-600 hover:text-blue-800 font-medium">&larr; Back to all runs</button>
                 <div className="flex items-center space-x-3">
+                  <button onClick={() => downloadPayrollSheet(selectedRun)} className="flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <Download className="w-4 h-4 mr-2" /> Payroll Sheet
+                  </button>
+                  <button onClick={() => downloadPayslipsFile(selectedRun)} className="flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <Download className="w-4 h-4 mr-2" /> Payslips
+                  </button>
                   <button onClick={() => downloadBankFile(selectedRun)} className="flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700">
                     <Download className="w-4 h-4 mr-2" /> Bank Transfer File
                   </button>
