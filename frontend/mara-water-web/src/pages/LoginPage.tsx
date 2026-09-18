@@ -137,15 +137,17 @@ const LoginPage: React.FC = () => {
             </div>
           </form>
 
-          {/* Demo Credentials */}
-          <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-            <h4 className="text-sm font-medium text-blue-900 mb-2">
-              Demo Credentials
-            </h4>
-            <div className="text-xs text-blue-700 space-y-1">
-              <p><strong>Email:</strong> director@marawater.com</p>
-              <p><strong>Password:</strong> Admin@2024</p>
-            </div>
+          {/* Round 3 Phase 1: no credentials -- of any kind, for any role --
+              belong on a real production login page. If you don't have an
+              account or forgot your password, contact whoever manages
+              logins (currently the Director) directly. */}
+          <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg text-center">
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              Don't have a login, or forgot your password?{' '}
+              <a href="mailto:director@marawater.com?subject=MARA%20Water%20login%20request" className="text-blue-600 dark:text-blue-400 hover:underline">
+                Contact your administrator
+              </a>
+            </p>
           </div>
         </div>
 
