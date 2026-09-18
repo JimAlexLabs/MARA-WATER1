@@ -285,7 +285,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* Desktop sidebar */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-80 lg:flex-col">
-        <div className="flex flex-col flex-grow bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 shadow-sm">
+        {/* Round 3 Phase 7: this wrapper is a flex-grow child of the fixed,
+            viewport-bounded container above it, but without an explicit
+            overflow it still gets the flexbox default min-height:auto --
+            i.e. it grows to fit the nav's full content height and pushes
+            past the bottom of the screen instead of respecting the fixed
+            bound, so the nav's own overflow-y-auto below never had a
+            constrained box to actually scroll within. overflow-hidden here
+            forces this wrapper back down to the fixed parent's height,
+            which is what makes the nav scroll internally instead. */}
+        <div className="flex flex-col flex-grow overflow-hidden bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="flex h-16 items-center px-6 border-b border-gray-200 dark:border-gray-700">
             <div className="h-8 w-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
               <Droplets className="h-5 w-5 text-white" />
