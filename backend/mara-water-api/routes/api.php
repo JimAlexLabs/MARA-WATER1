@@ -363,7 +363,15 @@ Route::prefix('v1')->group(function () {
             Route::get('/attendance/{id}', [AttendanceController::class, 'show']);
             Route::put('/attendance/{id}', [AttendanceController::class, 'update']);
             Route::delete('/attendance/{id}', [AttendanceController::class, 'destroy']);
+        });
 
+        // Round 3 Phase 8: Payroll, Loans & Advances, and Salary Templates
+        // are Director-only -- Manager previously shared this whole `hr`
+        // group (tier:manager,director) and could hit these routes even
+        // though the nav never showed them, which is exactly the "hidden
+        // nav item is not real access control" gap the spec calls out.
+        // Attendance stays Manager+Director above; only these three move.
+        Route::middleware('tier:director')->prefix('hr')->group(function () {
             // Round 2 Phase 4: Payroll
             Route::get('/payroll/runs', [PayrollController::class, 'index']);
             Route::post('/payroll/runs', [PayrollController::class, 'store']);

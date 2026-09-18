@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { usePermissions } from '../contexts/AuthContext';
 
 interface Employee {
   id: string;
@@ -100,12 +101,19 @@ interface SalaryTemplate {
   notes: string | null;
 }
 
-const TABS = [
+const ALL_TABS = [
   { id: 'attendance', name: 'Attendance', icon: Clock },
   { id: 'payroll', name: 'Payroll', icon: DollarSign },
   { id: 'loans', name: 'Loans & Advances', icon: Users },
   { id: 'templates', name: 'Salary Templates', icon: Edit },
 ];
+
+// Round 3 Phase 8: Manager only gets Attendance -- Payroll/Loans/Salary
+// Templates are Director-only. This is UX only (matches what Manager can
+// actually reach, so they're not shown a tab that just 404s); the real
+// enforcement is the `tier:director` middleware on those routes now, not
+// this list.
+const DIRECTOR_ONLY_TAB_IDS = ['payroll', 'loans', 'templates'];
 
 const LOAN_TYPE_LABELS: Record<string, string> = {
   advance: 'Staff Advance', loan: 'Loan', sacco_loan: 'Sacco Loan', sacco_advance: 'Sacco Advance',
@@ -129,12 +137,18 @@ const PAYSLIP_EDIT_FIELDS: { key: string; label: string; suffix?: string }[] = [
 ];
 
 const HRPage: React.FC = () => {
+  const { isDirector } = usePermissions();
+  const TABS = isDirector() ? ALL_TABS : ALL_TABS.filter(t => !DIRECTOR_ONLY_TAB_IDS.includes(t.id));
+
   const [activeTabState, setActiveTabState] = useState('attendance');
   const [searchParams] = useSearchParams();
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab) setActiveTabState(tab);
-  }, [searchParams]);
+    // Guard against a typed/bookmarked ?tab=payroll URL for a Manager --
+    // fall back to Attendance rather than rendering a tab whose data
+    // fetch will just 403 against the server-side tier:director gate.
+    if (tab && TABS.some(t => t.id === tab)) setActiveTabState(tab);
+  }, [searchParams, TABS]);
 
   // ============ ATTENDANCE (unchanged from Phase 1) ============
   const [attendances, setAttendances] = useState<Attendance[]>([]);

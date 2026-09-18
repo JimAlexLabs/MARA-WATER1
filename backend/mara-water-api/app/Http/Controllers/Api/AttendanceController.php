@@ -15,7 +15,14 @@ class AttendanceController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Attendance::with(['user', 'shift', 'createdBy']);
+            $query = Attendance::with(['user', 'shift', 'createdBy'])
+                // Round 3 Phase 8: Director isn't tracked staff -- they
+                // technically can clock in (same tier grant as
+                // Manager/Driver from Round 2), but shouldn't show up as
+                // a row in the staff attendance list.
+                ->whereHas('user.role', function ($q) {
+                    $q->where('access_tier', '!=', 'director');
+                });
 
             // Filtering
             if ($request->filled('user_id')) {
@@ -421,7 +428,10 @@ class AttendanceController extends Controller
     public function statistics(Request $request)
     {
         try {
-            $query = Attendance::query();
+            $query = Attendance::query()
+                ->whereHas('user.role', function ($q) {
+                    $q->where('access_tier', '!=', 'director');
+                });
 
             // Filter by date range
             if ($request->filled('date_from')) {
@@ -547,7 +557,10 @@ class AttendanceController extends Controller
     {
         try {
             $query = Attendance::with(['user', 'shift'])
-                ->whereDate('date', now()->toDateString());
+                ->whereDate('date', now()->toDateString())
+                ->whereHas('user.role', function ($q) {
+                    $q->where('access_tier', '!=', 'director');
+                });
 
             // Filter by department
             if ($request->filled('department_id')) {
