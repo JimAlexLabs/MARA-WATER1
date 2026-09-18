@@ -184,6 +184,12 @@ class SalesRevenueService
                 'payment_method' => $s->payment_method,
             ]);
 
-        return $orders->merge($trips)->sortByDesc('date')->values();
+        // ->map() above turned each row into a plain array, but the
+        // collection returned by ->get()->map() is still typed as
+        // Eloquent\Collection -- its merge() is overridden to dedupe by
+        // primary key (calls ->getKey() on each item), which crashes on
+        // a plain array. ->toBase() drops back to the base Collection
+        // (plain array merge) before combining the two sources.
+        return $orders->toBase()->merge($trips->toBase())->sortByDesc('date')->values();
     }
 }

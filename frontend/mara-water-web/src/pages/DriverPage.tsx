@@ -376,7 +376,7 @@ const DriverPage: React.FC = () => {
     setSavingCustomer(true);
     try {
       const res = await api.post('/sales/customers', newCustomerForm);
-      const created = res.data.data;
+      const created = res.data.data.customer;
       toast.success('Customer added');
       selectCustomer(created);
       setShowNewCustomerForm(false);
