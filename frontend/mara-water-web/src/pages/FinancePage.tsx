@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import {
   Plus,
   Search,
@@ -180,7 +180,13 @@ const FinancePage: React.FC = () => {
   }, [activeTab]);
 
   useEffect(() => {
-    if (debtorCustomerId) fetchDebtorLedger(debtorCustomerId);
+    if (!debtorCustomerId) return;
+    fetchDebtorLedger(debtorCustomerId);
+    // Round 3 Phase 3: a debt sale logged from a driver's trip should
+    // show up here without a manual refresh -- same polling approach
+    // Analytics/Sales already use for this, not a second mechanism.
+    const interval = setInterval(() => fetchDebtorLedger(debtorCustomerId), 20000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debtorCustomerId]);
 
@@ -974,6 +980,7 @@ const FinancePage: React.FC = () => {
                   <div>
                     <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Outstanding Balance</p>
                     <p className={`text-2xl font-bold ${debtorBalance > 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>KES {debtorBalance.toLocaleString()}</p>
+                    <Link to={`/customers/${debtorCustomerId}`} className="text-xs text-blue-600 hover:text-blue-800 hover:underline">View customer profile</Link>
                   </div>
                   <div className="flex space-x-2">
                     <button onClick={() => setShowManualLedgerForm(true)} className="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-sm hover:bg-gray-50 dark:hover:bg-gray-700">Manual Entry</button>

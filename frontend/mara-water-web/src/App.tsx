@@ -21,6 +21,7 @@ const QAPage = lazy(() => import('./pages/QAPage'));
 const ProductionPage = lazy(() => import('./pages/ProductionPage'));
 const InventoryPage = lazy(() => import('./pages/InventoryPage'));
 const SalesPage = lazy(() => import('./pages/SalesPage'));
+const CustomerDetailPage = lazy(() => import('./pages/CustomerDetailPage'));
 const FinancePage = lazy(() => import('./pages/FinancePage'));
 const FleetPage = lazy(() => import('./pages/FleetPage'));
 const HRPage = lazy(() => import('./pages/HRPage'));
@@ -202,6 +203,18 @@ function App() {
               <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <SalesPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
+            {/* Round 3 Phase 3: Customer Detail ("keeping an account with
+                our customer") -- Manager/Director only, same tier as the
+                rest of the Sales/Customers module and the Debtors
+                Ledger/Finance data it surfaces. */}
+            <Route path="/customers/:id" element={
+              <ProtectedRoute tiers={['manager', 'director']}>
+                <Layout>
+                  <CustomerDetailPage />
                 </Layout>
               </ProtectedRoute>
             } />

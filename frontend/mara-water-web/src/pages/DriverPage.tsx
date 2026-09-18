@@ -14,7 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 interface WarehouseRef { id: string; code: string; name: string; }
 interface SkuRef { id: string; name: string; code: string; brand: string | null; current_price?: number | null; }
 interface VehicleRef { id: string; reg_no: string; }
-interface CustomerRef { id: string; name: string; code: string; }
+interface CustomerRef { id: string; name: string; code: string; phone?: string | null; type?: string; }
 interface OfficerRef { id: string; full_name: string; }
 
 interface RecentTrip {
@@ -35,8 +35,9 @@ interface TripItem {
   qty_returned: number; qty_returned_bales: number; qty_sold: number; unit_price: string;
 }
 interface TripSaleItem { id: string; sku_id: string; sku?: SkuRef; qty_bales: string; unit_price: string; line_total: string; }
+type SalePaymentMethod = 'cash' | 'mpesa' | 'debt' | 'pay_direct';
 interface TripSale {
-  id: string; customer_id: string; customer?: CustomerRef; payment_method: 'cash' | 'mpesa' | 'debt';
+  id: string; customer_id: string; customer?: CustomerRef; payment_method: SalePaymentMethod;
   amount: string; mpesa_reference: string | null; debt_signatory: string | null;
   debt_expected_repayment_date: string | null; items?: TripSaleItem[];
 }
@@ -69,8 +70,19 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
 const EMPTY_NEW_TRIP = { trip_date: new Date().toISOString().slice(0, 10), vehicle_id: '', route: '', warehouse_id: '', mileage_start: '', authorizing_officer_id: '' };
 type DispatchGridItem = { qty_carried: string; qty_carried_bales: string; unit_price: string };
 type ReturnGridItem = { qty_returned: string; qty_returned_bales: string };
-const EMPTY_SALE_FORM = { customer_id: '', payment_method: 'cash' as 'cash' | 'mpesa' | 'debt', amount: '', mpesa_reference: '', debt_signatory: '', debt_expected_repayment_date: '' };
+const EMPTY_SALE_FORM = {
+  customer_id: '', customer_name: '', payment_method: 'cash' as SalePaymentMethod, amount: '',
+  mpesa_reference: '', debt_signatory: '', debt_expected_repayment_date: '',
+  physical_receipt_no: '', physical_delivery_note_no: '',
+};
 type SaleLineItem = { sku_id: string; qty_bales: string; unit_price: string };
+const CUSTOMER_TYPE_OPTIONS = [
+  { value: 'retail', label: 'Retail' },
+  { value: 'wholesale', label: 'Distributor' },
+  { value: 'corporate', label: 'Institution' },
+  { value: 'walk_in', label: 'Walk-in' },
+];
+const EMPTY_NEW_CUSTOMER = { name: '', phone: '', type: 'retail' };
 
 // Round 3 Phase 5: in-app issue reporting.
 interface IssueMessageRow { id: string; sender_id: string; sender?: { full_name?: string }; body: string; photo_path: string | null; created_at: string; }
@@ -94,7 +106,6 @@ const DriverPage: React.FC = () => {
   const [vehicles, setVehicles] = useState<VehicleRef[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseRef[]>([]);
   const [skus, setSkus] = useState<SkuRef[]>([]);
-  const [customers, setCustomers] = useState<CustomerRef[]>([]);
   const [officers, setOfficers] = useState<OfficerRef[]>([]);
   const [recentRoutes, setRecentRoutes] = useState<string[]>([]);
 
@@ -114,6 +125,18 @@ const DriverPage: React.FC = () => {
   const [saleLineItems, setSaleLineItems] = useState<SaleLineItem[]>([]);
   const [showDebtConfirm, setShowDebtConfirm] = useState(false);
   const [savingSale, setSavingSale] = useState(false);
+
+  // Round 3 Phase 3: customer search-as-you-type ("typing a name/phone
+  // searches existing customers first, with add new customer as a
+  // fallback") -- also fixes a real pre-existing bug where this form's
+  // customer picker called a Manager/Director-only endpoint and silently
+  // showed an empty list for every driver.
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [customerResults, setCustomerResults] = useState<CustomerRef[]>([]);
+  const [searchingCustomers, setSearchingCustomers] = useState(false);
+  const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
+  const [newCustomerForm, setNewCustomerForm] = useState(EMPTY_NEW_CUSTOMER);
+  const [savingCustomer, setSavingCustomer] = useState(false);
 
   // --- Stage 5: End Trip ---
   const [showEndTripForm, setShowEndTripForm] = useState(false);
@@ -213,7 +236,6 @@ const DriverPage: React.FC = () => {
     api.get('/fleet/warehouses').then(res => setWarehouses(res.data.data)).catch(() => setWarehouses([]));
     api.get('/fleet/authorizing-officers').then(res => setOfficers(res.data.data)).catch(() => setOfficers([]));
     api.get('/fleet/trips/recent-routes').then(res => setRecentRoutes(res.data.data)).catch(() => setRecentRoutes([]));
-    api.get('/sales/customers', { params: { limit: 500 } }).then(res => setCustomers(res.data.data)).catch(() => setCustomers([]));
   };
 
   const handleClockIn = async () => {
@@ -315,13 +337,57 @@ const DriverPage: React.FC = () => {
   const openSaleForm = () => {
     setSaleForm(EMPTY_SALE_FORM);
     setSaleLineItems([]);
-    if (customers.length === 0) fetchTripRefData();
+    setCustomerQuery(''); setCustomerResults([]); setShowNewCustomerForm(false);
     setShowSaleForm(true);
   };
   const addSaleLineItem = () => setSaleLineItems([...saleLineItems, { sku_id: '', qty_bales: '', unit_price: '' }]);
   const removeSaleLineItem = (i: number) => setSaleLineItems(saleLineItems.filter((_, idx) => idx !== i));
   const updateSaleLineItem = (i: number, field: keyof SaleLineItem, value: string) => {
     setSaleLineItems(saleLineItems.map((row, idx) => idx === i ? { ...row, [field]: value } : row));
+  };
+
+  // Round 3 Phase 3: "typing a name/phone searches existing customers
+  // first" -- debounced, minimum 2 characters (matches the backend's own
+  // validation), so a driver isn't stuck browsing a company-wide list.
+  useEffect(() => {
+    if (customerQuery.trim().length < 2 || saleForm.customer_id) { setCustomerResults([]); return; }
+    setSearchingCustomers(true);
+    const handle = setTimeout(() => {
+      api.get('/sales/customers/search', { params: { query: customerQuery.trim() } })
+        .then(res => setCustomerResults(res.data.data.customers))
+        .catch(() => setCustomerResults([]))
+        .finally(() => setSearchingCustomers(false));
+    }, 350);
+    return () => clearTimeout(handle);
+  }, [customerQuery, saleForm.customer_id]);
+
+  const selectCustomer = (c: CustomerRef) => {
+    setSaleForm({ ...saleForm, customer_id: c.id, customer_name: c.name });
+    setCustomerQuery(c.name);
+    setCustomerResults([]);
+  };
+  const clearSelectedCustomer = () => {
+    setSaleForm({ ...saleForm, customer_id: '', customer_name: '' });
+    setCustomerQuery('');
+  };
+
+  const submitNewCustomer = async () => {
+    if (!newCustomerForm.name.trim() || !newCustomerForm.phone.trim()) { toast.error('Name and phone are required'); return; }
+    setSavingCustomer(true);
+    try {
+      const res = await api.post('/sales/customers', newCustomerForm);
+      const created = res.data.data;
+      toast.success('Customer added');
+      selectCustomer(created);
+      setShowNewCustomerForm(false);
+      setNewCustomerForm(EMPTY_NEW_CUSTOMER);
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to add customer');
+    } finally {
+      setSavingCustomer(false);
+    }
   };
 
   const handleSaleSubmit = (e: React.FormEvent) => {
@@ -347,9 +413,11 @@ const DriverPage: React.FC = () => {
       }));
       await api.post(`/fleet/trips/${activeTrip.id}/sales`, {
         customer_id: saleForm.customer_id, payment_method: saleForm.payment_method, amount: parseFloat(saleForm.amount) || 0,
-        mpesa_reference: saleForm.payment_method === 'mpesa' ? (saleForm.mpesa_reference || undefined) : undefined,
+        mpesa_reference: (saleForm.payment_method === 'mpesa' || saleForm.payment_method === 'pay_direct') ? (saleForm.mpesa_reference || undefined) : undefined,
         debt_signatory: saleForm.payment_method === 'debt' ? saleForm.debt_signatory : undefined,
         debt_expected_repayment_date: saleForm.payment_method === 'debt' ? saleForm.debt_expected_repayment_date : undefined,
+        physical_receipt_no: saleForm.physical_receipt_no || undefined,
+        physical_delivery_note_no: saleForm.physical_delivery_note_no || undefined,
         items: items.length > 0 ? items : undefined,
       });
       toast.success('Sale recorded');
@@ -738,12 +806,40 @@ const DriverPage: React.FC = () => {
               <button onClick={() => setShowSaleForm(false)}><X className="w-5 h-5 text-gray-400" /></button>
             </div>
             <form onSubmit={handleSaleSubmit} className="space-y-4">
-              <div>
+              <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Customer</label>
-                <select required value={saleForm.customer_id} onChange={e => setSaleForm({ ...saleForm, customer_id: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
-                  <option value="">Select customer</option>
-                  {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                {saleForm.customer_id ? (
+                  <div className="mt-1 flex items-center justify-between border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-3 py-2">
+                    <span className="text-gray-900 dark:text-gray-100">{saleForm.customer_name}</span>
+                    <button type="button" onClick={clearSelectedCustomer} className="text-xs text-blue-600 hover:text-blue-800">Change</button>
+                  </div>
+                ) : (
+                  <>
+                    <input type="text" placeholder="Type a name or phone number…" value={customerQuery}
+                      onChange={e => setCustomerQuery(e.target.value)}
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                    {customerQuery.trim().length >= 2 && (
+                      <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        {searchingCustomers ? (
+                          <p className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">Searching…</p>
+                        ) : customerResults.length > 0 ? (
+                          customerResults.map(c => (
+                            <button type="button" key={c.id} onClick={() => selectCustomer(c)} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                              <div className="text-gray-900 dark:text-gray-100">{c.name}</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">{c.phone || 'no phone'}</div>
+                            </button>
+                          ))
+                        ) : (
+                          <p className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">No matches</p>
+                        )}
+                        <button type="button" onClick={() => { setNewCustomerForm({ ...EMPTY_NEW_CUSTOMER, name: customerQuery }); setShowNewCustomerForm(true); }}
+                          className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 font-medium">
+                          + Add new customer{customerQuery ? ` "${customerQuery}"` : ''}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -751,6 +847,7 @@ const DriverPage: React.FC = () => {
                   <select value={saleForm.payment_method} onChange={e => setSaleForm({ ...saleForm, payment_method: e.target.value as any })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
                     <option value="cash">Cash</option>
                     <option value="mpesa">M-Pesa</option>
+                    <option value="pay_direct">Pay-directly (QR)</option>
                     <option value="debt">Debt</option>
                   </select>
                 </div>
@@ -759,9 +856,9 @@ const DriverPage: React.FC = () => {
                   <input required type="number" min="0.01" step="0.01" value={saleForm.amount} onChange={e => setSaleForm({ ...saleForm, amount: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
               </div>
-              {saleForm.payment_method === 'mpesa' && (
+              {(saleForm.payment_method === 'mpesa' || saleForm.payment_method === 'pay_direct') && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">M-Pesa Reference</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{saleForm.payment_method === 'mpesa' ? 'M-Pesa Reference' : 'Payment Reference / QR Transaction ID'}</label>
                   <input type="text" value={saleForm.mpesa_reference} onChange={e => setSaleForm({ ...saleForm, mpesa_reference: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
               )}
@@ -796,11 +893,56 @@ const DriverPage: React.FC = () => {
                 ))}
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Physical Receipt No. (optional)</label>
+                  <input type="text" value={saleForm.physical_receipt_no} onChange={e => setSaleForm({ ...saleForm, physical_receipt_no: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" placeholder="Paper receipt book no." />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Physical Delivery Note No. (optional)</label>
+                  <input type="text" value={saleForm.physical_delivery_note_no} onChange={e => setSaleForm({ ...saleForm, physical_delivery_note_no: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                </div>
+              </div>
+
               <div className="flex justify-end space-x-3">
                 <button type="button" onClick={() => setShowSaleForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
                 <button type="submit" disabled={savingSale} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingSale ? 'Saving…' : 'Record Sale'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick "add new customer" -- name+phone required, matching the
+          search fallback ("with add new customer as a fallback, to avoid
+          duplicate customer records"). Code is auto-generated server-side. */}
+      {showNewCustomerForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[65] p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Add New Customer</h3>
+              <button type="button" onClick={() => setShowNewCustomerForm(false)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
+                <input required type="text" value={newCustomerForm.name} onChange={e => setNewCustomerForm({ ...newCustomerForm, name: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
+                <input required type="text" value={newCustomerForm.phone} onChange={e => setNewCustomerForm({ ...newCustomerForm, phone: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
+                <select value={newCustomerForm.type} onChange={e => setNewCustomerForm({ ...newCustomerForm, type: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
+                  {CUSTOMER_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button type="button" onClick={() => setShowNewCustomerForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+                <button type="button" onClick={submitNewCustomer} disabled={savingCustomer} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingCustomer ? 'Saving…' : 'Add Customer'}</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -812,7 +954,7 @@ const DriverPage: React.FC = () => {
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Confirm the signatory and repayment date before this goes on the customer's account.</p>
             <dl className="space-y-1 text-sm bg-gray-50 dark:bg-gray-900 rounded-lg p-3 mb-4">
               <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Amount</dt><dd className="font-medium text-gray-900 dark:text-gray-100">KES {parseFloat(saleForm.amount || '0').toLocaleString()}</dd></div>
-              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Debtor</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{customers.find(c => c.id === saleForm.customer_id)?.name || '—'}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Debtor</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.customer_name || '—'}</dd></div>
               <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Signatory</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.debt_signatory}</dd></div>
               <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Repay By</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.debt_expected_repayment_date}</dd></div>
             </dl>

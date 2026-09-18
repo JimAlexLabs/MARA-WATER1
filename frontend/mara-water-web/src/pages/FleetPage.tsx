@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts';
@@ -219,7 +219,6 @@ const FleetPage: React.FC = () => {
   const { isDirector } = usePermissions();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [tripsLoading, setTripsLoading] = useState(false);
-  const [warehouses, setWarehouses] = useState<WarehouseRef[]>([]);
   const [mileageTrend, setMileageTrend] = useState<any[]>([]);
   const [viewingTrip, setViewingTrip] = useState<Trip | null>(null);
   const [exportingTrips, setExportingTrips] = useState(false);
@@ -240,7 +239,6 @@ const FleetPage: React.FC = () => {
   };
 
   const fetchTripRefData = () => {
-    api.get('/inventory/warehouses').then(res => setWarehouses(res.data.data)).catch(() => {});
     api.get('/fleet/trips/mileage-trend').then(res => setMileageTrend(res.data.data)).catch(() => {});
   };
 
@@ -770,7 +768,9 @@ const FleetPage: React.FC = () => {
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {viewingTrip.sales.map((sale) => (
                       <tr key={sale.id}>
-                        <td className="pr-4 py-1 text-gray-900 dark:text-gray-100">{sale.customer?.name || '—'}</td>
+                        <td className="pr-4 py-1 text-gray-900 dark:text-gray-100">
+                          {sale.customer ? <Link to={`/customers/${sale.customer.id}`} className="text-blue-600 hover:text-blue-800 hover:underline">{sale.customer.name}</Link> : '—'}
+                        </td>
                         <td className="pr-4 py-1 text-gray-900 dark:text-gray-100 capitalize">{sale.payment_method}</td>
                         <td className="pr-4 py-1 text-gray-900 dark:text-gray-100">KES {parseFloat(sale.amount).toLocaleString()}</td>
                         <td className="pr-4 py-1 text-gray-500 dark:text-gray-400">

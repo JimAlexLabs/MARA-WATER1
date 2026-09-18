@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import {
   Plus,
   Search,
@@ -24,7 +24,7 @@ interface Customer {
   code: string;
   name: string;
   contact_person?: string | null;
-  type: 'retail' | 'wholesale' | 'corporate' | 'hotel_restaurant';
+  type: 'retail' | 'wholesale' | 'corporate' | 'hotel_restaurant' | 'walk_in';
   phone: string;
   email: string;
   address: string;
@@ -46,6 +46,7 @@ const CUSTOMER_TYPE_LABELS: Record<string, string> = {
   wholesale: 'Distributor / Reseller',
   corporate: 'Institution',
   hotel_restaurant: 'Hotel / Restaurant',
+  walk_in: 'Walk-in',
 };
 
 const EMPTY_CUSTOMER_FORM = {
@@ -194,6 +195,15 @@ const SalesPage: React.FC = () => {
         setSaleForm(f => ({ ...f, price_list_id: defaultList.id }));
       }
     }).catch(() => {});
+
+    // Round 3 Phase 3: "a customer or sale created from the Driver/
+    // salesperson dashboard must appear immediately ... not on refresh-
+    // only" -- reuses the same polling approach Analytics already uses
+    // for this (Round 2 Phase 9), not a second mechanism, just applied
+    // here too so a driver's trip sale/new customer shows up without a
+    // manual refresh.
+    const interval = setInterval(fetchData, 20000);
+    return () => clearInterval(interval);
   }, []);
 
   // Keep the price-list lookup map in sync with whichever list is selected
@@ -405,6 +415,7 @@ const SalesPage: React.FC = () => {
       case 'wholesale': return 'text-green-600 bg-green-100';
       case 'corporate': return 'text-purple-600 bg-purple-100';
       case 'hotel_restaurant': return 'text-orange-600 bg-orange-100';
+      case 'walk_in': return 'text-gray-600 bg-gray-200';
       default: return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700';
     }
   };
@@ -675,7 +686,7 @@ const SalesPage: React.FC = () => {
                   {filteredCustomers.map((customer) => (
                     <tr key={customer.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{customer.name}</div>
+                        <Link to={`/customers/${customer.id}`} className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline">{customer.name}</Link>
                         <div className="text-sm text-gray-500 dark:text-gray-400">{customer.code}{customer.contact_person ? ` · ${customer.contact_person}` : ''}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -702,6 +713,9 @@ const SalesPage: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center space-x-3">
+                          <Link to={`/customers/${customer.id}`} className="text-blue-600 hover:text-blue-900">
+                            <Eye className="w-4 h-4" />
+                          </Link>
                           <button onClick={() => openEditCustomer(customer)} className="text-green-600 hover:text-green-900">
                             <Edit className="w-4 h-4" />
                           </button>
