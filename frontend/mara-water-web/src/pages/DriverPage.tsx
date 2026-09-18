@@ -49,6 +49,22 @@ interface ActiveTrip {
   total_collected: number; reconciliation: { expected_revenue: number; collected: number; variance: number; matches: boolean; stock_matches: boolean };
 }
 
+// Round 3 Phase 4: driver/salesperson's own analytics.
+interface DriverAnalytics {
+  sales: { this_week: { kes: number; bales: number }; this_month: { kes: number; bales: number } };
+  new_customers: { count: number };
+  qty_by_brand_size: {
+    current_trip: { sku_id: string; name: string; brand: string | null; qty_carried: number }[];
+    cumulative: { sku_id: string; name: string; brand: string | null; qty_sold: string }[];
+  };
+  debt: { outstanding: number; overdue: number; overdue_count: number };
+}
+interface DriverSaleRow {
+  id: string; trip_date: string | null; customer: { id: string; name: string } | null;
+  payment_method: SalePaymentMethod; amount: number; physical_receipt_no: string | null;
+  debt: { balance: number; expected_repayment_date: string | null; signatory: string | null; days_overdue: number } | null;
+}
+
 const BRAND_ORDER = ['Premium', 'Platinum', 'Grace', 'Refill'];
 const brandLabel = (brand: string | null) => brand || 'Mara Water';
 const groupSkusByBrand = (skus: SkuRef[]) => {
@@ -213,6 +229,28 @@ const DriverPage: React.FC = () => {
     api.get('/driver/summary').then(res => setSummary(res.data.data)).catch(() => toast.error('Failed to load your summary')).finally(() => setLoading(false));
   }, []);
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
+
+  // Round 3 Phase 4: a driver/salesperson's own analytics -- separate
+  // fetch from summary() above (different data, different refresh cost),
+  // refetched whenever the active trip changes too (e.g. after End Trip,
+  // "cumulative" and "this week/month" should reflect the closed trip).
+  const [analytics, setAnalytics] = useState<DriverAnalytics | null>(null);
+  const fetchAnalytics = useCallback(() => {
+    api.get('/driver/analytics').then(res => setAnalytics(res.data.data)).catch(() => {});
+  }, []);
+  useEffect(() => { fetchAnalytics(); }, [fetchAnalytics, activeTrip?.status]);
+
+  // Round 3 Phase 12: "My Sales" (Invoices) / "My Debtors" -- one
+  // dataset, toggled, both scoped to only this driver's own sales.
+  // Petty Cash and Costing & P&L are deliberately not built here at all
+  // (spec default for a driver-tier user).
+  const [mySales, setMySales] = useState<DriverSaleRow[]>([]);
+  const [mySalesFilter, setMySalesFilter] = useState<'all' | 'debts'>('all');
+  const fetchMySales = useCallback((filter: 'all' | 'debts') => {
+    api.get('/driver/sales', { params: filter === 'debts' ? { debt_only: 1 } : {} })
+      .then(res => setMySales(res.data.data)).catch(() => {});
+  }, []);
+  useEffect(() => { fetchMySales(mySalesFilter); }, [fetchMySales, mySalesFilter, activeTrip?.status]);
 
   // Round 3 Phase 2: is there a trip already in progress (not yet
   // completed)? If so, that's what the page focuses on -- only one trip
@@ -561,6 +599,65 @@ const DriverPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Round 3 Phase 4: driver's own analytics -- read-only, scoped
+          only to their own records (enforced server-side, same rule as
+          everywhere else on this page). */}
+      {analytics && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">My Analytics</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Sales This Week</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">KES {analytics.sales.this_week.kes.toLocaleString()}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{analytics.sales.this_week.bales} bales net dispatched</p>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Sales This Month</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">KES {analytics.sales.this_month.kes.toLocaleString()}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{analytics.sales.this_month.bales} bales net dispatched</p>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">New Customers Registered</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{analytics.new_customers.count}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">all time</p>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Debt Sales Outstanding</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">KES {analytics.debt.outstanding.toLocaleString()}</p>
+              {analytics.debt.overdue_count > 0 && (
+                <p className="text-xs text-red-600 flex items-center"><AlertTriangle className="w-3 h-3 mr-1" />{analytics.debt.overdue_count} overdue · KES {analytics.debt.overdue.toLocaleString()}</p>
+              )}
+            </div>
+          </div>
+
+          {analytics.qty_by_brand_size.current_trip.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">This Trip -- Dispatched by Item</h4>
+              <div className="flex flex-wrap gap-2">
+                {analytics.qty_by_brand_size.current_trip.map(i => (
+                  <span key={i.sku_id} className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full px-3 py-1">
+                    {i.brand ? `${i.brand} ` : ''}{i.name}: {i.qty_carried}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {analytics.qty_by_brand_size.cumulative.length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Cumulative Quantity Sold, by Item</h4>
+              <div className="flex flex-wrap gap-2">
+                {analytics.qty_by_brand_size.cumulative.map(i => (
+                  <span key={i.sku_id} className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-full px-3 py-1">
+                    {i.brand ? `${i.brand} ` : ''}{i.name}: {i.qty_sold}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Round 3 Phase 2: the staged active-trip workflow */}
       {activeTrip && (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border-2 border-blue-200 dark:border-blue-900">
@@ -694,6 +791,60 @@ const DriverPage: React.FC = () => {
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800"><XCircle className="w-3 h-3 mr-1" />Check</span>
                         )}
                       </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Round 3 Phase 12: "Invoices"/Debtors Ledger, scoped to only this
+          driver's own sales -- there's no formal Invoice document for a
+          trip sale (Round 2 Phase 7: informal shop credit, no invoice
+          generated), so this is genuinely "my sales", labeled as such
+          rather than implying documents that don't exist. Petty Cash and
+          Costing & P&L are deliberately not added anywhere on this page. */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">My Sales{mySalesFilter === 'debts' ? ' -- Debtors Ledger' : ''}</h3>
+          <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 text-sm">
+            <button onClick={() => setMySalesFilter('all')} className={`px-3 py-1 rounded-md ${mySalesFilter === 'all' ? 'bg-white dark:bg-gray-800 shadow text-gray-900 dark:text-gray-100' : 'text-gray-600 dark:text-gray-400'}`}>All Sales</button>
+            <button onClick={() => setMySalesFilter('debts')} className={`px-3 py-1 rounded-md ${mySalesFilter === 'debts' ? 'bg-white dark:bg-gray-800 shadow text-gray-900 dark:text-gray-100' : 'text-gray-600 dark:text-gray-400'}`}>My Debtors</button>
+          </div>
+        </div>
+        <div className="p-6">
+          {mySales.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">{mySalesFilter === 'debts' ? 'No credit sales on your account.' : 'No sales logged yet.'}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead>
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Customer</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Payment</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Amount</th>
+                    {mySalesFilter === 'debts' && <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Debt Status</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {mySales.map(s => (
+                    <tr key={s.id}>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{s.trip_date ? new Date(s.trip_date).toLocaleDateString() : '—'}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{s.customer?.name || '—'}</td>
+                      <td className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 capitalize">{s.payment_method.replace('_', ' ')}</td>
+                      <td className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-gray-100">KES {s.amount.toLocaleString()}</td>
+                      {mySalesFilter === 'debts' && (
+                        <td className="px-4 py-2 text-sm">
+                          {s.debt ? (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${s.debt.days_overdue > 0 ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                              KES {s.debt.balance.toLocaleString()}{s.debt.days_overdue > 0 ? ` · ${s.debt.days_overdue}d overdue` : ' outstanding'}
+                            </span>
+                          ) : '—'}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
