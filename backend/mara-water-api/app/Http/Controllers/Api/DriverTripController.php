@@ -28,7 +28,7 @@ use App\Models\Sku;
  */
 class DriverTripController extends Controller
 {
-    private const WITH = ['driver', 'vehicle', 'warehouse', 'authorizingOfficer', 'items.sku', 'sales.customer', 'sales.debt', 'sales.items.sku'];
+    private const WITH = ['driver', 'vehicle', 'warehouse', 'location', 'authorizingOfficer', 'items.sku', 'sales.customer', 'sales.debt', 'sales.items.sku'];
 
     public function index(Request $request)
     {
@@ -106,6 +106,10 @@ class DriverTripController extends Controller
             'vehicle_id' => 'required|exists:vehicles,id',
             'route' => 'required|string|max:255',
             'warehouse_id' => 'required|exists:warehouses,id',
+            // Round 3 Phase 9: which branch/outlet (KDN/KDQ/Warehouse)
+            // this trip's sales are attributed to, for the Daily Sales &
+            // Debt export -- separate from warehouse_id.
+            'location_id' => 'nullable|exists:locations,id',
             'mileage_start' => 'required|integer|min:0',
             // Required -- someone has to be accountable for authorizing
             // the dispatch. A Manager creating their own trip defaults to
@@ -131,6 +135,7 @@ class DriverTripController extends Controller
                 'vehicle_id' => $request->vehicle_id,
                 'route' => $request->route,
                 'warehouse_id' => $request->warehouse_id,
+                'location_id' => $request->location_id,
                 'status' => 'pending_departure',
                 'mileage_start' => $request->mileage_start,
                 'authorizing_officer_id' => $request->authorizing_officer_id,
@@ -206,6 +211,7 @@ class DriverTripController extends Controller
             'vehicle_id' => 'sometimes|exists:vehicles,id',
             'route' => 'sometimes|string|max:255',
             'warehouse_id' => 'sometimes|exists:warehouses,id',
+            'location_id' => 'nullable|exists:locations,id',
             'mileage_start' => 'sometimes|integer|min:0',
             'authorizing_officer_id' => 'sometimes|exists:users,id',
             'notes' => 'nullable|string|max:1000',
@@ -222,7 +228,7 @@ class DriverTripController extends Controller
 
         DB::transaction(function () use ($request, $trip) {
             $trip->update(array_merge(
-                $request->only(['trip_date', 'vehicle_id', 'route', 'warehouse_id', 'mileage_start', 'authorizing_officer_id', 'notes']),
+                $request->only(['trip_date', 'vehicle_id', 'route', 'warehouse_id', 'location_id', 'mileage_start', 'authorizing_officer_id', 'notes']),
                 ['updated_by' => Auth::id()]
             ));
 

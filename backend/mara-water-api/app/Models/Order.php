@@ -16,6 +16,7 @@ class Order extends Model
         'customer_id',
         'route_id',
         'warehouse_id',
+        'location_id',
         'sales_officer_id',
         'status',
         'order_date',
@@ -50,6 +51,13 @@ class Order extends Model
     public function warehouse()
     {
         return $this->belongsTo(Warehouse::class);
+    }
+
+    // Round 3 Phase 9: which branch/outlet this order is attributed to
+    // (KDN/KDQ/Warehouse) -- separate from warehouse() above.
+    public function location()
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function priceList()

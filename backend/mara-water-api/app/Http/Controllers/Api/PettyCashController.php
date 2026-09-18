@@ -175,4 +175,21 @@ class PettyCashController extends Controller
             return response()->json(['success' => false, 'message' => 'Failed to build utilization report', 'error' => $e->getMessage()], 500);
         }
     }
+
+    /**
+     * Round 3 Phase 9: "PETTY CASH - JOURNAL DATA SHEET" exact-format
+     * .xlsx -- see PettyCashExportService for the layout.
+     */
+    public function export(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'date_from' => 'required|date',
+            'date_to' => 'required|date|after_or_equal:date_from',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        return (new \App\Services\PettyCashExportService())->generate($request->date_from, $request->date_to);
+    }
 }

@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\FileUploadController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\IssueController;
 use App\Http\Controllers\Api\MaterialBatchController;
+use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\AdminController;
@@ -240,6 +241,8 @@ Route::prefix('v1')->group(function () {
 
             // Phase 8 reports -- live views recreating the old Excel sheets.
             Route::get('/stock-card', [InventoryController::class, 'stockCard']);
+            // Round 3 Phase 9: exact-format export.
+            Route::get('/stock-reconciliation-export', [InventoryController::class, 'stockReconciliationExport']);
             Route::get('/reconciliation', [InventoryController::class, 'reconciliation']);
             Route::get('/materials-usage', [InventoryController::class, 'materialsUsage']);
             Route::get('/refills', [InventoryController::class, 'refills']);
@@ -318,11 +321,13 @@ Route::prefix('v1')->group(function () {
 
             // Petty cash journal (Phase 9). Fixed segments before /{id}.
             Route::get('/petty-cash/utilization', [PettyCashController::class, 'utilization']);
+            Route::get('/petty-cash/export', [PettyCashController::class, 'export']);
             Route::get('/petty-cash', [PettyCashController::class, 'index']);
             Route::post('/petty-cash', [PettyCashController::class, 'store']);
             Route::delete('/petty-cash/{id}', [PettyCashController::class, 'destroy']);
 
             // Debtors ledger (Phase 9).
+            Route::get('/debtors/export', [DebtorLedgerController::class, 'export']);
             Route::get('/debtors/{customerId}/ledger', [DebtorLedgerController::class, 'index']);
             Route::get('/debtors/{customerId}/open-debts', [DebtorLedgerController::class, 'openDebts']);
             Route::post('/debtors/ledger', [DebtorLedgerController::class, 'store']);
@@ -366,6 +371,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/vehicles-list', [DriverTripController::class, 'vehicles']);
             Route::get('/warehouses', [DriverTripController::class, 'warehouses']);
             Route::get('/authorizing-officers', [DriverTripController::class, 'authorizingOfficers']);
+            // Round 3 Phase 9: KDN/KDQ/Warehouse picker for the trip form.
+            Route::get('/locations', [LocationController::class, 'index']);
 
             // Fixed segments before the /trips/{id} wildcard group below --
             // same route-registration-order lesson as Round 2 Phase 11's
@@ -434,6 +441,9 @@ Route::prefix('v1')->group(function () {
             Route::delete('/payroll/runs/{id}', [PayrollController::class, 'destroy']);
             Route::post('/payroll/runs/{id}/finalize', [PayrollController::class, 'finalize']);
             Route::get('/payroll/runs/{id}/bank-transfer-file', [PayrollController::class, 'bankTransferFile']);
+            // Round 3 Phase 9: exact-format Payroll/Payslips exports.
+            Route::get('/payroll/runs/{id}/payroll-export', [PayrollController::class, 'payrollSheetExport']);
+            Route::get('/payroll/runs/{id}/payslips-export', [PayrollController::class, 'payslipsExport']);
             Route::put('/payroll/runs/{runId}/payslips/{payslipId}', [PayrollController::class, 'updatePayslip']);
             Route::get('/payroll/payslips/{id}', [PayrollController::class, 'payslip']);
 
@@ -456,6 +466,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/dashboard', [ReportsController::class, 'dashboard']);
             Route::get('/sales', [ReportsController::class, 'salesReport']);
             Route::get('/production', [ReportsController::class, 'productionReport']);
+            // Round 3 Phase 9: exact-format exports.
+            Route::get('/production-export', [ReportsController::class, 'productionReportExport']);
+            Route::get('/daily-sales-debt-export', [ReportsController::class, 'dailySalesDebtExport']);
             Route::get('/qa', [ReportsController::class, 'qaReport']);
             Route::get('/inventory', [ReportsController::class, 'inventoryReport']);
             Route::get('/attendance', [ReportsController::class, 'attendanceReport']);

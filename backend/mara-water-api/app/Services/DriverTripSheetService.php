@@ -55,21 +55,28 @@ class DriverTripSheetService
         $ws->getStyle("A{$row}")->applyFromArray($bold);
         $row += 2;
 
+        // Field names/order match the real "Driver Work Sheet" reference
+        // file (DATE/NAME/ROUTE/MILEAGE START/END/FUEL DRAWN/KM/
+        // AUTHORIZE OFFICER/TIME OUT/TIME IN) -- correctly spelled here
+        // rather than propagating that file's "MILAGE" typo.
         $headerBlock = [
             'Date' => $trip->trip_date->toDateString(),
+            'Driver' => $trip->driver->full_name ?? '',
             'Vehicle' => $trip->vehicle->reg_no ?? '',
             'Route' => $trip->route ?? '',
+            'Location' => $trip->location->name ?? '',
             'Warehouse' => $trip->warehouse->name ?? '',
-            'Driver' => $trip->driver->full_name ?? '',
-            'Authorizing Officer' => $trip->authorizingOfficer->full_name ?? '',
             'Mileage Start' => $trip->mileage_start,
         ];
         if ($mode === 'dispatch') {
-            $headerBlock['Departure Time'] = $trip->time_out ?? '';
+            $headerBlock['Authorize Officer'] = $trip->authorizingOfficer->full_name ?? '';
+            $headerBlock['Time Out'] = $trip->time_out ?? '';
         } else {
             $headerBlock['Mileage End'] = $trip->mileage_end;
-            $headerBlock['KM Covered'] = $trip->km_covered;
-            $headerBlock['Return Time'] = $trip->time_in ?? '';
+            $headerBlock['KM'] = $trip->km_covered;
+            $headerBlock['Fuel Drawn'] = $trip->fuel_liters ?? '';
+            $headerBlock['Authorize Officer'] = $trip->authorizingOfficer->full_name ?? '';
+            $headerBlock['Time In'] = $trip->time_in ?? '';
         }
 
         foreach ($headerBlock as $label => $value) {

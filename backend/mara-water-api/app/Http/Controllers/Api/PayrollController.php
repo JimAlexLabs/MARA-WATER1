@@ -338,34 +338,48 @@ class PayrollController extends Controller
     }
 
     /**
-     * Bank transfer file: Name, Account Number, Bank, Branch, Bank Code,
-     * Net Pay per staff member for one run -- ready to hand to a bank or
-     * payment provider.
+     * Round 3 Phase 9: real .xlsx matching "Finalis Payroll Beta"'s Bank
+     * Transfer Details sheet layout -- was a plain flat CSV before this
+     * (No./NAME/ACCOUNT NUMBER/BANK/BRANCH/BANK CODE/AMOUNT/MONTH/
+     * Department, title block, ready to hand to a bank).
      */
     public function bankTransferFile($id)
+    {
+        $run = PayrollRun::with('payslips.user.department')->find($id);
+        if (!$run) {
+            return response()->json(['success' => false, 'message' => 'Payroll run not found'], 404);
+        }
+
+        return (new \App\Services\PayrollExportService())->bankTransferFile($run);
+    }
+
+    /**
+     * Round 3 Phase 9: real .xlsx matching "Finalis Payroll Beta"'s
+     * Payroll sheet layout -- see PayrollExportService.
+     */
+    public function payrollSheetExport($id)
     {
         $run = PayrollRun::with('payslips.user')->find($id);
         if (!$run) {
             return response()->json(['success' => false, 'message' => 'Payroll run not found'], 404);
         }
 
-        $rows = ["Name,Account Number,Bank,Branch,Bank Code,Net Pay"];
-        foreach ($run->payslips as $payslip) {
-            $u = $payslip->user;
-            $rows[] = implode(',', [
-                '"' . str_replace('"', '""', $u->full_name) . '"',
-                $u->bank_account_number ?? '',
-                '"' . str_replace('"', '""', $u->bank_name ?? '') . '"',
-                '"' . str_replace('"', '""', $u->bank_branch ?? '') . '"',
-                $u->bank_code ?? '',
-                number_format((float) $payslip->net_salary, 2, '.', ''),
-            ]);
+        return (new \App\Services\PayrollExportService())->payrollSheet($run);
+    }
+
+    /**
+     * Round 3 Phase 9: real .xlsx matching "Finalis Payroll Beta"'s
+     * Payslips sheet -- every employee's payslip for this run, one
+     * workbook. (payslip() above stays as-is, for the frontend's own
+     * single-payslip HTML view.)
+     */
+    public function payslipsExport($id)
+    {
+        $run = PayrollRun::with('payslips.user.department')->find($id);
+        if (!$run) {
+            return response()->json(['success' => false, 'message' => 'Payroll run not found'], 404);
         }
 
-        $csv = implode("\n", $rows);
-        return response($csv, 200, [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="bank-transfer-' . $run->month->format('Y-m') . '.csv"',
-        ]);
+        return (new \App\Services\PayrollExportService())->payslips($run);
     }
 }

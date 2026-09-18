@@ -192,4 +192,13 @@ class DebtorLedgerController extends Controller
             return response()->json(['success' => false, 'message' => 'Failed to record payment', 'error' => $e->getMessage()], 500);
         }
     }
+
+    /**
+     * Round 3 Phase 9: "HOMA SPRINGS DEBTORS LEDGER" exact-format
+     * .xlsx -- see DebtorsLedgerExportService for the layout.
+     */
+    public function export(Request $request)
+    {
+        return (new \App\Services\DebtorsLedgerExportService())->generate($request->get('fiscal_year_label'));
+    }
 }

@@ -12,7 +12,7 @@ class DriverTrip extends Model
     use HasFactory, SoftDeletes, HasUuids;
 
     protected $fillable = [
-        'trip_date', 'driver_id', 'vehicle_id', 'route', 'warehouse_id',
+        'trip_date', 'driver_id', 'vehicle_id', 'route', 'warehouse_id', 'location_id',
         'status', 'has_discrepancy', 'locked_at',
         'mileage_start', 'mileage_end', 'fuel_liters', 'fuel_cost',
         'authorizing_officer_id', 'time_out', 'time_in', 'notes',
@@ -56,6 +56,14 @@ class DriverTrip extends Model
     public function warehouse()
     {
         return $this->belongsTo(Warehouse::class);
+    }
+
+    // Round 3 Phase 9: which branch/outlet this trip's sales are
+    // attributed to (KDN/KDQ/Warehouse) -- separate from warehouse()
+    // above, which is the physical depot stock moved from/to.
+    public function location()
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function authorizingOfficer()

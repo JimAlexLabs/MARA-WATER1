@@ -172,6 +172,12 @@ class OrderController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'warehouse_id' => 'required|exists:warehouses,id',
+                // Round 3 Phase 9: which branch/outlet (KDN/KDQ/Warehouse)
+                // this sale is attributed to, for the Daily Sales & Debt
+                // export -- separate from warehouse_id (the physical
+                // depot). Optional: older/untagged sales just show as
+                // unattributed rather than guessing at real business data.
+                'location_id' => 'nullable|exists:locations,id',
                 'customer_id' => 'nullable|exists:customers,id',
                 'order_date' => 'nullable|date',
                 'price_list_id' => 'nullable|exists:price_lists,id',
@@ -273,6 +279,7 @@ class OrderController extends Controller
                 'order_no' => $this->generateOrderNumber(),
                 'customer_id' => $request->customer_id,
                 'warehouse_id' => $request->warehouse_id,
+                'location_id' => $request->location_id,
                 'sales_officer_id' => Auth::id(),
                 'price_list_id' => $priceList?->id,
                 'status' => 'delivered',

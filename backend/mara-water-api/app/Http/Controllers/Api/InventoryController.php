@@ -578,6 +578,24 @@ class InventoryController extends Controller
     }
 
     /**
+     * Round 3 Phase 9: "FINISHED STOCK RECONCILIATION TOOL" exact-format
+     * .xlsx -- see StockReconciliationExportService for the layout.
+     */
+    public function stockReconciliationExport(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'warehouse_id' => 'required|exists:warehouses,id',
+            'date_from' => 'required|date',
+            'date_to' => 'required|date|after_or_equal:date_from',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        return (new \App\Services\StockReconciliationExportService())->generate($request->warehouse_id, $request->date_from, $request->date_to);
+    }
+
+    /**
      * Stock reconciliation -- per SKU: opening qty, produced, issued
      * (sold), returned, closing qty, and the same in value terms using
      * the default price list's unit price. Generated on demand from the

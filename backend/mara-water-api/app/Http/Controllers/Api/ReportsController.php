@@ -385,6 +385,23 @@ class ReportsController extends Controller
         }
     }
 
+    /**
+     * Round 3 Phase 9: "[MONTH] [YEAR] PRODUCTION DATA" exact-format
+     * .xlsx -- see ProductionReportExportService for the layout.
+     */
+    public function productionReportExport(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'year' => 'required|integer|min:2020|max:2100',
+            'month' => 'required|integer|min:1|max:12',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        return (new \App\Services\ProductionReportExportService())->generate((int) $request->year, (int) $request->month);
+    }
+
     public function qaReport(Request $request)
     {
         try {
@@ -694,5 +711,22 @@ class ReportsController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Round 3 Phase 9: "DAILY SALES AND DEBT REPORT [MONTH]" -- exact-
+     * format .xlsx, see DailySalesDebtReportService for the layout.
+     */
+    public function dailySalesDebtExport(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'year' => 'required|integer|min:2020|max:2100',
+            'month' => 'required|integer|min:1|max:12',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        return (new \App\Services\DailySalesDebtReportService())->generate((int) $request->year, (int) $request->month);
     }
 }

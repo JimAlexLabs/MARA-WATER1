@@ -16,6 +16,7 @@ interface SkuRef { id: string; name: string; code: string; brand: string | null;
 interface VehicleRef { id: string; reg_no: string; }
 interface CustomerRef { id: string; name: string; code: string; phone?: string | null; type?: string; }
 interface OfficerRef { id: string; full_name: string; }
+interface LocationRef { id: string; code: string; name: string; }
 
 interface RecentTrip {
   id: string; trip_date: string; vehicle: string | null; route: string | null;
@@ -83,7 +84,7 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   completed: { label: 'Completed', cls: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' },
 };
 
-const EMPTY_NEW_TRIP = { trip_date: new Date().toISOString().slice(0, 10), vehicle_id: '', route: '', warehouse_id: '', mileage_start: '', authorizing_officer_id: '' };
+const EMPTY_NEW_TRIP = { trip_date: new Date().toISOString().slice(0, 10), vehicle_id: '', route: '', warehouse_id: '', location_id: '', mileage_start: '', authorizing_officer_id: '' };
 type DispatchGridItem = { qty_carried: string; qty_carried_bales: string; unit_price: string };
 type ReturnGridItem = { qty_returned: string; qty_returned_bales: string };
 const EMPTY_SALE_FORM = {
@@ -123,6 +124,7 @@ const DriverPage: React.FC = () => {
   const [warehouses, setWarehouses] = useState<WarehouseRef[]>([]);
   const [skus, setSkus] = useState<SkuRef[]>([]);
   const [officers, setOfficers] = useState<OfficerRef[]>([]);
+  const [locations, setLocations] = useState<LocationRef[]>([]);
   const [recentRoutes, setRecentRoutes] = useState<string[]>([]);
 
   const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null);
@@ -273,6 +275,7 @@ const DriverPage: React.FC = () => {
     api.get('/fleet/vehicles-list').then(res => setVehicles(res.data.data)).catch(() => {});
     api.get('/fleet/warehouses').then(res => setWarehouses(res.data.data)).catch(() => setWarehouses([]));
     api.get('/fleet/authorizing-officers').then(res => setOfficers(res.data.data)).catch(() => setOfficers([]));
+    api.get('/fleet/locations').then(res => setLocations(res.data.data)).catch(() => setLocations([]));
     api.get('/fleet/trips/recent-routes').then(res => setRecentRoutes(res.data.data)).catch(() => setRecentRoutes([]));
   };
 
@@ -327,8 +330,8 @@ const DriverPage: React.FC = () => {
 
   const submitNewTrip = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTripForm.vehicle_id || !newTripForm.warehouse_id || !newTripForm.route.trim() || !newTripForm.authorizing_officer_id || !newTripForm.mileage_start) {
-      toast.error('Vehicle, route, warehouse, mileage start, and authorizing officer are all required');
+    if (!newTripForm.vehicle_id || !newTripForm.warehouse_id || !newTripForm.location_id || !newTripForm.route.trim() || !newTripForm.authorizing_officer_id || !newTripForm.mileage_start) {
+      toast.error('Vehicle, route, warehouse, location, mileage start, and authorizing officer are all required');
       return;
     }
     const items = Object.entries(dispatchGrid)
@@ -895,6 +898,13 @@ const DriverPage: React.FC = () => {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Location (KDN/KDQ/Warehouse)</label>
+                  <select required value={newTripForm.location_id} onChange={e => setNewTripForm({ ...newTripForm, location_id: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
+                    <option value="">Select location</option>
+                    {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Mileage Start</label>
                   <input required type="number" value={newTripForm.mileage_start} onChange={e => setNewTripForm({ ...newTripForm, mileage_start: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
