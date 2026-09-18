@@ -53,6 +53,9 @@ interface RefWarehouse {
   name: string;
 }
 
+interface StockCardDay { date: string; opening: number; in: number; out: number; returns: number; closing: number; }
+interface StockCardData { opening_balance: number; days: StockCardDay[]; }
+
 // SKUs don't always have a reorder_threshold set yet -- this is the same
 // fallback InventoryController::lowStock() uses server-side.
 const DEFAULT_SKU_REORDER_THRESHOLD = 10;
@@ -103,6 +106,15 @@ const InventoryPage: React.FC = () => {
   const [skus, setSkus] = useState<RefItem[]>([]);
   const [warehouses, setWarehouses] = useState<RefWarehouse[]>([]);
 
+  // Round 2 Phase 12: Warehouse Stock Card drill-down.
+  const [stockCardForm, setStockCardForm] = useState({
+    item_type: 'sku', item_id: '', warehouse_id: '',
+    date_from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10),
+    date_to: new Date().toISOString().slice(0, 10),
+  });
+  const [stockCard, setStockCard] = useState<StockCardData | null>(null);
+  const [stockCardLoading, setStockCardLoading] = useState(false);
+
   // Stock Move Form State
   const [stockMoveForm, setStockMoveForm] = useState({
     move_type: 'grn',
@@ -140,6 +152,20 @@ const InventoryPage: React.FC = () => {
       toast.error('Failed to fetch inventory data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchStockCard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStockCardLoading(true);
+    try {
+      const res = await api.get('/inventory/stock-card', { params: stockCardForm });
+      setStockCard(res.data.data);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to fetch stock card');
+      setStockCard(null);
+    } finally {
+      setStockCardLoading(false);
     }
   };
 
@@ -309,9 +335,99 @@ const InventoryPage: React.FC = () => {
             >
               Stock Moves ({stockMoves.length})
             </button>
+            <button
+              onClick={() => setActiveTab('stockcard')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'stockcard'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
+              }`}
+            >
+              Stock Card
+            </button>
           </nav>
         </div>
 
+        {activeTab === 'stockcard' ? (
+          <div className="p-6">
+            {/* Round 2 Phase 12: "Warehouse Stock Card" (replaces "MAIN
+                STOCK WARE HOUSE") -- per item, per warehouse, per day:
+                opening, in, out, returns, closing. The backend endpoint
+                (InventoryController::stockCard()) existed but was never
+                actually reachable from the UI. */}
+            <form onSubmit={fetchStockCard} className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-6 items-end">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Item Type</label>
+                <select value={stockCardForm.item_type} onChange={(e) => setStockCardForm({ ...stockCardForm, item_type: e.target.value, item_id: '' })}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-2 text-sm">
+                  <option value="sku">Product</option>
+                  <option value="material">Raw Material</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Item</label>
+                <select required value={stockCardForm.item_id} onChange={(e) => setStockCardForm({ ...stockCardForm, item_id: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-2 text-sm">
+                  <option value="">Select item</option>
+                  {(stockCardForm.item_type === 'sku' ? skus : materials).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Warehouse</label>
+                <select required value={stockCardForm.warehouse_id} onChange={(e) => setStockCardForm({ ...stockCardForm, warehouse_id: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-2 text-sm">
+                  <option value="">Select warehouse</option>
+                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">From</label>
+                  <input required type="date" value={stockCardForm.date_from} onChange={(e) => setStockCardForm({ ...stockCardForm, date_from: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">To</label>
+                  <input required type="date" value={stockCardForm.date_to} onChange={(e) => setStockCardForm({ ...stockCardForm, date_to: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-2 text-sm" />
+                </div>
+              </div>
+              <button type="submit" disabled={stockCardLoading} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm">
+                {stockCardLoading ? 'Loading…' : 'View Card'}
+              </button>
+            </form>
+
+            {stockCard && (
+              <div className="overflow-x-auto">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Opening balance before this period: <span className="font-medium text-gray-900 dark:text-gray-100">{stockCard.opening_balance.toLocaleString()}</span></p>
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase border-b">
+                      <th className="py-2">Date</th>
+                      <th className="py-2">Opening</th>
+                      <th className="py-2">In</th>
+                      <th className="py-2">Out</th>
+                      <th className="py-2">Returns</th>
+                      <th className="py-2">Closing</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {stockCard.days.map((d) => (
+                      <tr key={d.date}>
+                        <td className="py-2">{new Date(d.date).toLocaleDateString()}</td>
+                        <td className="py-2">{d.opening.toLocaleString()}</td>
+                        <td className="py-2 text-green-600">{d.in > 0 ? `+${d.in.toLocaleString()}` : '—'}</td>
+                        <td className="py-2 text-red-600">{d.out > 0 ? `-${d.out.toLocaleString()}` : '—'}</td>
+                        <td className="py-2 text-green-600">{d.returns > 0 ? `+${d.returns.toLocaleString()}` : '—'}</td>
+                        <td className="py-2 font-medium">{d.closing.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ) : (
         <div className="p-6">
           {/* Search and Filters */}
           <div className="flex flex-col md:flex-row gap-4 mb-6">
@@ -514,6 +630,7 @@ const InventoryPage: React.FC = () => {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Stock Move Form Modal */}

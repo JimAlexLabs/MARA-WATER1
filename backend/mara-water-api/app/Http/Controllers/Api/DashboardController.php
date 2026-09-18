@@ -16,6 +16,7 @@ use App\Models\Attendance;
 use App\Models\Debt;
 use App\Models\FuelLog;
 use App\Models\Invoice;
+use App\Services\SalesRevenueService;
 
 class DashboardController extends Controller
 {
@@ -85,11 +86,18 @@ class DashboardController extends Controller
             $today = now()->toDateString();
             $monthStart = now()->startOfMonth()->toDateString();
             $weekStart = now()->subDays(6)->startOfDay();
+            $revenue = new SalesRevenueService();
 
             // --- Today ---
-            $todaysOrders = Order::whereDate('order_date', $today);
-            $todaysSales = (clone $todaysOrders)->sum('total_amount');
-            $todaysOrdersCount = (clone $todaysOrders)->count();
+            // Round 2 Phase 12 finding: this used to sum every order
+            // regardless of payment_method, so a draft order from the
+            // dead store()/updateStatus() workflow (Phase 8's report) was
+            // silently counted as real revenue -- and driver trip sales
+            // (Phase 6-8) were never counted at all. Both fixed via the
+            // shared SalesRevenueService (same combine-both-sources fix
+            // AnalyticsController got in Phase 9).
+            $todaysSales = $revenue->combinedRevenueBetween($today, $today);
+            $todaysOrdersCount = Order::completedSale()->whereDate('order_date', $today)->count();
 
             $todaysProductionLiters = PackagingRun::join('skus', 'skus.id', '=', 'packaging_runs.sku_id')
                 ->whereDate('packaging_runs.run_end', $today)
@@ -109,16 +117,14 @@ class DashboardController extends Controller
             $totalVehicles = Vehicle::count();
 
             // --- This month ---
-            $monthOrders = Order::where('order_date', '>=', $monthStart);
-            $monthRevenue = (clone $monthOrders)->sum('total_amount');
-            $monthOrdersCount = (clone $monthOrders)->count();
+            $monthRevenue = $revenue->combinedRevenueBetween($monthStart, $today);
+            $monthOrdersCount = Order::completedSale()->where('order_date', '>=', $monthStart)->count();
             $monthBatches = Batch::where('manufacture_date', '>=', $monthStart)->count();
             $monthWaterTests = WaterTest::where('recorded_at', '>=', $monthStart)->count();
 
             // --- 7-day trends ---
-            $salesTrend = Order::where('order_date', '>=', $weekStart->toDateString())
-                ->selectRaw('order_date as date, SUM(total_amount) as amount, COUNT(*) as orders')
-                ->groupBy('order_date')->orderBy('order_date')->get();
+            $salesTrend = $revenue->dailyTrend($weekStart->toDateString(), $today)
+                ->map(fn ($row) => ['date' => $row['date'], 'amount' => $row['total_revenue'], 'orders' => $row['orders_count']]);
 
             $productionTrend = PackagingRun::join('skus', 'skus.id', '=', 'packaging_runs.sku_id')
                 ->whereNotNull('packaging_runs.run_end')

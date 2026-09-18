@@ -13,7 +13,8 @@ import {
   Eye,
   Edit,
   Trash2,
-  X
+  X,
+  BookOpen
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
@@ -43,6 +44,7 @@ interface Account {
   code: string;
   description: string;
   category: string;
+  is_active?: boolean;
 }
 
 interface PettyCashEntryRow {
@@ -127,6 +129,17 @@ const FinancePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'invoices' | 'pettycash' | 'debtors' | 'costing'>('invoices');
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+
+  // Round 2 Phase 12: Chart of Accounts management -- only a starter set
+  // was seeded (the real ~200-code list wasn't available), and full
+  // account management existed on the backend but was never actually
+  // reachable from the UI. This is what makes "enter the real list
+  // later" actually possible.
+  const [showAccountsManager, setShowAccountsManager] = useState(false);
+  const [showAccountForm, setShowAccountForm] = useState(false);
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+  const [accountForm, setAccountForm] = useState({ code: '', description: '', category: 'expense' });
+  const [savingAccount, setSavingAccount] = useState(false);
 
   // Petty Cash state
   const [pettyCashEntries, setPettyCashEntries] = useState<PettyCashEntryRow[]>([]);
@@ -222,6 +235,53 @@ const FinancePage: React.FC = () => {
       fetchPettyCash();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to remove entry');
+    }
+  };
+
+  const fetchAccounts = () => {
+    api.get('/finance/accounts', { params: { include_inactive: true } }).then(res => setAccounts(res.data.data)).catch(() => {});
+  };
+
+  const openNewAccount = () => {
+    setEditingAccountId(null);
+    setAccountForm({ code: '', description: '', category: 'expense' });
+    setShowAccountForm(true);
+  };
+
+  const openEditAccount = (a: Account) => {
+    setEditingAccountId(a.id);
+    setAccountForm({ code: a.code, description: a.description, category: a.category });
+    setShowAccountForm(true);
+  };
+
+  const handleAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingAccount(true);
+    try {
+      if (editingAccountId) {
+        await api.put(`/finance/accounts/${editingAccountId}`, accountForm);
+        toast.success('Account updated');
+      } else {
+        await api.post('/finance/accounts', accountForm);
+        toast.success('Account added');
+      }
+      setShowAccountForm(false);
+      fetchAccounts();
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to save account');
+    } finally {
+      setSavingAccount(false);
+    }
+  };
+
+  const toggleAccountActive = async (a: Account) => {
+    try {
+      await api.put(`/finance/accounts/${a.id}`, { is_active: !a.is_active });
+      fetchAccounts();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to update account');
     }
   };
 
@@ -362,13 +422,22 @@ const FinancePage: React.FC = () => {
             </button>
           )}
           {activeTab === 'pettycash' && (
-            <button
-              onClick={() => setShowPettyCashForm(true)}
-              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              New Entry
-            </button>
+            <>
+              <button
+                onClick={() => { fetchAccounts(); setShowAccountsManager(true); }}
+                className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                <BookOpen className="w-4 h-4 mr-2" />
+                Manage Accounts
+              </button>
+              <button
+                onClick={() => setShowPettyCashForm(true)}
+                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                New Entry
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -782,6 +851,102 @@ const FinancePage: React.FC = () => {
               <div className="flex justify-end space-x-3">
                 <button type="button" onClick={() => setShowPettyCashForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Record Entry</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Round 2 Phase 12: Chart of Accounts manager -- only a starter
+          set was ever seeded (the real ~200-code list wasn't available);
+          this is what makes entering the real list actually possible,
+          instead of the backend CRUD existing with no way to reach it. */}
+      {showAccountsManager && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Chart of Accounts</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Petty cash entries are coded against these accounts.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={openNewAccount} className="flex items-center px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700">
+                  <Plus className="w-4 h-4 mr-1" /> Add Account
+                </button>
+                <button onClick={() => setShowAccountsManager(false)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              </div>
+            </div>
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead>
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Code</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Description</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Category</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {accounts.map(a => (
+                  <tr key={a.id} className={a.is_active === false ? 'opacity-50' : ''}>
+                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">{a.code}</td>
+                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">{a.description}</td>
+                    <td className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400 capitalize">{a.category}</td>
+                    <td className="px-3 py-2 text-sm">
+                      {a.is_active === false ? (
+                        <span className="text-xs text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">Inactive</span>
+                      ) : (
+                        <span className="text-xs text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Active</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-sm whitespace-nowrap">
+                      <button onClick={() => openEditAccount(a)} className="text-blue-600 hover:text-blue-900 mr-3"><Edit className="w-4 h-4" /></button>
+                      <button onClick={() => toggleAccountActive(a)} className="text-xs text-gray-500 dark:text-gray-400 hover:underline">
+                        {a.is_active === false ? 'Activate' : 'Deactivate'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {showAccountForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">{editingAccountId ? 'Edit Account' : 'New Account'}</h3>
+              <button onClick={() => setShowAccountForm(false)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={handleAccountSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code</label>
+                <input required type="text" placeholder="e.g. 5460" value={accountForm.code}
+                  onChange={(e) => setAccountForm({ ...accountForm, code: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
+                <input required type="text" placeholder="e.g. Advertising and publicity" value={accountForm.description}
+                  onChange={(e) => setAccountForm({ ...accountForm, description: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
+                <select value={accountForm.category} onChange={(e) => setAccountForm({ ...accountForm, category: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
+                  <option value="asset">Asset</option>
+                  <option value="liability">Liability</option>
+                  <option value="equity">Equity</option>
+                  <option value="income">Income</option>
+                  <option value="expense">Expense</option>
+                </select>
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button type="button" onClick={() => setShowAccountForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+                <button type="submit" disabled={savingAccount} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingAccount ? 'Saving…' : (editingAccountId ? 'Save Changes' : 'Add Account')}</button>
               </div>
             </form>
           </div>

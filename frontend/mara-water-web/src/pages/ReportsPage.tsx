@@ -57,6 +57,10 @@ interface MaterialUsageRow {
   below_min_level: boolean;
 }
 
+interface RefillProductionRow { sku_id: string; sku: { name: string; size_liters: string }; qty_produced: number; }
+interface RefillSalesRow { sku_id: string; sku: { name: string; size_liters: string }; qty_dispatched: number; qty_returned: number; qty_net_sold: number; }
+interface RefillsSummary { sku_id: string; name: string; qty_produced: number; qty_dispatched: number; qty_returned: number; qty_net_sold: number; }
+
 const ReportsPage: React.FC = () => {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,6 +73,7 @@ const ReportsPage: React.FC = () => {
   const [productionReportLoading, setProductionReportLoading] = useState(false);
   const [reconciliation, setReconciliation] = useState<ReconciliationRow[]>([]);
   const [materialsUsage, setMaterialsUsage] = useState<MaterialUsageRow[]>([]);
+  const [refills, setRefills] = useState<RefillsSummary[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -114,12 +119,34 @@ const ReportsPage: React.FC = () => {
       setProductionReportLoading(true);
       const dateTo = new Date().toISOString().slice(0, 10);
       const dateFrom = new Date(Date.now() - Number(dateRange) * 86400000).toISOString().slice(0, 10);
-      const [reconRes, usageRes] = await Promise.all([
+      const [reconRes, usageRes, refillsRes] = await Promise.all([
         api.get(`/inventory/reconciliation?date_from=${dateFrom}&date_to=${dateTo}`),
         api.get(`/inventory/materials-usage?date_from=${dateFrom}&date_to=${dateTo}`),
+        api.get(`/inventory/refills?date_from=${dateFrom}&date_to=${dateTo}`),
       ]);
       setReconciliation(reconRes.data.data.items || []);
       setMaterialsUsage(usageRes.data.data.materials || []);
+
+      // Refills tracking (spec: "daily refill quantities by size ... a
+      // filtered slice of the same production/sales data") -- collapsed
+      // to one row per size for this period, rather than a day-by-day
+      // grid, to match the reconciliation/materials-usage tables above.
+      const production: RefillProductionRow[] = refillsRes.data.data.production_by_day || [];
+      const sales: RefillSalesRow[] = refillsRes.data.data.sales_by_day || [];
+      const bySkuId = new Map<string, RefillsSummary>();
+      production.forEach(r => {
+        const row = bySkuId.get(r.sku_id) || { sku_id: r.sku_id, name: r.sku?.name || 'Refill', qty_produced: 0, qty_dispatched: 0, qty_returned: 0, qty_net_sold: 0 };
+        row.qty_produced += r.qty_produced;
+        bySkuId.set(r.sku_id, row);
+      });
+      sales.forEach(r => {
+        const row = bySkuId.get(r.sku_id) || { sku_id: r.sku_id, name: r.sku?.name || 'Refill', qty_produced: 0, qty_dispatched: 0, qty_returned: 0, qty_net_sold: 0 };
+        row.qty_dispatched += r.qty_dispatched;
+        row.qty_returned += r.qty_returned;
+        row.qty_net_sold += r.qty_net_sold;
+        bySkuId.set(r.sku_id, row);
+      });
+      setRefills(Array.from(bySkuId.values()));
     } catch (error) {
       toast.error('Failed to fetch production report');
     } finally {
@@ -542,6 +569,37 @@ const ReportsPage: React.FC = () => {
                           <td className={`py-2 font-medium ${row.below_min_level ? 'text-red-600' : ''}`}>
                             {row.closing_balance.toLocaleString()}{row.below_min_level ? ' ⚠' : ''}
                           </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Refills Tracking</h4>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase border-b">
+                        <th className="py-2">Size</th>
+                        <th className="py-2">Produced</th>
+                        <th className="py-2">Dispatched</th>
+                        <th className="py-2">Returned</th>
+                        <th className="py-2">Net Sold</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                      {refills.length === 0 && (
+                        <tr><td colSpan={5} className="py-3 text-gray-400 dark:text-gray-500">No refill activity in this period</td></tr>
+                      )}
+                      {refills.map((row) => (
+                        <tr key={row.sku_id}>
+                          <td className="py-2">{row.name}</td>
+                          <td className="py-2">{row.qty_produced.toLocaleString()}</td>
+                          <td className="py-2">{row.qty_dispatched.toLocaleString()}</td>
+                          <td className="py-2">{row.qty_returned.toLocaleString()}</td>
+                          <td className="py-2 font-medium">{row.qty_net_sold.toLocaleString()}</td>
                         </tr>
                       ))}
                     </tbody>

@@ -7,8 +7,8 @@ use App\Models\BomItem;
 use App\Models\PettyCashEntry;
 use App\Models\Sku;
 use App\Models\User;
+use App\Services\SalesRevenueService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Costing & P&L (Phase 9) -- from the "KDQ Reopening Plan" model.
@@ -71,37 +71,29 @@ class CostingController extends Controller
             fn ($line) => (float) $line->qty_per_unit * (float) ($line->material->unit_cost ?? 0)
         ));
 
-        // Raw DB::table(), not the OrderItem Eloquent builder: selectRaw
-        // aliases here would otherwise collide with OrderItem's own
-        // net_qty/line_total accessors (Phase 7) -- Eloquent's attribute
-        // access always prefers an accessor method over a same-named
-        // loaded column, so `$row->net_qty` would silently recompute
-        // qty - qty_returned from the real (unselected, therefore null)
-        // columns instead of returning this query's aggregate.
-        $salesLines = DB::table('order_items')
-            ->join('orders', 'orders.id', '=', 'order_items.order_id')
-            ->whereNull('orders.deleted_at')->whereNull('order_items.deleted_at')
-            ->whereDate('orders.order_date', '>=', $dateFrom)
-            ->whereDate('orders.order_date', '<=', $dateTo)
-            ->selectRaw('order_items.sku_id, SUM(order_items.qty - order_items.qty_returned) as total_net_qty, SUM((order_items.qty - order_items.qty_returned) * order_items.unit_price) as total_revenue')
-            ->groupBy('order_items.sku_id')
-            ->get();
+        // Round 2 Phase 12 finding: this used to read straight from
+        // order_items only -- missing driver trip sales entirely (Round 2
+        // Phase 6-8 made those real revenue too, same gap Analytics was
+        // fixed for in Phase 9) and counting a draft order's phantom sale
+        // as real revenue (Order::completedSale() wasn't applied). Both
+        // fixed via the shared SalesRevenueService.
+        $salesLines = (new SalesRevenueService())->netQtyAndRevenueBySku($dateFrom, $dateTo);
 
         $revenue = 0.0;
         $cogs = 0.0;
         $bySku = $salesLines->map(function ($row) use (&$revenue, &$cogs, $costBySku) {
-            $unitCost = (float) ($costBySku->get($row->sku_id) ?? 0);
-            $lineCogs = $unitCost * (float) $row->total_net_qty;
-            $revenue += (float) $row->total_revenue;
+            $unitCost = (float) ($costBySku->get($row['sku_id']) ?? 0);
+            $lineCogs = $unitCost * (float) $row['net_qty_sold'];
+            $revenue += (float) $row['revenue'];
             $cogs += $lineCogs;
 
             return [
-                'sku_id' => $row->sku_id,
-                'net_qty_sold' => (int) $row->total_net_qty,
-                'revenue' => round((float) $row->total_revenue, 2),
+                'sku_id' => $row['sku_id'],
+                'net_qty_sold' => $row['net_qty_sold'],
+                'revenue' => $row['revenue'],
                 'unit_cost' => round($unitCost, 4),
                 'cogs' => round($lineCogs, 2),
-                'gross_margin' => round((float) $row->total_revenue - $lineCogs, 2),
+                'gross_margin' => round($row['revenue'] - $lineCogs, 2),
             ];
         });
 

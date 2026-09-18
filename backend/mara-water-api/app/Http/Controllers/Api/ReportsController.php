@@ -17,6 +17,7 @@ use App\Models\Batch;
 use App\Models\PackagingRun;
 use App\Models\StockItem;
 use App\Models\StockMove;
+use App\Services\SalesRevenueService;
 
 class ReportsController extends Controller
 {
@@ -26,14 +27,23 @@ class ReportsController extends Controller
             $dateFrom = $request->get('date_from', now()->startOfMonth()->toDateString());
             $dateTo = $request->get('date_to', now()->endOfMonth()->toDateString());
 
-            // Sales Overview
-            $salesStats = Order::whereBetween('order_date', [$dateFrom, $dateTo])
+            // Sales Overview. Round 2 Phase 12 finding: total_orders/
+            // total_revenue/avg_order_value used to count every order
+            // regardless of payment_method (a draft order from the dead
+            // store()/updateStatus() workflow, Phase 8's report, was
+            // counted as real revenue) and never counted driver trip
+            // sales at all (Round 2 Phase 6-8) -- both fixed via the
+            // shared SalesRevenueService, same fix Analytics got in
+            // Phase 9.
+            $salesStats = Order::completedSale()->whereBetween('order_date', [$dateFrom, $dateTo])
                 ->selectRaw('
                     COUNT(*) as total_orders,
                     SUM(total_amount) as total_revenue,
                     AVG(total_amount) as avg_order_value,
                     COUNT(DISTINCT customer_id) as unique_customers
                 ')->first();
+            $tripRevenue = (new SalesRevenueService())->tripRevenueBetween($dateFrom, $dateTo);
+            $salesStats->total_revenue = (float) ($salesStats->total_revenue ?? 0) + $tripRevenue;
 
             // Production Overview
             $productionStats = Batch::whereBetween('manufacture_date', [$dateFrom, $dateTo])
@@ -129,7 +139,11 @@ class ReportsController extends Controller
             $dateTo = $request->get('date_to', now()->endOfMonth()->toDateString());
             $groupBy = $request->get('group_by', 'daily'); // daily, weekly, monthly, customer
 
-            $query = Order::with(['customer'])
+            // Round 2 Phase 12 finding: every query below used to count
+            // every order regardless of payment_method (a draft order
+            // from the dead store()/updateStatus() workflow, Phase 8's
+            // report, was counted as real revenue).
+            $query = Order::completedSale()->with(['customer'])
                 ->whereBetween('order_date', [$dateFrom, $dateTo]);
 
             switch ($groupBy) {
@@ -183,7 +197,7 @@ class ReportsController extends Controller
             }
 
             // Top performing customers
-            $topCustomers = Order::with(['customer'])
+            $topCustomers = Order::completedSale()->with(['customer'])
                 ->whereBetween('order_date', [$dateFrom, $dateTo])
                 ->selectRaw('
                     customer_id,
@@ -195,7 +209,9 @@ class ReportsController extends Controller
                   ->limit(10)
                   ->get();
 
-            // Sales by status
+            // Sales by status. Deliberately NOT filtered by completedSale()
+            // -- this is meant to show the order pipeline including drafts,
+            // not a revenue figure.
             $salesByStatus = Order::whereBetween('order_date', [$dateFrom, $dateTo])
                 ->selectRaw('status, COUNT(*) as count, SUM(total_amount) as revenue')
                 ->groupBy('status')
@@ -208,6 +224,7 @@ class ReportsController extends Controller
                 ->whereBetween('orders.order_date', [$dateFrom, $dateTo])
                 ->whereNull('orders.deleted_at')
                 ->whereNull('order_items.deleted_at')
+                ->whereNotNull('orders.payment_method')
                 ->selectRaw('
                     orders.warehouse_id,
                     SUM(order_items.qty) as qty_dispatched,
@@ -232,10 +249,16 @@ class ReportsController extends Controller
                 ];
             });
 
-            $bySku = OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
+            // By product: combines order_items with driver_trip_items --
+            // a driver's sale of a product is exactly as real as an
+            // outlet's (Round 2 Phase 6-8), the same combine-both-sources
+            // fix Analytics (Phase 9) and Costing & P&L / Refills
+            // (Phase 12) needed.
+            $orderBySku = OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
                 ->whereBetween('orders.order_date', [$dateFrom, $dateTo])
                 ->whereNull('orders.deleted_at')
                 ->whereNull('order_items.deleted_at')
+                ->whereNotNull('orders.payment_method')
                 ->selectRaw('
                     order_items.sku_id,
                     SUM(order_items.qty) as qty_dispatched,
@@ -244,19 +267,36 @@ class ReportsController extends Controller
                     SUM((order_items.qty - order_items.qty_returned) * order_items.unit_price) as revenue
                 ')
                 ->groupBy('order_items.sku_id')
-                ->orderByDesc('revenue')
-                ->with('sku')
-                ->get()
-                ->map(function ($row) {
-                    return [
-                        'sku_id' => $row->sku_id,
-                        'sku' => $row->sku,
-                        'qty_dispatched' => (int) $row->qty_dispatched,
-                        'qty_returned' => (int) $row->qty_returned,
-                        'qty_net_sold' => (int) $row->qty_net_sold,
-                        'revenue' => round((float) $row->revenue, 2),
-                    ];
-                });
+                ->get()->keyBy('sku_id');
+
+            $tripBySku = \App\Models\DriverTripItem::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_items.driver_trip_id')
+                ->whereNull('driver_trips.deleted_at')
+                ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
+                ->selectRaw('
+                    driver_trip_items.sku_id,
+                    SUM(driver_trip_items.qty_carried) as qty_dispatched,
+                    SUM(driver_trip_items.qty_returned) as qty_returned,
+                    SUM(driver_trip_items.qty_sold) as qty_net_sold,
+                    SUM(driver_trip_items.qty_sold * driver_trip_items.unit_price) as revenue
+                ')
+                ->groupBy('driver_trip_items.sku_id')
+                ->get()->keyBy('sku_id');
+
+            $skuIds = collect($orderBySku->keys())->merge($tripBySku->keys())->unique()->values();
+            $skusById = \App\Models\Sku::whereIn('id', $skuIds)->get()->keyBy('id');
+
+            $bySku = $skuIds->map(function ($skuId) use ($orderBySku, $tripBySku, $skusById) {
+                $o = $orderBySku->get($skuId);
+                $t = $tripBySku->get($skuId);
+                return [
+                    'sku_id' => $skuId,
+                    'sku' => $skusById->get($skuId),
+                    'qty_dispatched' => (int) (($o->qty_dispatched ?? 0) + ($t->qty_dispatched ?? 0)),
+                    'qty_returned' => (int) (($o->qty_returned ?? 0) + ($t->qty_returned ?? 0)),
+                    'qty_net_sold' => (int) (($o->qty_net_sold ?? 0) + ($t->qty_net_sold ?? 0)),
+                    'revenue' => round((float) ($o->revenue ?? 0) + (float) ($t->revenue ?? 0), 2),
+                ];
+            })->sortByDesc('revenue')->values();
 
             return response()->json([
                 'success' => true,

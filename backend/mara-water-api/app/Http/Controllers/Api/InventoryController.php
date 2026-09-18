@@ -724,24 +724,49 @@ class InventoryController extends Controller
                     'qty_produced' => (int) $r->qty_produced,
                 ]);
 
-            $sales = \App\Models\OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
+            // Round 2 Phase 12 finding: this used to read order_items only
+            // -- missing driver trip sales entirely (a driver selling
+            // Refills is exactly as real as an outlet sale, Round 2 Phase
+            // 6-8) and counting a draft order's phantom qty as real
+            // (no Order::completedSale() filter). Both fixed here,
+            // combining both sources per SKU/day the same way Analytics
+            // (Phase 9) and Costing & P&L (Phase 12) do.
+            $orderSales = \App\Models\OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
                 ->whereIn('order_items.sku_id', $refillSkuIds)
                 ->whereNull('orders.deleted_at')->whereNull('order_items.deleted_at')
+                ->whereNotNull('orders.payment_method')
                 ->whereDate('orders.order_date', '>=', $dateFrom)
                 ->whereDate('orders.order_date', '<=', $dateTo)
-                ->selectRaw('order_items.sku_id, orders.order_date as date, SUM(order_items.qty) as qty_dispatched, SUM(order_items.qty_returned) as qty_returned')
+                ->selectRaw('order_items.sku_id, orders.order_date as date, SUM(order_items.qty) as qty_dispatched, SUM(order_items.qty_returned) as qty_returned, SUM(order_items.qty - order_items.qty_returned) as qty_net_sold')
                 ->groupBy('order_items.sku_id', 'orders.order_date')
-                ->orderBy('date')
-                ->with('sku')
                 ->get()
-                ->map(fn ($r) => [
-                    'sku_id' => $r->sku_id,
-                    'sku' => $r->sku,
-                    'date' => $r->date,
-                    'qty_dispatched' => (int) $r->qty_dispatched,
-                    'qty_returned' => (int) $r->qty_returned,
-                    'qty_net_sold' => (int) $r->qty_dispatched - (int) $r->qty_returned,
-                ]);
+                ->keyBy(fn ($r) => $r->sku_id . '|' . $r->date);
+
+            $tripSales = \App\Models\DriverTripItem::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_items.driver_trip_id')
+                ->whereIn('driver_trip_items.sku_id', $refillSkuIds)
+                ->whereNull('driver_trips.deleted_at')
+                ->whereDate('driver_trips.trip_date', '>=', $dateFrom)
+                ->whereDate('driver_trips.trip_date', '<=', $dateTo)
+                ->selectRaw('driver_trip_items.sku_id, driver_trips.trip_date as date, SUM(driver_trip_items.qty_carried) as qty_dispatched, SUM(driver_trip_items.qty_returned) as qty_returned, SUM(driver_trip_items.qty_sold) as qty_net_sold')
+                ->groupBy('driver_trip_items.sku_id', 'driver_trips.trip_date')
+                ->get()
+                ->keyBy(fn ($r) => $r->sku_id . '|' . $r->date);
+
+            $skusById = Sku::whereIn('id', $refillSkuIds)->get()->keyBy('id');
+            $keys = collect($orderSales->keys())->merge($tripSales->keys())->unique()->sort()->values();
+            $sales = $keys->map(function ($key) use ($orderSales, $tripSales, $skusById) {
+                [$skuId, $date] = explode('|', $key, 2);
+                $o = $orderSales->get($key);
+                $t = $tripSales->get($key);
+                return [
+                    'sku_id' => $skuId,
+                    'sku' => $skusById->get($skuId),
+                    'date' => $date,
+                    'qty_dispatched' => (int) (($o->qty_dispatched ?? 0) + ($t->qty_dispatched ?? 0)),
+                    'qty_returned' => (int) (($o->qty_returned ?? 0) + ($t->qty_returned ?? 0)),
+                    'qty_net_sold' => (int) (($o->qty_net_sold ?? 0) + ($t->qty_net_sold ?? 0)),
+                ];
+            })->values();
 
             return response()->json([
                 'success' => true,
