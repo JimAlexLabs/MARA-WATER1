@@ -25,7 +25,8 @@ import {
   Moon,
   TrendingUp,
   Tag,
-  MessageSquare
+  MessageSquare,
+  AlertTriangle
 } from 'lucide-react';
 
 interface SearchResult {
@@ -195,6 +196,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       href: '/issues',
       icon: MessageSquare,
       description: 'Issues reported by drivers/salespeople'
+    },
+    {
+      name: 'Discrepancies',
+      href: '/discrepancies',
+      icon: AlertTriangle,
+      description: 'Flagged cash, stock, and mileage anomalies'
     },
     {
       name: 'Users',

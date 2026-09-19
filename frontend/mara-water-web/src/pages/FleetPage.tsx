@@ -38,6 +38,16 @@ interface Vehicle {
   speed_gov_status?: string;
 }
 
+// Round 4 Phase 7/8: Mileage Logs and Fuel Logs, reachable from this
+// Fleet section (and, via ?vehicle_id=, each vehicle's own detail page).
+interface MileageLogRow {
+  id: string; date: string; vehicle: { id: string; reg_no: string } | null; driver: string | null;
+  mileage_start: number | null; mileage_end: number | null; distance_covered: number | null;
+}
+interface FuelLogRow {
+  id: string; date: string; vehicle: { id: string; reg_no: string } | null;
+  cost: string; liters: string; odometer: number | null; price_per_liter: number | null;
+}
 interface Person { id: string; first_name: string; last_name: string; role?: { code: string; name: string }; }
 interface WarehouseRef { id: string; code: string; name: string; }
 interface SkuRef { id: string; name: string; code: string; brand: string | null; size_liters: string; unit?: string; current_price?: number | null; }
@@ -250,6 +260,77 @@ const FleetPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  // ============ Round 4 Phase 8: Fuel Logs ============
+  const [fuelLogs, setFuelLogs] = useState<FuelLogRow[]>([]);
+  const [fuelVehicleFilter, setFuelVehicleFilter] = useState('');
+  const today = new Date().toISOString().slice(0, 10);
+  const [fuelDateFrom, setFuelDateFrom] = useState(today.slice(0, 8) + '01');
+  const [fuelDateTo, setFuelDateTo] = useState(today);
+  const [showFuelForm, setShowFuelForm] = useState(false);
+  const [fuelForm, setFuelForm] = useState({ vehicle_id: '', date: today, cost: '', liters: '', odometer: '' });
+  const [savingFuel, setSavingFuel] = useState(false);
+
+  const fetchFuelLogs = () => {
+    api.get('/fleet/fuel-logs', { params: { vehicle_id: fuelVehicleFilter || undefined, date_from: fuelDateFrom, date_to: fuelDateTo, limit: 100 } })
+      .then(res => setFuelLogs(res.data.data)).catch(() => toast.error('Failed to load fuel logs'));
+  };
+  useEffect(() => { if (activeTab === 'fuel') fetchFuelLogs(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [activeTab, fuelVehicleFilter, fuelDateFrom, fuelDateTo]);
+
+  const submitFuelLog = async () => {
+    if (!fuelForm.vehicle_id || !fuelForm.cost || !fuelForm.liters) { toast.error('Vehicle, cost, and liters are required'); return; }
+    setSavingFuel(true);
+    try {
+      await api.post('/fleet/fuel-logs', {
+        vehicle_id: fuelForm.vehicle_id, date: fuelForm.date, cost: parseFloat(fuelForm.cost),
+        liters: parseFloat(fuelForm.liters), odometer: fuelForm.odometer ? parseInt(fuelForm.odometer, 10) : undefined,
+      });
+      toast.success('Fuel log recorded');
+      setShowFuelForm(false);
+      setFuelForm({ vehicle_id: '', date: today, cost: '', liters: '', odometer: '' });
+      fetchFuelLogs();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to record fuel log');
+    } finally {
+      setSavingFuel(false);
+    }
+  };
+
+  const deleteFuelLog = async (id: string) => {
+    if (!window.confirm('Delete this fuel log?')) return;
+    try {
+      await api.delete(`/fleet/fuel-logs/${id}`);
+      toast.success('Fuel log deleted');
+      fetchFuelLogs();
+    } catch {
+      toast.error('Failed to delete fuel log');
+    }
+  };
+
+  const exportFuelLogs = () => {
+    api.get('/fleet/fuel-logs/export', { params: { date_from: fuelDateFrom, date_to: fuelDateTo }, responseType: 'blob' }).then((res) => {
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fuel-log-${fuelDateFrom}-to-${fuelDateTo}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }).catch(() => toast.error('Failed to export fuel logs'));
+  };
+
+  // ============ Round 4 Phase 7: Mileage Logs ============
+  const [mileageLogs, setMileageLogs] = useState<MileageLogRow[]>([]);
+  const [mileageVehicleFilter, setMileageVehicleFilter] = useState('');
+  const [mileageDateFrom, setMileageDateFrom] = useState('');
+  const [mileageDateTo, setMileageDateTo] = useState('');
+
+  const fetchMileageLogs = () => {
+    api.get('/fleet/mileage-logs', { params: { vehicle_id: mileageVehicleFilter || undefined, date_from: mileageDateFrom || undefined, date_to: mileageDateTo || undefined, limit: 100 } })
+      .then(res => setMileageLogs(res.data.data)).catch(() => toast.error('Failed to load mileage logs'));
+  };
+  useEffect(() => { if (activeTab === 'mileage') fetchMileageLogs(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [activeTab, mileageVehicleFilter, mileageDateFrom, mileageDateTo]);
+
   const handleDeleteTrip = async (t: Trip) => {
     if (t.status !== 'pending_departure') {
       toast.error('A locked trip must be unlocked by a Director before it can be deleted');
@@ -352,7 +433,7 @@ const FleetPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="flex space-x-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1 w-fit">
-        {[{ id: 'vehicles', name: 'Vehicles' }, { id: 'trips', name: 'Driver Trips' }].map(tab => (
+        {[{ id: 'vehicles', name: 'Vehicles' }, { id: 'trips', name: 'Driver Trips' }, { id: 'fuel', name: 'Fuel Logs' }, { id: 'mileage', name: 'Mileage Logs' }].map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -471,6 +552,8 @@ const FleetPage: React.FC = () => {
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                             <div className="flex items-center space-x-3">
                               <button onClick={() => openEditVehicle(vehicle)} className="text-green-600 hover:text-green-900"><Edit className="w-4 h-4" /></button>
+                              <button onClick={() => { setActiveTab('fuel'); setFuelVehicleFilter(vehicle.id); }} title="This vehicle's Fuel Logs" className="text-blue-600 hover:text-blue-900 text-xs underline">Fuel</button>
+                              <button onClick={() => { setActiveTab('mileage'); setMileageVehicleFilter(vehicle.id); }} title="This vehicle's Mileage Logs" className="text-blue-600 hover:text-blue-900 text-xs underline">Mileage</button>
                               <button onClick={() => handleDeleteVehicle(vehicle)} className="text-red-600 hover:text-red-900"><Trash2 className="w-4 h-4" /></button>
                             </div>
                           </td>
@@ -599,6 +682,169 @@ const FleetPage: React.FC = () => {
             </div>
           </div>
         </>
+      )}
+
+      {/* Round 4 Phase 8: Fuel Logs -- Manager/Director only (route-
+          gated), no driver-facing entry point anywhere. */}
+      {activeTab === 'fuel' && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-wrap gap-3 items-end justify-between">
+            <div className="flex flex-wrap gap-3 items-end">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Vehicle</label>
+                <select value={fuelVehicleFilter} onChange={e => setFuelVehicleFilter(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm">
+                  <option value="">All vehicles</option>
+                  {vehicles.map(v => <option key={v.id} value={v.id}>{v.reg_no}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">From</label>
+                <input type="date" value={fuelDateFrom} onChange={e => setFuelDateFrom(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">To</label>
+                <input type="date" value={fuelDateTo} onChange={e => setFuelDateTo(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={exportFuelLogs} className="flex items-center text-sm px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700">
+                <Download className="w-4 h-4 mr-1" /> Export
+              </button>
+              <button onClick={() => setShowFuelForm(true)} className="flex items-center text-sm px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                <Plus className="w-4 h-4 mr-1" /> Record Fuel Purchase
+              </button>
+            </div>
+          </div>
+          {fuelLogs.length === 0 ? (
+            <p className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">No fuel logs in this period.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead>
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Vehicle</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Amount Paid</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Liters</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Price/Liter</th>
+                    <th className="px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {fuelLogs.map(f => (
+                    <tr key={f.id}>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{new Date(f.date).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{f.vehicle?.reg_no ?? '—'}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">KES {Number(f.cost).toLocaleString()}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{f.liters}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{f.price_per_liter != null ? `KES ${f.price_per_liter}` : '—'}</td>
+                      <td className="px-4 py-2 text-right"><button onClick={() => deleteFuelLog(f.id)} className="text-red-600 hover:text-red-800"><Trash2 className="w-4 h-4" /></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showFuelForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Record Fuel Purchase</h3>
+              <button onClick={() => setShowFuelForm(false)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Vehicle</label>
+                <select value={fuelForm.vehicle_id} onChange={e => setFuelForm({ ...fuelForm, vehicle_id: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
+                  <option value="">Select vehicle</option>
+                  {vehicles.map(v => <option key={v.id} value={v.id}>{v.reg_no}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
+                <input type="date" value={fuelForm.date} onChange={e => setFuelForm({ ...fuelForm, date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Amount Paid (KES)</label>
+                  <input type="number" min="0" step="0.01" value={fuelForm.cost} onChange={e => setFuelForm({ ...fuelForm, cost: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Liters</label>
+                  <input type="number" min="0" step="0.01" value={fuelForm.liters} onChange={e => setFuelForm({ ...fuelForm, liters: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                </div>
+              </div>
+              {fuelForm.cost && fuelForm.liters && parseFloat(fuelForm.liters) > 0 && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">Price/liter (computed): KES {(parseFloat(fuelForm.cost) / parseFloat(fuelForm.liters)).toFixed(2)}</p>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Odometer (optional)</label>
+                <input type="number" min="0" value={fuelForm.odometer} onChange={e => setFuelForm({ ...fuelForm, odometer: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 pt-4">
+              <button onClick={() => setShowFuelForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+              <button onClick={submitFuelLog} disabled={savingFuel} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingFuel ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Round 4 Phase 7: Mileage Logs -- auto-populated from every
+          trip's Mileage Start/End, no separate manual entry. */}
+      {activeTab === 'mileage' && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-wrap gap-3 items-end">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Vehicle</label>
+              <select value={mileageVehicleFilter} onChange={e => setMileageVehicleFilter(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm">
+                <option value="">All vehicles</option>
+                {vehicles.map(v => <option key={v.id} value={v.id}>{v.reg_no}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">From</label>
+              <input type="date" value={mileageDateFrom} onChange={e => setMileageDateFrom(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">To</label>
+              <input type="date" value={mileageDateTo} onChange={e => setMileageDateTo(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+            </div>
+          </div>
+          {mileageLogs.length === 0 ? (
+            <p className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">No mileage logs in this period.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead>
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Vehicle</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Driver</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Mileage Start</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Mileage End</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Distance Covered</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {mileageLogs.map(m => (
+                    <tr key={m.id}>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{new Date(m.date).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{m.vehicle?.reg_no ?? '—'}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{m.driver ?? '—'}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{m.mileage_start ?? '—'}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{m.mileage_end ?? '—'}</td>
+                      <td className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-gray-100">{m.distance_covered ?? '—'} km</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Vehicle Form Modal */}

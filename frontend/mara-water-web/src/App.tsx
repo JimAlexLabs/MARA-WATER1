@@ -27,6 +27,7 @@ const FleetPage = lazy(() => import('./pages/FleetPage'));
 const HRPage = lazy(() => import('./pages/HRPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const IssuesPage = lazy(() => import('./pages/IssuesPage'));
+const DiscrepanciesPage = lazy(() => import('./pages/DiscrepanciesPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const UsersPage = lazy(() => import('./pages/UsersPage'));
 
@@ -262,6 +263,16 @@ function App() {
               <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <IssuesPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
+            {/* Round 4 Phase 6: Discrepancies page -- Manager/Director
+                only, never reachable from the Driver dashboard. */}
+            <Route path="/discrepancies" element={
+              <ProtectedRoute tiers={['manager', 'director']}>
+                <Layout>
+                  <DiscrepanciesPage />
                 </Layout>
               </ProtectedRoute>
             } />
