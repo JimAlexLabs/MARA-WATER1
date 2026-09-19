@@ -223,9 +223,10 @@ const FleetPage: React.FC = () => {
 
   // --- Trips ---
   // Round 3 Phase 2: trip logging itself moved to a staged workflow
-  // (pending_departure -> in_transit -> completed) that only DriverPage
-  // builds a form for -- Manager/Director's Fleet tab is view + Director-
-  // only Unlock from here on, not a second copy of the staged form.
+  // (pending_departure -> in_transit -> completed) that only
+  // DriverTripsPage builds a form for -- Manager/Director's Fleet tab is
+  // view + Director-only Unlock from here on, not a second copy of the
+  // staged form.
   const { isDirector } = usePermissions();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [tripsLoading, setTripsLoading] = useState(false);
@@ -274,7 +275,8 @@ const FleetPage: React.FC = () => {
     api.get('/fleet/fuel-logs', { params: { vehicle_id: fuelVehicleFilter || undefined, date_from: fuelDateFrom, date_to: fuelDateTo, limit: 100 } })
       .then(res => setFuelLogs(res.data.data)).catch(() => toast.error('Failed to load fuel logs'));
   };
-  useEffect(() => { if (activeTab === 'fuel') fetchFuelLogs(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [activeTab, fuelVehicleFilter, fuelDateFrom, fuelDateTo]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activeTab === 'fuel') fetchFuelLogs(); }, [activeTab, fuelVehicleFilter, fuelDateFrom, fuelDateTo]);
 
   const submitFuelLog = async () => {
     if (!fuelForm.vehicle_id || !fuelForm.cost || !fuelForm.liters) { toast.error('Vehicle, cost, and liters are required'); return; }
@@ -329,7 +331,8 @@ const FleetPage: React.FC = () => {
     api.get('/fleet/mileage-logs', { params: { vehicle_id: mileageVehicleFilter || undefined, date_from: mileageDateFrom || undefined, date_to: mileageDateTo || undefined, limit: 100 } })
       .then(res => setMileageLogs(res.data.data)).catch(() => toast.error('Failed to load mileage logs'));
   };
-  useEffect(() => { if (activeTab === 'mileage') fetchMileageLogs(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [activeTab, mileageVehicleFilter, mileageDateFrom, mileageDateTo]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activeTab === 'mileage') fetchMileageLogs(); }, [activeTab, mileageVehicleFilter, mileageDateFrom, mileageDateTo]);
 
   const handleDeleteTrip = async (t: Trip) => {
     if (t.status !== 'pending_departure') {

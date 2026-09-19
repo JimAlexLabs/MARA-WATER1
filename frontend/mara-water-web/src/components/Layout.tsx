@@ -219,23 +219,40 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   // Round 2 Phase 11: "not just hiding UI elements client-side, a hidden
   // button is not real security" -- every one of these is also blocked
-  // server-side (EnsureAccessTier). This is just so the sidebar doesn't
-  // offer a link that would 403, and matches the spec's "distinct,
-  // deliberately limited dashboard, not the full app with buttons
-  // hidden" for Driver/Investor -- they get a single link back to their
-  // own dashboard, not the full 12-item list minus a few.
+  // server-side (EnsureAccessTier). This is still a deliberately limited
+  // dashboard for Driver/Investor, not the full app with buttons hidden
+  // -- but Round 4 splits the driver's own limited set into real
+  // sidebar-navigable pages (Dashboard/Trips/Sales/Issues) instead of
+  // one page with everything stacked on it, matching how Manager/
+  // Director navigate. Same tier grant as before (tiers={['driver']}
+  // on each route) -- Sales/Field Work (Round 4 Phase 9) are also
+  // access_tier='driver', so they get this same set.
   const tier = user?.role?.access_tier;
   const DIRECTOR_ONLY = ['/users', '/settings'];
+  const DRIVER_NAVIGATION = [
+    { name: 'Dashboard', href: '/driver', icon: Home, description: 'Attendance and analytics' },
+    { name: 'Trips', href: '/driver/trips', icon: Truck, description: 'Dispatch, sales, and closing out your trip' },
+    { name: 'Sales', href: '/driver/sales', icon: BarChart3, description: 'Your sales and debtors' },
+    { name: 'Issues', href: '/driver/issues', icon: MessageSquare, description: 'Report a problem' },
+  ];
   const visibleNavigation = tier === 'driver'
-    ? [{ name: 'My Dashboard', href: '/driver', icon: Home, description: 'Trips, attendance' }]
+    ? DRIVER_NAVIGATION
     : tier === 'investor'
     ? [{ name: 'Summary', href: '/investor', icon: Home, description: 'Daily performance summary' }]
     : tier === 'director'
     ? navigation
     : navigation.filter((item) => !DIRECTOR_ONLY.includes(item.href));
 
+  // Round 4: the driver nav introduced the first real parent/child
+  // route pair in this sidebar (/driver and /driver/trips etc.) -- a
+  // plain prefix match would highlight "Dashboard" while actually on
+  // "Trips" too, since '/driver/trips'.startsWith('/driver/'). Only
+  // prefix-match when no sibling nav item is a more specific match.
   const isActive = (href: string) => {
-    return location.pathname === href || location.pathname.startsWith(href + '/');
+    if (location.pathname === href) return true;
+    if (!location.pathname.startsWith(href + '/')) return false;
+    const moreSpecificSiblingMatches = visibleNavigation.some((item) => item.href !== href && item.href.startsWith(href + '/') && (location.pathname === item.href || location.pathname.startsWith(item.href + '/')));
+    return !moreSpecificSiblingMatches;
   };
 
   const getNotificationIcon = (type: string) => {

@@ -16,6 +16,9 @@ import './index.css';
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'));
 const PricingPage = lazy(() => import('./pages/PricingPage'));
 const DriverPage = lazy(() => import('./pages/DriverPage'));
+const DriverTripsPage = lazy(() => import('./pages/DriverTripsPage'));
+const DriverSalesPage = lazy(() => import('./pages/DriverSalesPage'));
+const DriverIssuesPage = lazy(() => import('./pages/DriverIssuesPage'));
 const InvestorPage = lazy(() => import('./pages/InvestorPage'));
 const QAPage = lazy(() => import('./pages/QAPage'));
 const ProductionPage = lazy(() => import('./pages/ProductionPage'));
@@ -137,11 +140,34 @@ function App() {
               </ProtectedRoute>
             } />
 
-            {/* A driver's own dashboard/login. */}
+            {/* A driver's (and, Round 4 Phase 9, Sales/Field Work's --
+                same access tier) own dashboard -- now proper sidebar-
+                navigable sub-pages instead of one long single page. */}
             <Route path="/driver" element={
               <ProtectedRoute tiers={['driver']}>
                 <Layout>
                   <DriverPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/driver/trips" element={
+              <ProtectedRoute tiers={['driver']}>
+                <Layout>
+                  <DriverTripsPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/driver/sales" element={
+              <ProtectedRoute tiers={['driver']}>
+                <Layout>
+                  <DriverSalesPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/driver/issues" element={
+              <ProtectedRoute tiers={['driver']}>
+                <Layout>
+                  <DriverIssuesPage />
                 </Layout>
               </ProtectedRoute>
             } />

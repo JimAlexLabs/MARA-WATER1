@@ -5,7 +5,7 @@ import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 // Round 3 Phase 5: Manager/Director's inbox for issues raised from the
-// Driver/salesperson dashboard (DriverPage.tsx has the matching
+// Driver/salesperson dashboard (DriverIssuesPage.tsx has the matching
 // report/reply UI on that side). A threaded message list per issue, not
 // real-time chat -- reuses the same /issues API either side uses.
 
