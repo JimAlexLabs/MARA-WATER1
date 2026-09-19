@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Models\DriverTrip;
 use App\Models\DriverTripUnlock;
-use App\Models\FuelLog;
 use App\Models\Route as RouteModel;
 use App\Models\Sku;
 
@@ -117,11 +116,14 @@ class DriverTripController extends Controller
             // to default to, so must pick one explicitly.
             'authorizing_officer_id' => 'required|exists:users,id',
             'notes' => 'nullable|string|max:1000',
+            // Round 4 Phase 1: bales-only from Production onward -- the
+            // bottle-count column (qty_carried) is no longer a real input
+            // anywhere in this chain; qty_carried_bales is the sole
+            // dispatched quantity a driver enters.
             'items' => 'required|array|min:1',
             'items.*.sku_id' => 'required|exists:skus,id',
-            'items.*.qty_carried' => 'nullable|integer|min:0',
-            'items.*.qty_carried_bales' => 'nullable|integer|min:0',
-            'items.*.unit_price' => 'nullable|numeric|min:0',
+            'items.*.qty_carried_bales' => 'required|integer|min:1',
+            'items.*.unit_price' => 'required|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -145,16 +147,10 @@ class DriverTripController extends Controller
             ]);
 
             foreach ($request->input('items', []) as $item) {
-                $qtyCarried = $item['qty_carried'] ?? 0;
-                $qtyCarriedBales = $item['qty_carried_bales'] ?? 0;
-                if ($qtyCarried == 0 && $qtyCarriedBales == 0) {
-                    continue;
-                }
                 $trip->items()->create([
                     'sku_id' => $item['sku_id'],
-                    'qty_carried' => $qtyCarried,
-                    'qty_carried_bales' => $qtyCarriedBales,
-                    'unit_price' => $item['unit_price'] ?? 0,
+                    'qty_carried_bales' => $item['qty_carried_bales'],
+                    'unit_price' => $item['unit_price'],
                 ]);
             }
 
@@ -215,11 +211,10 @@ class DriverTripController extends Controller
             'mileage_start' => 'sometimes|integer|min:0',
             'authorizing_officer_id' => 'sometimes|exists:users,id',
             'notes' => 'nullable|string|max:1000',
-            'items' => 'sometimes|array',
+            'items' => 'sometimes|array|min:1',
             'items.*.sku_id' => 'required_with:items|exists:skus,id',
-            'items.*.qty_carried' => 'nullable|integer|min:0',
-            'items.*.qty_carried_bales' => 'nullable|integer|min:0',
-            'items.*.unit_price' => 'nullable|numeric|min:0',
+            'items.*.qty_carried_bales' => 'required_with:items|integer|min:1',
+            'items.*.unit_price' => 'required_with:items|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -235,16 +230,10 @@ class DriverTripController extends Controller
             if ($request->has('items')) {
                 $trip->items()->delete();
                 foreach ($request->input('items', []) as $item) {
-                    $qtyCarried = $item['qty_carried'] ?? 0;
-                    $qtyCarriedBales = $item['qty_carried_bales'] ?? 0;
-                    if ($qtyCarried == 0 && $qtyCarriedBales == 0) {
-                        continue;
-                    }
                     $trip->items()->create([
                         'sku_id' => $item['sku_id'],
-                        'qty_carried' => $qtyCarried,
-                        'qty_carried_bales' => $qtyCarriedBales,
-                        'unit_price' => $item['unit_price'] ?? 0,
+                        'qty_carried_bales' => $item['qty_carried_bales'],
+                        'unit_price' => $item['unit_price'],
                     ]);
                 }
             }
@@ -286,12 +275,18 @@ class DriverTripController extends Controller
             $inventoryController = new InventoryController();
 
             foreach ($trip->items as $item) {
-                if ($item->qty_carried <= 0) {
+                if ($item->qty_carried_bales <= 0) {
                     continue;
                 }
+                // Round 4 Phase 1: bales are the atomic unit for
+                // finished-goods stock movement from Production onward --
+                // no bottle-to-bale conversion factor exists (and Round 3
+                // deliberately didn't invent one), so this deducts the
+                // dispatched bale count directly rather than the
+                // now-unused bottle count.
                 $stockWarnings = array_merge(
                     $stockWarnings,
-                    $inventoryController->deductStock($item->sku_id, $item->sku, $trip->warehouse_id, $item->qty_carried, 'driver_trip', $trip->id)
+                    $inventoryController->deductStock($item->sku_id, $item->sku, $trip->warehouse_id, $item->qty_carried_bales, 'driver_trip', $trip->id, 'BALE')
                 );
             }
 
@@ -320,7 +315,7 @@ class DriverTripController extends Controller
      */
     public function addSale(Request $request, $id)
     {
-        $trip = DriverTrip::find($id);
+        $trip = DriverTrip::with('items')->find($id);
         if (!$trip) {
             return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
         }
@@ -334,7 +329,6 @@ class DriverTripController extends Controller
         $validator = Validator::make($request->all(), [
             'customer_id' => 'required|exists:customers,id',
             'payment_method' => 'required|in:cash,mpesa,debt,pay_direct',
-            'amount' => 'required|numeric|min:0.01',
             // Dual-purpose: M-Pesa code for 'mpesa', QR/reference note for
             // 'pay_direct' -- see DriverTripSale model docblock.
             'mpesa_reference' => 'nullable|string|max:100',
@@ -345,15 +339,44 @@ class DriverTripController extends Controller
             // today, this just lets the number also be looked up here.
             'physical_receipt_no' => 'nullable|string|max:50',
             'physical_delivery_note_no' => 'nullable|string|max:50',
-            'items' => 'nullable|array',
-            'items.*.sku_id' => 'required_with:items|exists:skus,id',
-            'items.*.qty_bales' => 'required_with:items|numeric|min:0.01',
-            'items.*.unit_price' => 'required_with:items|numeric|min:0',
+            // Round 4 Phase 0/4: line items are mandatory, price is keyed
+            // per line, and the sale total is never typed in separately --
+            // it's always the computed sum of these (see below). This is
+            // the fix for the double-entry that caused mismatches.
+            'items' => 'required|array|min:1',
+            'items.*.sku_id' => 'required|exists:skus,id',
+            'items.*.qty_bales' => 'required|numeric|min:0.01',
+            'items.*.unit_price' => 'required|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
+
+        // Round 4 Phase 4: block selling more of a brand/size than
+        // remains available on this trip (dispatched minus already sold),
+        // so a driver can only sell what's actually been dispatched and
+        // stays accountable for it.
+        $alreadySoldBySku = \App\Models\DriverTripSaleItem::whereHas('sale', fn ($q) => $q->where('driver_trip_id', $trip->id)->whereNull('deleted_at'))
+            ->selectRaw('sku_id, SUM(qty_bales) as sold')
+            ->groupBy('sku_id')
+            ->pluck('sold', 'sku_id');
+
+        foreach ($request->input('items') as $line) {
+            $tripItem = $trip->items->firstWhere('sku_id', $line['sku_id']);
+            if (!$tripItem) {
+                return response()->json(['success' => false, 'message' => 'That item was not dispatched on this trip', 'errors' => ['items' => ["{$line['sku_id']} was not dispatched on this trip"]]], 422);
+            }
+            $available = (float) $tripItem->qty_carried_bales - (float) ($alreadySoldBySku[$line['sku_id']] ?? 0);
+            if ((float) $line['qty_bales'] > $available + 0.001) {
+                $skuName = $tripItem->sku->name ?? 'that item';
+                return response()->json(['success' => false, 'message' => "Only {$available} bales of {$skuName} remain available on this trip", 'errors' => ['items' => ["Only {$available} bales of {$skuName} remain available"]]], 422);
+            }
+        }
+
+        // Round 4 Phase 0: the total is never typed in -- always the
+        // computed sum of the line items.
+        $amount = round(collect($request->input('items'))->sum(fn ($l) => $l['qty_bales'] * $l['unit_price']), 2);
 
         if ($request->payment_method === 'debt') {
             $tripDate = \Carbon\Carbon::parse($trip->trip_date)->startOfDay();
@@ -366,7 +389,7 @@ class DriverTripController extends Controller
             }
         }
 
-        $sale = DB::transaction(function () use ($request, $trip) {
+        $sale = DB::transaction(function () use ($request, $trip, $amount) {
             $debtId = null;
 
             if ($request->payment_method === 'debt') {
@@ -375,8 +398,8 @@ class DriverTripController extends Controller
                     'invoice_id' => null,
                     'signatory' => $request->debt_signatory,
                     'expected_repayment_date' => $request->debt_expected_repayment_date,
-                    'principal' => $request->amount,
-                    'balance' => $request->amount,
+                    'principal' => $amount,
+                    'balance' => $amount,
                     'created_by' => Auth::id(),
                     'updated_by' => Auth::id(),
                 ]);
@@ -385,7 +408,7 @@ class DriverTripController extends Controller
                     'debt_id' => $debt->id,
                     'entry_date' => $trip->trip_date,
                     'details' => 'Credit sale via driver trip -- signed for by ' . $request->debt_signatory,
-                    'debit' => $request->amount,
+                    'debit' => $amount,
                     'credit' => 0,
                     'created_by' => Auth::id(),
                     'updated_by' => Auth::id(),
@@ -396,7 +419,7 @@ class DriverTripController extends Controller
             $sale = $trip->sales()->create([
                 'customer_id' => $request->customer_id,
                 'payment_method' => $request->payment_method,
-                'amount' => $request->amount,
+                'amount' => $amount,
                 'mpesa_reference' => $request->mpesa_reference,
                 'debt_signatory' => $request->payment_method === 'debt' ? $request->debt_signatory : null,
                 'debt_expected_repayment_date' => $request->payment_method === 'debt' ? $request->debt_expected_repayment_date : null,
@@ -454,70 +477,118 @@ class DriverTripController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'mileage_end' => 'required|integer|min:' . ($trip->mileage_start ?? 0),
-            'fuel_liters' => 'nullable|numeric|min:0',
-            'fuel_cost' => 'nullable|numeric|min:0',
-            'items' => 'required|array',
-            'items.*.sku_id' => 'required|exists:skus,id',
-            'items.*.qty_returned' => 'nullable|integer|min:0',
-            'items.*.qty_returned_bales' => 'nullable|integer|min:0',
+            // Round 4 Phase 7: End Trip must not accept a negative or
+            // backwards mileage reading -- min: bounds it at
+            // mileage_start (itself already >=0), so both "negative" and
+            // "less than start" are rejected by the same rule.
+            'mileage_end' => 'required|integer|min:' . max(0, (int) ($trip->mileage_start ?? 0)),
+            // Round 4 Phase 5: the paper-sales reconciliation attestation
+            // -- End Trip is refused without it, not just hidden
+            // client-side (same "declarative gate, not a replacement for
+            // the real check" pattern as every other gate this app uses).
+            'reconciliation_confirmed' => 'required|accepted',
+            // Round 4 Phase 1/2: Returned is no longer a manually-typed
+            // field at all -- it's computed below from Dispatched minus
+            // the live Sold tally from the Sales entity. Fuel is no
+            // longer captured here either (Phase 8: standalone Fuel Logs,
+            // Manager/Director only).
         ]);
 
         if ($validator->fails()) {
             return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
-        $returnsBySkuId = collect($request->input('items', []))->keyBy('sku_id');
-        $stockWarnings = [];
+        // Cumulative sold bales per sku, from the Sales entity's own line
+        // items -- the single source of truth for "Sold" now that items
+        // are mandatory on every sale (Phase 0/4).
+        $soldBySku = \App\Models\DriverTripSaleItem::whereHas('sale', fn ($q) => $q->where('driver_trip_id', $trip->id)->whereNull('deleted_at'))
+            ->selectRaw('sku_id, SUM(qty_bales) as sold')
+            ->groupBy('sku_id')
+            ->pluck('sold', 'sku_id');
 
-        DB::transaction(function () use ($request, $trip, $returnsBySkuId, &$stockWarnings) {
+        $stockWarnings = [];
+        $discrepancies = [];
+
+        DB::transaction(function () use ($request, $trip, $soldBySku, &$stockWarnings, &$discrepancies) {
             $inventoryController = new InventoryController();
 
             foreach ($trip->items as $item) {
-                $returned = $returnsBySkuId->get($item->sku_id);
-                $qtyReturned = min((int) ($returned['qty_returned'] ?? 0), $item->qty_carried);
-                $qtyReturnedBales = (int) ($returned['qty_returned_bales'] ?? 0);
-                $qtySold = max(0, $item->qty_carried - $qtyReturned);
+                $sold = (float) ($soldBySku[$item->sku_id] ?? 0);
+                $dispatched = (float) $item->qty_carried_bales;
+                $returnedBales = (int) max(0, floor($dispatched - $sold));
+                $oversold = max(0, $sold - $dispatched);
 
                 $item->update([
-                    'qty_returned' => $qtyReturned,
-                    'qty_returned_bales' => $qtyReturnedBales,
-                    'qty_sold' => $qtySold,
+                    'qty_returned_bales' => $returnedBales,
+                    'qty_sold' => (int) min($sold, $dispatched),
                 ]);
 
-                if ($qtyReturned > 0) {
+                if ($oversold > 0.001) {
+                    // Only reachable if a Director unlocked and corrected
+                    // the dispatched quantity down after sales had
+                    // already been logged against the original number --
+                    // addSale()'s own available-to-sell guard prevents
+                    // this in the normal flow.
+                    $discrepancies[] = [
+                        'category' => 'stock',
+                        'amount' => round($oversold, 2),
+                        'description' => "{$item->sku->name}: sold {$sold} bales against only {$dispatched} bales dispatched (off by {$oversold}) -- likely a dispatched-quantity correction made after sales were logged.",
+                    ];
+                }
+
+                if ($returnedBales > 0) {
                     $inventoryController->recordMove([
                         'move_type' => 'return',
                         'item_type' => 'sku',
                         'sku_id' => $item->sku_id,
                         'warehouse_to_id' => $trip->warehouse_id,
-                        'qty' => $qtyReturned,
-                        'uom' => $item->sku->unit ?? 'BOTTLE',
+                        'qty' => $returnedBales,
+                        'uom' => 'BALE',
                         'ref_entity' => 'driver_trip',
                         'ref_id' => $trip->id,
                     ]);
                 }
             }
 
-            if ($request->filled('fuel_liters') && $request->fuel_liters > 0) {
-                FuelLog::create([
-                    'vehicle_id' => $trip->vehicle_id,
-                    'date' => $trip->trip_date,
-                    'liters' => $request->fuel_liters,
-                    'cost' => $request->fuel_cost ?? 0,
-                    'odometer' => $request->mileage_end,
-                    'created_by' => Auth::id(),
-                    'updated_by' => Auth::id(),
-                ]);
+            // Defensive cash self-consistency check -- amount is always
+            // the computed sum of a sale's own line items (Phase 0), so
+            // this should always hold; it's a guard against future
+            // regressions, not a routine finding.
+            $collected = (float) $trip->sales()->whereNull('deleted_at')->sum('amount');
+            $lineItemTotal = (float) \App\Models\DriverTripSaleItem::whereHas('sale', fn ($q) => $q->where('driver_trip_id', $trip->id)->whereNull('deleted_at'))->sum('line_total');
+            if (abs($collected - $lineItemTotal) > 0.01) {
+                $discrepancies[] = [
+                    'category' => 'cash',
+                    'amount' => round($collected - $lineItemTotal, 2),
+                    'description' => "Recorded sale total (KES {$collected}) does not match the sum of sale line items (KES {$lineItemTotal}).",
+                ];
+            }
+
+            // Round 4 Phase 7: flag (don't block) a trip distance that's
+            // an outlier for this vehicle -- 3x the vehicle's trailing
+            // 30-day average trip distance.
+            $kmCovered = max(0, $request->mileage_end - ($trip->mileage_start ?? 0));
+            $avgDistance = DriverTrip::where('vehicle_id', $trip->vehicle_id)
+                ->where('id', '!=', $trip->id)
+                ->whereNotNull('mileage_end')
+                ->where('trip_date', '>=', now()->subDays(30)->toDateString())
+                ->selectRaw('AVG(mileage_end - mileage_start) as avg_km')
+                ->value('avg_km');
+            if ($avgDistance && $avgDistance > 0 && $kmCovered > $avgDistance * 3) {
+                $discrepancies[] = [
+                    'category' => 'mileage',
+                    'amount' => round($kmCovered, 2),
+                    'description' => "{$trip->vehicle->reg_no}: this trip covered {$kmCovered} km, more than 3x its trailing-30-day average of " . round($avgDistance, 1) . ' km -- flagged for review.',
+                ];
             }
 
             $trip->update([
                 'mileage_end' => $request->mileage_end,
-                'fuel_liters' => $request->fuel_liters,
-                'fuel_cost' => $request->fuel_cost,
                 'status' => 'completed',
                 'time_in' => now()->format('H:i:s'),
                 'locked_at' => now(),
+                'reconciliation_confirmed_at' => now(),
+                'reconciliation_confirmed_by' => Auth::id(),
                 'updated_by' => Auth::id(),
             ]);
 
@@ -527,15 +598,56 @@ class DriverTripController extends Controller
             // accessor) is recomputed fresh below, after items just
             // changed, so this reads the real post-return numbers.
             $trip->refresh();
-            $trip->update(['has_discrepancy' => !$trip->reconciliation['matches']]);
+            $hasDiscrepancy = !empty($discrepancies) || !$trip->reconciliation['matches'];
+            $trip->update(['has_discrepancy' => $hasDiscrepancy]);
+
+            foreach ($discrepancies as $d) {
+                \App\Models\Discrepancy::create([
+                    'driver_trip_id' => $trip->id,
+                    'vehicle_id' => $trip->vehicle_id,
+                    'driver_id' => $trip->driver_id,
+                    'date' => $trip->trip_date,
+                    'category' => $d['category'],
+                    'amount' => $d['amount'],
+                    'description' => $d['description'],
+                    'status' => 'open',
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+            }
         });
+
+        // Round 4 Phase 6: never to the Driver dashboard -- Manager/
+        // Director only, via the same Notification bell every other
+        // in-app alert already uses.
+        if (!empty($discrepancies)) {
+            $this->notifyManagersDirectors(
+                'Trip discrepancy flagged',
+                "{$trip->driver->full_name}'s trip on {$trip->trip_date->toDateString()} was closed with " . count($discrepancies) . ' discrepanc' . (count($discrepancies) === 1 ? 'y' : 'ies') . ' -- see the Discrepancies page.'
+            );
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Trip closed',
             'data' => $trip->fresh(self::WITH),
             'stock_warnings' => $stockWarnings,
+            'has_discrepancy' => $trip->fresh()->has_discrepancy,
         ]);
+    }
+
+    private function notifyManagersDirectors(string $title, string $body): void
+    {
+        $ids = \App\Models\User::whereHas('role', fn ($q) => $q->whereIn('access_tier', ['manager', 'director']))->pluck('id');
+        foreach ($ids as $userId) {
+            \App\Models\Notification::create([
+                'user_id' => $userId,
+                'channel' => 'in_app',
+                'type' => 'alert',
+                'title' => $title,
+                'body' => $body,
+            ]);
+        }
     }
 
     /**
@@ -874,6 +986,23 @@ class DriverTripController extends Controller
         return (new \App\Services\DriverTripSheetService())->returnSheet($trip);
     }
 
+    /**
+     * Round 4 Phase 4: the Sales panel/page, downloadable as Excel from
+     * the trip detail view.
+     */
+    public function salesSheet(Request $request, $id)
+    {
+        $trip = DriverTrip::with(['vehicle', 'sales.customer', 'sales.items.sku'])->find($id);
+        if (!$trip) {
+            return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
+        }
+        if ($deny = $this->denyIfNotOwnTrip($request, $trip)) {
+            return $deny;
+        }
+
+        return (new \App\Services\DriverTripSheetService())->salesSheet($trip);
+    }
+
     public function mileageTrend(Request $request)
     {
         $days = min((int) $request->get('days', 30), 180);
@@ -1002,6 +1131,44 @@ class DriverTripController extends Controller
                 ->orderBy('first_name')
                 ->get()
                 ->map(fn ($u) => ['id' => $u->id, 'full_name' => $u->full_name]),
+        ]);
+    }
+
+    /**
+     * Round 4 Phase 7: Mileage Logs -- auto-populated from every trip's
+     * Mileage Start/End, no separate manual entry. One row per completed
+     * trip, per vehicle, with Distance Covered auto-computed.
+     */
+    public function mileageLogs(Request $request)
+    {
+        $query = DriverTrip::with(['vehicle', 'driver'])->whereNotNull('mileage_end');
+
+        if ($request->filled('vehicle_id')) {
+            $query->where('vehicle_id', $request->vehicle_id);
+        }
+        if ($request->filled('date_from')) {
+            $query->whereDate('trip_date', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('trip_date', '<=', $request->date_to);
+        }
+
+        $trips = $query->orderByDesc('trip_date')->paginate($request->get('limit', 20));
+
+        $data = collect($trips->items())->map(fn ($t) => [
+            'id' => $t->id,
+            'date' => $t->trip_date->toDateString(),
+            'vehicle' => $t->vehicle ? ['id' => $t->vehicle->id, 'reg_no' => $t->vehicle->reg_no] : null,
+            'driver' => $t->driver->full_name ?? null,
+            'mileage_start' => $t->mileage_start,
+            'mileage_end' => $t->mileage_end,
+            'distance_covered' => $t->km_covered,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $data,
+            'meta' => ['current_page' => $trips->currentPage(), 'last_page' => $trips->lastPage(), 'total' => $trips->total()],
         ]);
     }
 }

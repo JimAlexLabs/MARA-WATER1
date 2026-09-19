@@ -87,11 +87,12 @@ class DriverTripSheetService
         }
         $row++;
 
-        // Per-brand/size grid.
+        // Per-brand/size grid -- Round 4 Phase 1: bales only, no bottle
+        // column, anywhere from Production onward.
         $gridHeaderRow = $row;
         $columns = $mode === 'dispatch'
-            ? ['Brand', 'Size', 'Dispatched', 'Dispatched (bales)', 'Unit Price']
-            : ['Brand', 'Size', 'Dispatched', 'Returned', 'Returned (bales)', 'Sold', 'Unit Price', 'Line Total'];
+            ? ['Brand', 'Size', 'Dispatched (bales)', 'Unit Price']
+            : ['Brand', 'Size', 'Dispatched (bales)', 'Sold (bales)', 'Returned (bales)', 'Unit Price', 'Line Total'];
         $col = 'A';
         foreach ($columns as $label) {
             $ws->setCellValue("{$col}{$gridHeaderRow}", $label);
@@ -104,10 +105,10 @@ class DriverTripSheetService
             $sku = $item->sku;
             $col = 'A';
             $cells = $mode === 'dispatch'
-                ? [$sku->brand ?? 'Mara Water', $sku->name, $item->qty_carried, $item->qty_carried_bales, $item->unit_price]
+                ? [$sku->brand ?? 'Uncategorized', $sku->name, $item->qty_carried_bales, $item->unit_price]
                 : [
-                    $sku->brand ?? 'Mara Water', $sku->name, $item->qty_carried, $item->qty_returned, $item->qty_returned_bales,
-                    $item->qty_sold, $item->unit_price, round($item->qty_sold * (float) $item->unit_price, 2),
+                    $sku->brand ?? 'Uncategorized', $sku->name, $item->qty_carried_bales, $item->qty_sold, $item->qty_returned_bales,
+                    $item->unit_price, round($item->qty_sold * (float) $item->unit_price, 2),
                 ];
             foreach ($cells as $value) {
                 $ws->setCellValue("{$col}{$row}", $value);
@@ -153,6 +154,79 @@ class DriverTripSheetService
         }
 
         return $spreadsheet;
+    }
+
+    /**
+     * Round 4 Phase 4: "Make the Sales page/panel downloadable as Excel
+     * from the trip detail view, for after-the-fact analysis." One row
+     * per sale, with its line items flattened underneath -- a driver or
+     * Manager/Director reviewing a trip after the fact can see exactly
+     * what was sold, to whom, at what price, without opening the app.
+     */
+    public function salesSheet(DriverTrip $trip): StreamedResponse
+    {
+        $spreadsheet = new Spreadsheet();
+        $ws = $spreadsheet->getActiveSheet();
+        $ws->setTitle('Trip Sales');
+
+        $bold = ['font' => ['bold' => true]];
+        $title = ['font' => ['bold' => true, 'size' => 14]];
+        $headerFill = ['fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'DDEBF7']], 'font' => ['bold' => true]];
+        $thinBorder = ['borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]]];
+
+        $row = 1;
+        $ws->setCellValue("A{$row}", 'TRIP SALES -- ' . $trip->trip_date->toDateString() . ' -- ' . ($trip->vehicle->reg_no ?? ''));
+        $ws->getStyle("A{$row}")->applyFromArray($title);
+        $row += 2;
+
+        $headers = ['Customer', 'Payment Method', 'Item', 'Qty (bales)', 'Unit Price', 'Line Total', 'Sale Total', 'M-Pesa/Ref', 'Physical Receipt No.'];
+        $col = 'A';
+        foreach ($headers as $h) {
+            $ws->setCellValue("{$col}{$row}", $h);
+            $ws->getStyle("{$col}{$row}")->applyFromArray($headerFill + $thinBorder);
+            $col++;
+        }
+        $row++;
+
+        $grandTotal = 0;
+        foreach ($trip->sales as $sale) {
+            $items = $sale->items;
+            if ($items->isEmpty()) {
+                continue;
+            }
+            foreach ($items as $i => $item) {
+                $cells = [
+                    $i === 0 ? ($sale->customer->name ?? '—') : '',
+                    $i === 0 ? ucfirst(str_replace('_', ' ', $sale->payment_method)) : '',
+                    ($item->sku->brand ?? 'Uncategorized') . ' ' . ($item->sku->name ?? ''),
+                    $item->qty_bales,
+                    $item->unit_price,
+                    $item->line_total,
+                    $i === 0 ? $sale->amount : '',
+                    $i === 0 ? ($sale->mpesa_reference ?? '') : '',
+                    $i === 0 ? ($sale->physical_receipt_no ?? '') : '',
+                ];
+                $col = 'A';
+                foreach ($cells as $value) {
+                    $ws->setCellValue("{$col}{$row}", $value);
+                    $ws->getStyle("{$col}{$row}")->applyFromArray($thinBorder);
+                    $col++;
+                }
+                $row++;
+            }
+            $grandTotal += (float) $sale->amount;
+        }
+
+        $ws->setCellValue("F{$row}", 'GRAND TOTAL');
+        $ws->getStyle("F{$row}")->applyFromArray($bold);
+        $ws->setCellValue("G{$row}", round($grandTotal, 2));
+        $ws->getStyle("G{$row}")->applyFromArray($bold);
+
+        foreach (range('A', 'I') as $c) {
+            $ws->getColumnDimension($c)->setAutoSize(true);
+        }
+
+        return $this->stream($spreadsheet, "trip-sales-{$trip->trip_date->toDateString()}-{$trip->vehicle->reg_no}.xlsx");
     }
 
     private function stream(Spreadsheet $spreadsheet, string $filename): StreamedResponse

@@ -16,6 +16,8 @@ class DriverTrip extends Model
         'status', 'has_discrepancy', 'locked_at',
         'mileage_start', 'mileage_end', 'fuel_liters', 'fuel_cost',
         'authorizing_officer_id', 'time_out', 'time_in', 'notes',
+        // Round 4 Phase 5: the paper-sales reconciliation attestation.
+        'reconciliation_confirmed_at', 'reconciliation_confirmed_by',
         'created_by', 'updated_by',
     ];
 
@@ -27,6 +29,7 @@ class DriverTrip extends Model
         'fuel_cost' => 'decimal:2',
         'has_discrepancy' => 'boolean',
         'locked_at' => 'datetime',
+        'reconciliation_confirmed_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -126,45 +129,52 @@ class DriverTrip extends Model
     }
 
     /**
-     * Round 2 Phase 7: two independent checks, not one.
+     * Round 4 Phase 1/2: reworked around bales as the sole dispatched/
+     * sold/returned unit, and around the Sales entity's own line items
+     * as the one live source of "Sold" -- there's no more separately-
+     * typed qty_sold to compare against. Two checks remain:
      *
-     * 1. Stock check, per product/size: what the driver reports selling
-     *    (qty_sold) should equal what actually left the vehicle
-     *    (qty_carried - qty_returned). A real gap here means something
-     *    physical happened -- breakage, a miscount, an unrecorded give-
-     *    away -- that money reconciliation alone would never catch,
-     *    since it only looks at cash vs. expected revenue.
-     * 2. Money check, trip-wide: total qty_sold x unit_price across every
-     *    product/size should equal the sum of every sale logged
-     *    (cash + M-Pesa + debt). qty_sold is what actually changed hands,
-     *    so it's the correct basis for expected revenue now -- not
-     *    carried-returned, which Phase 7 keeps around for the stock
-     *    check above but no longer uses for money.
+     * 1. Stock check, per product/size: sold bales (from
+     *    driver_trip_sale_items) should never exceed dispatched bales.
+     *    Under the normal flow this can't happen -- addSale() itself
+     *    blocks selling past what's still available -- so a mismatch
+     *    here only surfaces the edge case Phase 6 exists for: a
+     *    Director corrected the dispatched quantity down (via unlock())
+     *    after sales had already been logged against the original,
+     *    higher number.
+     * 2. Money check, trip-wide: the sum of every sale's own line items
+     *    (line_total) should equal the sum of every sale logged
+     *    (cash + M-Pesa + debt) -- these are the same number by
+     *    construction now that a sale's amount is always the computed
+     *    sum of its own items (Phase 0), so this is a defensive
+     *    self-consistency guard rather than a routine finding.
      */
     public function getReconciliationAttribute(): array
     {
-        $expectedRevenue = 0;
+        $saleIds = $this->sales->pluck('id');
+        $lineItems = \App\Models\DriverTripSaleItem::whereIn('driver_trip_sale_id', $saleIds)->get();
+        $soldBySku = $lineItems->groupBy('sku_id')->map(fn ($rows) => (float) $rows->sum('qty_bales'));
+
         $unitsSold = 0;
         $stockMismatches = [];
 
         foreach ($this->items as $item) {
-            $impliedSold = max(0, $item->qty_carried - $item->qty_returned);
-            $unitsSold += $item->qty_sold;
-            $expectedRevenue += $item->qty_sold * (float) $item->unit_price;
+            $sold = (float) ($soldBySku[$item->sku_id] ?? 0);
+            $dispatched = (float) $item->qty_carried_bales;
+            $unitsSold += $sold;
 
-            if ($impliedSold !== $item->qty_sold) {
+            if ($sold - $dispatched > 0.001) {
                 $stockMismatches[] = [
                     'sku_id' => $item->sku_id,
                     'sku_name' => $item->sku->name ?? 'Product',
-                    'dispatched' => $item->qty_carried,
-                    'returned' => $item->qty_returned,
-                    'implied_sold' => $impliedSold,
-                    'reported_sold' => $item->qty_sold,
-                    'difference' => $item->qty_sold - $impliedSold,
+                    'dispatched_bales' => $dispatched,
+                    'sold_bales' => $sold,
+                    'difference' => round($sold - $dispatched, 2),
                 ];
             }
         }
-        $expectedRevenue = round($expectedRevenue, 2);
+
+        $expectedRevenue = round((float) $lineItems->sum('line_total'), 2);
         $variance = round($this->total_collected - $expectedRevenue, 2);
 
         return [

@@ -34,8 +34,17 @@ class FuelLog extends Model
         'deleted_at' => 'datetime',
     ];
 
+    // Round 4 Phase 8: "computed price-per-liter is shown automatically."
+    protected $appends = ['price_per_liter'];
+
     public function vehicle()
     {
         return $this->belongsTo(Vehicle::class);
+    }
+
+    public function getPricePerLiterAttribute(): ?float
+    {
+        $liters = (float) $this->liters;
+        return $liters > 0 ? round((float) $this->cost / $liters, 2) : null;
     }
 }

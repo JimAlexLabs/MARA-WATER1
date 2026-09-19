@@ -9,6 +9,7 @@ use App\Models\Debt;
 use App\Models\DriverTrip;
 use App\Models\DriverTripItem;
 use App\Models\DriverTripSale;
+use App\Models\DriverTripSaleItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -98,7 +99,13 @@ class DriverSummaryController extends Controller
             $bales = (int) DriverTripItem::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_items.driver_trip_id')
                 ->where('driver_trips.driver_id', $userId)
                 ->where('driver_trips.trip_date', '>=', $since)
-                ->selectRaw('SUM(driver_trip_items.qty_carried_bales - driver_trip_items.qty_returned_bales) as net_bales')
+                // Cast to SIGNED first -- both columns are `int
+                // unsigned`, and a row where returned exceeds carried
+                // (bad pre-Round-4 historical data, since Returned used
+                // to be manually typed) would otherwise wrap the
+                // subtraction to a huge positive number and overflow
+                // SUM() into a BIGINT UNSIGNED range error.
+                ->selectRaw('SUM(CAST(driver_trip_items.qty_carried_bales AS SIGNED) - CAST(driver_trip_items.qty_returned_bales AS SIGNED)) as net_bales')
                 ->value('net_bales');
 
             return ['kes' => round($kes, 2), 'bales' => $bales];
@@ -108,18 +115,31 @@ class DriverSummaryController extends Controller
         // any) and their all-time cumulative, both from qty_sold (the
         // reported-sold basis, same one the reconciliation accessor uses
         // -- see DriverTripItem model docblock).
+        // Round 4 Phase 1: bales, not bottles -- and Phase 2's "only
+        // display items with quantity greater than zero" (moot for
+        // current_trip now that dispatch quantities are required|min:1,
+        // but the >0 filter stays as a defensive floor).
         $activeTrip = DriverTrip::where('driver_id', $userId)->where('status', 'in_transit')->first();
         $currentTripQty = $activeTrip
             ? DriverTripItem::with('sku')->where('driver_trip_id', $activeTrip->id)
-                ->get()->map(fn ($i) => ['sku_id' => $i->sku_id, 'name' => $i->sku->name ?? 'Item', 'brand' => $i->sku->brand ?? null, 'qty_carried' => $i->qty_carried])
+                ->where('qty_carried_bales', '>', 0)
+                ->get()->map(fn ($i) => ['sku_id' => $i->sku_id, 'name' => $i->sku->name ?? 'Item', 'brand' => $i->sku->brand ?? null, 'qty_carried_bales' => $i->qty_carried_bales])
                 ->values()
             : [];
 
-        $cumulativeQty = DriverTripItem::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_items.driver_trip_id')
-            ->join('skus', 'skus.id', '=', 'driver_trip_items.sku_id')
+        // Round 4 Phase 0/2: "Sold" is the live cumulative total from the
+        // Sales entity's own line items now, not the trip item's own
+        // qty_sold column (which pre-Round-4 history denominated in
+        // bottles -- mixing that with bale-based figures here would
+        // silently corrupt the total for any driver with older trips).
+        $cumulativeQty = DriverTripSaleItem::join('driver_trip_sales', 'driver_trip_sales.id', '=', 'driver_trip_sale_items.driver_trip_sale_id')
+            ->join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
+            ->join('skus', 'skus.id', '=', 'driver_trip_sale_items.sku_id')
             ->where('driver_trips.driver_id', $userId)
-            ->selectRaw('driver_trip_items.sku_id, skus.name, skus.brand, SUM(driver_trip_items.qty_sold) as qty_sold')
-            ->groupBy('driver_trip_items.sku_id', 'skus.name', 'skus.brand')
+            ->whereNull('driver_trip_sales.deleted_at')
+            ->selectRaw('driver_trip_sale_items.sku_id, skus.name, skus.brand, SUM(driver_trip_sale_items.qty_bales) as qty_sold')
+            ->groupBy('driver_trip_sale_items.sku_id', 'skus.name', 'skus.brand')
+            ->having('qty_sold', '>', 0)
             ->orderByDesc('qty_sold')
             ->get();
 

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Discrepancy;
 use App\Models\DriverTripItem;
 use App\Models\DriverTripSale;
 use App\Models\Location;
@@ -22,17 +23,24 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * WAREHOUSE), a GROSS TOTAL row, and a separate Bales Sold section
  * broken out by brand/size per location.
  *
- * Deliberately narrower than the source file's column set: the real
- * sheets also had Discount, Banked Amount, and Difference columns --
- * nothing in this app tracks a per-sale discount, a distributor sales
- * category as its own concept, or a daily cash-banking reconciliation,
- * so those columns would just be permanently blank/zero here. Rather
- * than ship columns that look like real data but aren't, this keeps
- * TOTAL SALES / DEBT / DISTRIBUTOR (from Customer::type='wholesale' --
- * the closest real equivalent) / EXP CASH (= sales - debt, the one
- * derived figure that's actually computable), each split KDN/KDQ/
- * WAREHOUSE in that consistent order (the source file's own column
- * order varied month to month; this doesn't perpetuate that).
+ * Still narrower than the source file's column set: nothing in this app
+ * tracks a per-sale discount or a daily cash-banking reconciliation, so
+ * Discount and Banked Amount would just be permanently blank/zero here
+ * and are omitted. TOTAL SALES / DEBT / DISTRIBUTOR (from
+ * Customer::type='wholesale' -- the closest real equivalent) / EXP CASH
+ * (= sales - debt, the one derived figure that's actually computable),
+ * each split KDN/KDQ/WAREHOUSE in that consistent order (the source
+ * file's own column order varied month to month; this doesn't
+ * perpetuate that).
+ *
+ * Round 4 Phase 11: DIFFERENCE is back, now that Phase 6's discrepancies
+ * table gives it a real data source -- the sum of that day/location's
+ * 'cash' category Discrepancy rows (the ones DriverTripController::
+ * end()'s defensive revenue self-consistency check raises). Stock/
+ * mileage discrepancies aren't money, so they don't feed this column;
+ * this is deliberately the same number the Discrepancies page would
+ * show for cash issues on that day, so the two never drift into two
+ * sources of truth for the same figure.
  *
  * Bales Sold sources only from driver_trip_items (net dispatched --
  * carried minus returned bales), not order_items, since bales are a
@@ -66,7 +74,7 @@ class DailySalesDebtReportService
         $groupHeaderRow = $row;
         $subHeaderRow = $row + 1;
         $col = 2; // B -- column A is DATE
-        $groups = ['TOTAL SALES', 'DEBT', 'DISTRIBUTOR', 'EXP CASH'];
+        $groups = ['TOTAL SALES', 'DEBT', 'DISTRIBUTOR', 'EXP CASH', 'DIFFERENCE'];
         $groupStartCol = [];
         $ws->setCellValue([1, $groupHeaderRow], 'DATE');
         $ws->getStyle([1, $groupHeaderRow])->applyFromArray($headerFill + $thin);
@@ -89,6 +97,7 @@ class DailySalesDebtReportService
         // debt-only, and distributor (wholesale-type customer) sales.
         $ordersByDayLoc = $this->orderTotalsByDayLocation($monthStart, $monthEnd);
         $tripsByDayLoc = $this->tripTotalsByDayLocation($monthStart, $monthEnd);
+        $cashDiscrepancyByDayLoc = $this->cashDiscrepancyByDayLocation($monthStart, $monthEnd);
 
         for ($d = 1; $d <= $daysInMonth; $d++) {
             $date = $monthStart->copy()->day($d)->toDateString();
@@ -101,11 +110,13 @@ class DailySalesDebtReportService
                 $debt = $o['debt'] + $t['debt'];
                 $distributor = $o['distributor'] + $t['distributor'];
                 $expCash = $sales - $debt;
+                $difference = $cashDiscrepancyByDayLoc->get($date . '|' . $loc->id, 0);
 
                 $ws->setCellValue([$groupStartCol['TOTAL SALES'] + $i, $row], $sales);
                 $ws->setCellValue([$groupStartCol['DEBT'] + $i, $row], $debt);
                 $ws->setCellValue([$groupStartCol['DISTRIBUTOR'] + $i, $row], $distributor);
                 $ws->setCellValue([$groupStartCol['EXP CASH'] + $i, $row], $expCash);
+                $ws->setCellValue([$groupStartCol['DIFFERENCE'] + $i, $row], $difference);
             }
             for ($c = 1; $c <= $lastDataCol; $c++) {
                 $ws->getStyle([$c, $row])->applyFromArray($thin);
@@ -252,14 +263,53 @@ class DailySalesDebtReportService
         return $out;
     }
 
-    /** date|location_id|sku_id => net dispatched bales (carried - returned). */
+    /**
+     * date|location_id => sum of that day/location's 'cash' category
+     * Discrepancy amounts. Joined via the flagged trip's location_id --
+     * mileage-only discrepancies (no driver_trip_id, e.g. none currently,
+     * but defensively excluded) don't have a location to attribute to a
+     * day/location cell and are excluded rather than guessed.
+     */
+    private function cashDiscrepancyByDayLocation(Carbon $from, Carbon $to): Collection
+    {
+        $rows = Discrepancy::where('category', 'cash')
+            ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
+            ->whereHas('trip', fn ($q) => $q->whereNotNull('location_id'))
+            ->with('trip')
+            ->get();
+
+        $out = collect();
+        foreach ($rows as $d) {
+            $locationId = $d->trip->location_id ?? null;
+            if (!$locationId) {
+                continue;
+            }
+            $key = $d->date->toDateString() . '|' . $locationId;
+            $out->put($key, ($out->get($key, 0)) + (float) $d->amount);
+        }
+        return $out;
+    }
+
+    /**
+     * date|location_id|sku_id => net dispatched bales (carried -
+     * returned). qty_carried_bales/qty_returned_bales are both `int
+     * unsigned` -- subtracting two unsigned columns directly makes MySQL
+     * evaluate the difference as unsigned too, so any row where returned
+     * legitimately exceeds carried (bad historical data entered before
+     * Round 4 Phase 2 made Returned a computed, not typed, field --
+     * confirmed live: one pre-Round-4 trip has 677 returned against only
+     * 9 carried) wraps around to a huge positive number instead of going
+     * negative, and SUM() then overflows BIGINT UNSIGNED and 500s the
+     * whole export. Casting to SIGNED first fixes the arithmetic for
+     * every month, not just ones without bad historical rows.
+     */
     private function netBalesByDayLocationSku(Carbon $from, Carbon $to): Collection
     {
         $rows = DriverTripItem::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_items.driver_trip_id')
             ->whereNotNull('driver_trips.location_id')
             ->whereBetween('driver_trips.trip_date', [$from->toDateString(), $to->toDateString()])
             ->selectRaw('driver_trips.trip_date, driver_trips.location_id, driver_trip_items.sku_id,
-                SUM(driver_trip_items.qty_carried_bales - driver_trip_items.qty_returned_bales) as net_bales')
+                SUM(CAST(driver_trip_items.qty_carried_bales AS SIGNED) - CAST(driver_trip_items.qty_returned_bales AS SIGNED)) as net_bales')
             ->groupBy('driver_trips.trip_date', 'driver_trips.location_id', 'driver_trip_items.sku_id')
             ->get();
 
@@ -276,7 +326,7 @@ class DailySalesDebtReportService
     {
         $order = ['Premium', 'Platinum', 'Grace', 'Refill'];
         $skus = Sku::where('active', true)->orderBy('name')->get();
-        return $skus->groupBy(fn ($s) => $s->brand ?: 'Mara Water')
+        return $skus->groupBy(fn ($s) => $s->brand ?: 'Uncategorized')
             ->sortBy(fn ($group, $brand) => in_array($brand, $order) ? array_search($brand, $order) : 99);
     }
 }

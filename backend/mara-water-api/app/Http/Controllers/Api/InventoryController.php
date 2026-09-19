@@ -267,10 +267,14 @@ class InventoryController extends Controller
      * tag every resulting move for traceability (e.g. 'order'/$orderId,
      * 'driver_trip'/$tripId).
      */
-    public function deductStock(string $skuId, ?Sku $sku, string $warehouseId, int $qtyToDeduct, string $refEntity, string $refId): array
+    public function deductStock(string $skuId, ?Sku $sku, string $warehouseId, int $qtyToDeduct, string $refEntity, string $refId, ?string $uomOverride = null): array
     {
         $warnings = [];
-        $uom = $sku->unit ?? 'BOTTLE';
+        // Round 4 Phase 1: the driver-trip caller passes bales, not the
+        // SKU's own packaging unit (bottle/container) -- $uomOverride
+        // lets it label the resulting stock_move accurately instead of
+        // silently mislabeling a bale quantity as "BOTTLE".
+        $uom = $uomOverride ?? ($sku->unit ?? 'BOTTLE');
 
         $available = StockItem::where('stock_items.item_type', 'sku')
             ->where('stock_items.sku_id', $skuId)

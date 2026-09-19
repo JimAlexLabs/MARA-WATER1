@@ -12,6 +12,76 @@ use App\Models\User;
 
 class AttendanceController extends Controller
 {
+    // Round 4 Phase 9: the shared Driver/Sales/Field-Work dashboard has
+    // three independent Check In/Check Out controls, one per person on
+    // that trip -- so the requester (always the Driver-tier account
+    // logged into the shared device) needs to be able to check someone
+    // else in/out, not just themselves. Scoped tightly: only allowed
+    // when the requester is themselves driver-tier, and only for a
+    // target whose role is one of the three field-team roles -- never
+    // an arbitrary user_id, and never a route to check in a Manager/
+    // Director. Names are never freely typed; the target must already
+    // exist as a real user with one of these roles (Round 2 Phase 4 HR/
+    // Employee module is where the Director assigns them).
+    private const FIELD_TEAM_ROLE_CODES = ['DRV', 'SALES', 'FIELDWORK'];
+
+    private function resolveAttendanceTarget(Request $request)
+    {
+        $requester = $request->user();
+        $targetUserId = $request->input('user_id');
+
+        if (!$targetUserId || $targetUserId === $requester->id) {
+            $request->merge(['user_id' => $requester->id]);
+            return null;
+        }
+
+        if (!$requester->hasAccessTier('driver')) {
+            return response()->json(['success' => false, 'message' => 'You can only check yourself in/out'], 403);
+        }
+
+        $target = User::with('role')->find($targetUserId);
+        if (!$target || !in_array($target->role->code ?? null, self::FIELD_TEAM_ROLE_CODES)) {
+            return response()->json(['success' => false, 'message' => 'You can only check in/out yourself or an assigned Driver/Sales/Field Work team member'], 403);
+        }
+
+        $request->merge(['user_id' => $targetUserId]);
+        return null;
+    }
+
+    /**
+     * Round 4 Phase 9: the roster the shared dashboard's three Check In/
+     * Check Out controls are built from -- every active user in one of
+     * the three field-team roles, with today's attendance status, so
+     * names are picked from who the Director has actually assigned
+     * there rather than typed freely.
+     */
+    public function fieldTeam(Request $request)
+    {
+        $today = now()->toDateString();
+        $users = User::with('role')->where('status', 'active')
+            ->whereHas('role', fn ($q) => $q->whereIn('code', self::FIELD_TEAM_ROLE_CODES))
+            ->orderBy('first_name')
+            ->get();
+
+        $todayAttendance = Attendance::whereIn('user_id', $users->pluck('id'))->whereDate('date', $today)->get()->keyBy('user_id');
+
+        $data = $users->map(function ($u) use ($todayAttendance) {
+            $a = $todayAttendance->get($u->id);
+            return [
+                'id' => $u->id,
+                'full_name' => $u->full_name,
+                'role_code' => $u->role->code ?? null,
+                'role_name' => $u->role->name ?? null,
+                'clocked_in' => (bool) $a?->clock_in_time,
+                'clocked_out' => (bool) $a?->clock_out_time,
+                'clock_in_time' => $a?->clock_in_time,
+                'clock_out_time' => $a?->clock_out_time,
+            ];
+        });
+
+        return response()->json(['success' => true, 'data' => $data]);
+    }
+
     public function index(Request $request)
     {
         try {
@@ -276,12 +346,9 @@ class AttendanceController extends Controller
 
     public function clockIn(Request $request)
     {
-        // Round 2 Phase 11 finding: this is meant to be self-service
-        // ("check-in/check-out") but trusted whatever user_id the request
-        // body carried -- any authenticated user could clock a different
-        // person in. Forced to the requester's own id, same as everywhere
-        // else "log my own X" is enforced this session.
-        $request->merge(['user_id' => $request->user()->id]);
+        if ($deny = $this->resolveAttendanceTarget($request)) {
+            return $deny;
+        }
 
         try {
             $validator = Validator::make($request->all(), [
@@ -347,8 +414,9 @@ class AttendanceController extends Controller
 
     public function clockOut(Request $request)
     {
-        // Round 2 Phase 11: same self-service fix as clockIn() above.
-        $request->merge(['user_id' => $request->user()->id]);
+        if ($deny = $this->resolveAttendanceTarget($request)) {
+            return $deny;
+        }
 
         try {
             $validator = Validator::make($request->all(), [

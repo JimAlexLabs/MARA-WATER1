@@ -29,6 +29,8 @@ use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\DriverTripController;
+use App\Http\Controllers\Api\DiscrepancyController;
+use App\Http\Controllers\Api\FuelLogController;
 use App\Http\Controllers\Api\MaterialController;
 use App\Http\Controllers\Api\BomController;
 use App\Http\Controllers\Api\SkuController;
@@ -360,6 +362,25 @@ Route::prefix('v1')->group(function () {
             Route::get('/trips/statistics', [DriverTripController::class, 'statistics']);
             Route::get('/trips/mileage-trend', [DriverTripController::class, 'mileageTrend']);
             Route::get('/trips/export', [DriverTripController::class, 'export']);
+
+            // Round 4 Phase 7: Mileage Logs -- fleet-wide, reachable from
+            // the Fleet section (and each vehicle's own detail page, same
+            // endpoint filtered by vehicle_id).
+            Route::get('/mileage-logs', [DriverTripController::class, 'mileageLogs']);
+
+            // Round 4 Phase 8: Fuel Logs -- Manager/Director only, no
+            // driver-facing entry point anywhere. Fixed segments (export)
+            // before the /{id} wildcard.
+            Route::get('/fuel-logs/export', [FuelLogController::class, 'export']);
+            Route::get('/fuel-logs', [FuelLogController::class, 'index']);
+            Route::post('/fuel-logs', [FuelLogController::class, 'store']);
+            Route::delete('/fuel-logs/{id}', [FuelLogController::class, 'destroy']);
+
+            // Round 4 Phase 6: Discrepancies page -- Manager/Director
+            // only, never surfaced on the Driver dashboard.
+            Route::get('/discrepancies/export', [DiscrepancyController::class, 'export']);
+            Route::get('/discrepancies', [DiscrepancyController::class, 'index']);
+            Route::put('/discrepancies/{id}', [DiscrepancyController::class, 'updateStatus']);
         });
 
         Route::middleware('tier:driver,manager,director')->prefix('fleet')->group(function () {
@@ -397,6 +418,8 @@ Route::prefix('v1')->group(function () {
             Route::post('/trips/{id}/end', [DriverTripController::class, 'end']);
             Route::get('/trips/{id}/dispatch-sheet', [DriverTripController::class, 'dispatchSheet']);
             Route::get('/trips/{id}/return-sheet', [DriverTripController::class, 'returnSheet']);
+            // Round 4 Phase 4: Sales panel, downloadable as Excel.
+            Route::get('/trips/{id}/sales-sheet', [DriverTripController::class, 'salesSheet']);
         });
 
         // Director-only unlock -- controller double-checks this too (same
@@ -414,6 +437,10 @@ Route::prefix('v1')->group(function () {
         Route::middleware('tier:driver,manager,director')->prefix('hr')->group(function () {
             Route::post('/attendance/clock-in', [AttendanceController::class, 'clockIn']);
             Route::post('/attendance/clock-out', [AttendanceController::class, 'clockOut']);
+            // Round 4 Phase 9: the roster the shared Driver/Sales/Field-
+            // Work dashboard's three check-in/out controls are built
+            // from -- who the Director has assigned to those roles.
+            Route::get('/field-team', [AttendanceController::class, 'fieldTeam']);
         });
 
         Route::middleware('tier:manager,director')->prefix('hr')->group(function () {
