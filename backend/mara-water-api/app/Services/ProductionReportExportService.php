@@ -39,7 +39,7 @@ class ProductionReportExportService
         $ws->getStyle('A1')->applyFromArray($title);
 
         $skuGroups = Sku::where('active', true)->orderBy('name')->get()
-            ->groupBy(fn ($s) => $s->brand ?: 'Mara Water')
+            ->groupBy(fn ($s) => $s->brand ?: 'Uncategorized')
             ->sortBy(fn ($g, $brand) => in_array($brand, ['Premium', 'Platinum', 'Grace', 'Refill']) ? array_search($brand, ['Premium', 'Platinum', 'Grace', 'Refill']) : 99);
 
         $brandRow = 3;

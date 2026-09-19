@@ -19,7 +19,7 @@ interface Sku {
 interface PriceListItem { id: string; sku_id: string; unit_price: string; }
 
 const BRAND_ORDER = ['Premium', 'Platinum', 'Grace', 'Refill'];
-const brandLabel = (brand: string | null) => brand || 'Mara Water';
+const brandLabel = (brand: string | null) => brand || 'Uncategorized';
 const groupByBrand = (skus: Sku[]) => {
   const groups = new Map<string, Sku[]>();
   for (const s of skus) {

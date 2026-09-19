@@ -99,7 +99,7 @@ class StockReconciliationExportService
             $price = (float) ($prices[$sku->id] ?? 0);
 
             $ws->setCellValue([1, $row], $sku->code);
-            $ws->setCellValue([2, $row], $sku->brand ?: 'Mara Water');
+            $ws->setCellValue([2, $row], $sku->brand ?: 'Uncategorized');
             $ws->setCellValue([3, $row], $sku->name);
             $ws->setCellValue([4, $row], $sku->unit ?? 'BOTTLE');
             $ws->setCellValue([5, $row], $op);

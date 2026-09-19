@@ -111,7 +111,7 @@ class AnalyticsController extends Controller
             ->whereNull('orders.deleted_at')->whereNull('order_items.deleted_at')
             ->whereNotNull('orders.payment_method')
             ->whereBetween('orders.order_date', [$dateFrom, $dateTo])
-            ->selectRaw('COALESCE(skus.brand, "Mara Water") as brand,
+            ->selectRaw('COALESCE(skus.brand, "Uncategorized") as brand,
                 SUM(order_items.qty - order_items.qty_returned) as qty_sold,
                 SUM((order_items.qty - order_items.qty_returned) * order_items.unit_price) as revenue')
             ->groupBy('brand')->get()->keyBy('brand');
@@ -120,7 +120,7 @@ class AnalyticsController extends Controller
             ->join('skus', 'skus.id', '=', 'driver_trip_items.sku_id')
             ->whereNull('driver_trips.deleted_at')
             ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
-            ->selectRaw('COALESCE(skus.brand, "Mara Water") as brand,
+            ->selectRaw('COALESCE(skus.brand, "Uncategorized") as brand,
                 SUM(driver_trip_items.qty_sold) as qty_sold,
                 SUM(driver_trip_items.qty_sold * driver_trip_items.unit_price) as revenue')
             ->groupBy('brand')->get()->keyBy('brand');
@@ -280,7 +280,7 @@ class AnalyticsController extends Controller
         $producedByBrand = PackagingRun::join('skus', 'skus.id', '=', 'packaging_runs.sku_id')
             ->whereNotNull('packaging_runs.run_end')
             ->whereBetween('packaging_runs.run_end', [$dateFrom, $dateToEnd])
-            ->selectRaw('COALESCE(skus.brand, "Mara Water") as brand, SUM(packaging_runs.good_qty) as qty')
+            ->selectRaw('COALESCE(skus.brand, "Uncategorized") as brand, SUM(packaging_runs.good_qty) as qty')
             ->groupBy('brand')->pluck('qty', 'brand');
 
         $soldByBrandOrders = OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
@@ -288,14 +288,14 @@ class AnalyticsController extends Controller
             ->whereNull('orders.deleted_at')->whereNull('order_items.deleted_at')
             ->whereNotNull('orders.payment_method')
             ->whereBetween('orders.order_date', [$dateFrom, $dateTo])
-            ->selectRaw('COALESCE(skus.brand, "Mara Water") as brand, SUM(order_items.qty - order_items.qty_returned) as qty')
+            ->selectRaw('COALESCE(skus.brand, "Uncategorized") as brand, SUM(order_items.qty - order_items.qty_returned) as qty')
             ->groupBy('brand')->pluck('qty', 'brand');
 
         $soldByBrandTrips = DriverTripItem::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_items.driver_trip_id')
             ->join('skus', 'skus.id', '=', 'driver_trip_items.sku_id')
             ->whereNull('driver_trips.deleted_at')
             ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
-            ->selectRaw('COALESCE(skus.brand, "Mara Water") as brand, SUM(driver_trip_items.qty_sold) as qty')
+            ->selectRaw('COALESCE(skus.brand, "Uncategorized") as brand, SUM(driver_trip_items.qty_sold) as qty')
             ->groupBy('brand')->pluck('qty', 'brand');
 
         $brands = collect($producedByBrand->keys())->merge($soldByBrandOrders->keys())->merge($soldByBrandTrips->keys())
