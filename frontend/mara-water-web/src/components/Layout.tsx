@@ -26,7 +26,8 @@ import {
   TrendingUp,
   Tag,
   MessageSquare,
-  AlertTriangle
+  AlertTriangle,
+  Clock
 } from 'lucide-react';
 
 interface SearchResult {
@@ -230,7 +231,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const tier = user?.role?.access_tier;
   const DIRECTOR_ONLY = ['/users', '/settings'];
   const DRIVER_NAVIGATION = [
-    { name: 'Dashboard', href: '/driver', icon: Home, description: 'Attendance and analytics' },
+    { name: 'Dashboard', href: '/driver', icon: Home, description: 'This month and my analytics' },
+    // Round 4 Phase 9: own sidebar page -- three independent Check In/
+    // Check Out controls (Driver/Sales/Field Work), not one shared
+    // control for whoever is logged in.
+    { name: 'Check In/Out', href: '/driver/attendance', icon: Clock, description: 'Your attendance, plus the team\'s' },
     { name: 'Trips', href: '/driver/trips', icon: Truck, description: 'Dispatch, sales, and closing out your trip' },
     { name: 'Sales', href: '/driver/sales', icon: BarChart3, description: 'Your sales and debtors' },
     { name: 'Issues', href: '/driver/issues', icon: MessageSquare, description: 'Report a problem' },

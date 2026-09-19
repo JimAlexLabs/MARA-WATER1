@@ -16,7 +16,9 @@ import './index.css';
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'));
 const PricingPage = lazy(() => import('./pages/PricingPage'));
 const DriverPage = lazy(() => import('./pages/DriverPage'));
+const DriverAttendancePage = lazy(() => import('./pages/DriverAttendancePage'));
 const DriverTripsPage = lazy(() => import('./pages/DriverTripsPage'));
+const DriverLogSalePage = lazy(() => import('./pages/DriverLogSalePage'));
 const DriverSalesPage = lazy(() => import('./pages/DriverSalesPage'));
 const DriverIssuesPage = lazy(() => import('./pages/DriverIssuesPage'));
 const InvestorPage = lazy(() => import('./pages/InvestorPage'));
@@ -150,10 +152,28 @@ function App() {
                 </Layout>
               </ProtectedRoute>
             } />
+            <Route path="/driver/attendance" element={
+              <ProtectedRoute tiers={['driver']}>
+                <Layout>
+                  <DriverAttendancePage />
+                </Layout>
+              </ProtectedRoute>
+            } />
             <Route path="/driver/trips" element={
               <ProtectedRoute tiers={['driver']}>
                 <Layout>
                   <DriverTripsPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            {/* Round 4 Phase 0/4 follow-up: "Log a Sale" is its own
+                standalone page, connected to but separate from Trips --
+                only reachable via the button on the active in_transit
+                trip, not a persistent sidebar item. */}
+            <Route path="/driver/trips/log-sale" element={
+              <ProtectedRoute tiers={['driver']}>
+                <Layout>
+                  <DriverLogSalePage />
                 </Layout>
               </ProtectedRoute>
             } />
