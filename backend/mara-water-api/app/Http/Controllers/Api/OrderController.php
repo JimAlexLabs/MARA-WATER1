@@ -747,13 +747,14 @@ class OrderController extends Controller
     }
 
     /**
-     * Get default unit price for SKU
+     * Fallback unit price for legacy store() when the client omits
+     * unit_price — Round 5B: read the default price list via PriceService
+     * instead of the old hardcoded 50.00.
      */
     private function getDefaultUnitPrice($skuId)
     {
-        // This would typically come from price lists or SKU pricing
-        // For now, return a default value
-        return 50.00;
+        $price = (new \App\Services\PriceService())->resolveForSku((string) $skuId, 'default');
+        return $price ?? 0.0;
     }
 
     /**

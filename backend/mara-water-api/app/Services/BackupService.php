@@ -25,6 +25,8 @@ class BackupService
         'vehicles', 'price_lists', 'price_list_items', 'qa_thresholds',
         'cleaning_tasks', 'bank_accounts', 'taxes', 'shifts',
         'insurance_policies', 'settings', 'chart_of_accounts', 'equipment_items',
+        // Reference / config added after Phase 11 audit
+        'salary_templates', 'locations',
     ];
 
     public const WIPE_TABLES = [
@@ -46,6 +48,10 @@ class BackupService
         'debtor_ledger_entries',
         // Round 5B
         'material_batches', 'material_batch_consumptions', 'stock_reconciliation_reports',
+        // Post–Phase 11 tables that were silently skipped by backups/resets
+        'driver_trip_sales', 'driver_trip_sale_items', 'driver_trip_unlocks',
+        'issues', 'issue_messages', 'discrepancies',
+        'staff_loans', 'payroll_runs', 'payslips',
     ];
 
     /**
@@ -57,6 +63,7 @@ class BackupService
         'sales' => [
             'orders', 'order_items', 'manifests', 'manifest_items', 'manifest_signatures',
             'deliveries', 'returns', 'return_items', 'driver_trips', 'driver_trip_items',
+            'driver_trip_sales', 'driver_trip_sale_items', 'driver_trip_unlocks',
             'invoices', 'invoice_items', 'receipts', 'debts', 'debtor_ledger_entries',
         ],
         'production' => [
@@ -72,6 +79,7 @@ class BackupService
             'invoices', 'invoice_items', 'receipts', 'petty_cash_entries',
             'debtor_ledger_entries', 'debts', 'expenses', 'bank_statements',
             'bank_lines', 'reconciliations', 'recon_items',
+            'staff_loans', 'payroll_runs', 'payslips',
         ],
         'qa' => [
             'water_tests', 'instrument_calibrations', 'non_conformances',
@@ -79,11 +87,15 @@ class BackupService
         ],
         'hr' => [
             'attendances', 'uniform_checks', 'safety_checks', 'disciplinary_actions',
-            'leave_requests',
+            'leave_requests', 'staff_loans', 'payroll_runs', 'payslips',
         ],
         'fleet' => [
             'vehicle_checks', 'services', 'fuel_logs', 'driver_assignments',
             'ntsa_inspections', 'speed_governor_logs', 'driver_trips', 'driver_trip_items',
+            'driver_trip_sales', 'driver_trip_sale_items', 'driver_trip_unlocks',
+        ],
+        'issues' => [
+            'issues', 'issue_messages', 'discrepancies',
         ],
         'all' => [], // special: uses full WIPE_TABLES
     ];
