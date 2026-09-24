@@ -36,12 +36,25 @@ const money = (n: number) => `KES ${Number(n || 0).toLocaleString(undefined, { m
 const InvestorPage: React.FC = () => {
   const { user } = useAuth();
   const [data, setData] = useState<Summary | null>(null);
+  const [ops, setOps] = useState<{
+    inventory?: { bags_on_hand: number };
+    production?: { bales_produced_month: number };
+    warehouse?: { finished_qty_on_hand: number };
+    dispatch_sales?: { returned_bales_computed: number; dispatched_bales_month: number; sold_bales_month: number };
+    site?: { operations_base: string; sourcing_city: string };
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get('/investor/summary')
-      .then(res => setData(res.data.data))
+    Promise.all([
+      api.get('/investor/summary'),
+      api.get('/investor/operations-overview').catch(() => null),
+    ])
+      .then(([sumRes, opsRes]) => {
+        setData(sumRes.data.data);
+        if (opsRes?.data?.data) setOps(opsRes.data.data);
+      })
       .catch(() => setError('Could not load the summary.'))
       .finally(() => setLoading(false));
   }, []);
@@ -106,6 +119,33 @@ const InvestorPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {ops && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Supply chain snapshot</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            {ops.site?.operations_base || 'Rongo'} ops · bottles from {ops.site?.sourcing_city || 'Nairobi'} (bags → bales). No payroll detail.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-gray-500">Bags on hand</p>
+              <p className="font-bold text-gray-900 dark:text-gray-100">{ops.inventory?.bags_on_hand ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Bales produced (mo)</p>
+              <p className="font-bold text-gray-900 dark:text-gray-100">{ops.production?.bales_produced_month ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Warehouse stock</p>
+              <p className="font-bold text-gray-900 dark:text-gray-100">{ops.warehouse?.finished_qty_on_hand ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Returns (D − S)</p>
+              <p className="font-bold text-gray-900 dark:text-gray-100">{ops.dispatch_sales?.returned_bales_computed ?? 0}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">

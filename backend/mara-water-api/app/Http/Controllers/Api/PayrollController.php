@@ -76,7 +76,14 @@ class PayrollController extends Controller
                 'updated_by' => Auth::id(),
             ]);
 
-            $staff = User::where('status', 'active')->whereNotNull('salary')->get();
+            // Director salary is an allowance later — never create a payslip
+            // for access_tier=director on operational payroll runs.
+            $staff = User::with('role')
+                ->where('status', 'active')
+                ->whereNotNull('salary')
+                ->get()
+                ->filter(fn ($u) => optional($u->role)->access_tier !== 'director')
+                ->values();
             $monthCarbon = \Carbon\Carbon::parse($month);
 
             foreach ($staff as $user) {

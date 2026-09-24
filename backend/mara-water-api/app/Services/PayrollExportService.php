@@ -27,23 +27,36 @@ class PayrollExportService
         'Tax Payable', 'SHIF', 'Housing Levy', 'Total Deductions', 'Net Salary',
     ];
 
+    /**
+     * Operational payroll only — Director (access_tier=director) is never
+     * listed; Director pay is tracked separately as an allowance later.
+     */
+    private function operationalPayslips(PayrollRun $run)
+    {
+        $run->loadMissing(['payslips.user.role']);
+        return $run->payslips->filter(function ($p) {
+            return optional(optional($p->user)->role)->access_tier !== 'director';
+        })->values();
+    }
+
     public function payrollSheet(PayrollRun $run): StreamedResponse
     {
         $spreadsheet = new Spreadsheet();
         $ws = $spreadsheet->getActiveSheet();
         $ws->setTitle('Payroll');
+        $payslips = $this->operationalPayslips($run);
 
         $bold = ['font' => ['bold' => true]];
         $headerFill = ['fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'DDEBF7']], 'font' => ['bold' => true]];
         $thin = ['borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]]];
 
-        $ws->setCellValue('D4', 'Homa Springs Limited');
+        $ws->setCellValue('D4', 'Homa Springs Limited / Mara Water');
         $ws->setCellValue('F4', 'Staff Nos.');
-        $ws->setCellValue('H4', $run->payslips->count());
+        $ws->setCellValue('H4', $payslips->count());
         $ws->setCellValue('D5', $run->month->toDateString());
-        $ws->setCellValue('D6', 'Payroll Computations');
+        $ws->setCellValue('D6', 'Payroll Computations (Director excluded — allowance)');
         $ws->setCellValue('F6', 'Gross Salaries');
-        $ws->setCellValue('H6', round((float) $run->payslips->sum('gross_pay'), 2));
+        $ws->setCellValue('H6', round((float) $payslips->sum('gross_pay'), 2));
         foreach (['D4', 'F4', 'D6', 'F6'] as $cell) {
             $ws->getStyle($cell)->applyFromArray($bold);
         }
@@ -55,7 +68,7 @@ class PayrollExportService
         }
 
         $row = $headerRow + 1;
-        foreach ($run->payslips as $i => $p) {
+        foreach ($payslips as $i => $p) {
             $u = $p->user;
             $values = [
                 $i + 1, $u->staff_number, $u->full_name, $p->basic_pay, $p->house_allowance, $p->absentism_deduction,
@@ -91,7 +104,7 @@ class PayrollExportService
         // and more reliably printable than the source's side-by-side
         // 4-per-row layout, while keeping the same field set per card.
         $row = 1;
-        foreach ($run->payslips as $p) {
+        foreach ($this->operationalPayslips($run) as $p) {
             $u = $p->user;
             $ws->setCellValue("A{$row}", 'Payslip for the month of:');
             $ws->setCellValue("C{$row}", $run->month->toDateString());
@@ -155,7 +168,7 @@ class PayrollExportService
         }
 
         $row = $headerRow + 1;
-        foreach ($run->payslips as $i => $p) {
+        foreach ($this->operationalPayslips($run) as $i => $p) {
             $u = $p->user;
             $values = [
                 $i + 1, $u->full_name, $u->bank_account_number, $u->bank_name, $u->bank_branch,

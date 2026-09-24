@@ -41,6 +41,7 @@ use App\Http\Controllers\Api\CostingController;
 use App\Http\Controllers\Api\FinanceController;
 use App\Http\Controllers\Api\WarehouseAuditController;
 use App\Http\Controllers\Api\EquipmentController;
+use App\Http\Controllers\Api\OperationsOverviewController;
 
 /*
 |--------------------------------------------------------------------------
@@ -93,6 +94,20 @@ Route::prefix('v1')->group(function () {
         // individual salaries, debtor names, or petty cash lines).
         Route::middleware('tier:investor,director')->group(function () {
             Route::get('/investor/summary', [\App\Http\Controllers\Api\InvestorController::class, 'summary']);
+            Route::get('/investor/operations-overview', [OperationsOverviewController::class, 'investorOverview']);
+        });
+
+        // Director supply-chain Operations Overview + template Excel pack.
+        Route::middleware('tier:director')->prefix('operations')->group(function () {
+            Route::get('/overview', [OperationsOverviewController::class, 'overview']);
+            Route::get('/skus', [OperationsOverviewController::class, 'listSkus']);
+            Route::post('/conversions', [OperationsOverviewController::class, 'upsertConversion']);
+            Route::get('/exports/inventory-control', [OperationsOverviewController::class, 'exportInventoryControl']);
+            Route::get('/exports/raw-materials', [OperationsOverviewController::class, 'exportRawMaterials']);
+            Route::get('/exports/warehouse-stock', [OperationsOverviewController::class, 'exportWarehouseStock']);
+            Route::get('/exports/refills', [OperationsOverviewController::class, 'exportRefills']);
+            Route::get('/exports/driver-worksheet', [OperationsOverviewController::class, 'exportDriverWorksheet']);
+            Route::get('/exports/sales-control', [OperationsOverviewController::class, 'exportSalesControl']);
         });
 
         // Round 2 Phase 11: a driver's own dashboard -- their own trip
