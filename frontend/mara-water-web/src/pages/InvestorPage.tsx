@@ -2,23 +2,33 @@ import React, { useEffect, useState } from 'react';
 import {
   ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip,
 } from 'recharts';
-import { DollarSign, Factory, Wallet, AlertTriangle } from 'lucide-react';
+import { DollarSign, Factory, Wallet, AlertTriangle, PackageX, UserPlus } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
-// Round 2 Phase 11: the Investor role's own dashboard -- "a daily
-// performance summary ... explicitly not line-level detail like
-// individual salaries, individual debtor names, or petty cash line
+// Round 2 Phase 11 / Round 5A Phase 2: the Investor role's own dashboard
+// -- "a daily performance summary ... explicitly not line-level detail
+// like individual salaries, individual debtor names, or petty cash line
 // items. Build this as a distinct, deliberately limited dashboard, not
 // the full app with buttons hidden." This page has no navigation to any
 // operational section at all (see Layout.tsx) -- there is nothing to
 // click through to, not just something hidden.
+//
+// Round 5A Phase 2 fills this out properly: a Production trend to match
+// Sales, and a "debt and stock-depletion alerts" summary -- counts and
+// totals only, never a debtor-by-name list or a per-item Inventory link.
 
 interface Summary {
   today: { revenue: number; production_liters: number };
   this_month: { revenue: number; production_liters: number; cash_collected: number; mpesa_collected: number };
   sales_trend: { date: string; revenue: number }[];
+  production_trend: { date: string; liters: number }[];
   financial_health: { cash_and_mpesa_collected_month: number; outstanding_debt_total: number };
+  alerts: {
+    new_debt: { window_days: number; count: number; total: number };
+    overdue_debt: { count: number; total: number };
+    low_stock: { count: number; items: string[] };
+  };
 }
 
 const money = (n: number) => `KES ${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -48,7 +58,8 @@ const InvestorPage: React.FC = () => {
     return <div className="text-center py-12 text-gray-500 dark:text-gray-400">{error || 'No data available.'}</div>;
   }
 
-  const trend = data.sales_trend.map(p => ({ ...p, label: new Date(p.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }));
+  const salesTrend = data.sales_trend.map(p => ({ ...p, label: new Date(p.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }));
+  const productionTrend = data.production_trend.map(p => ({ ...p, label: new Date(p.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }));
 
   return (
     <div className="space-y-6">
@@ -96,21 +107,42 @@ const InvestorPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
-        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Sales Trend (last 30 days)</h3>
-        {trend.length === 0 ? (
-          <div className="h-[220px] flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">No sales in the last 30 days</div>
-        ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={trend}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
-              <XAxis dataKey="label" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={60} />
-              <Tooltip formatter={(v: number) => money(v)} />
-              <Line type="monotone" dataKey="revenue" stroke="#7c3aed" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Sales Trend (last 30 days)</h3>
+          {salesTrend.length === 0 ? (
+            <div className="h-[220px] flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">No sales in the last 30 days</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={salesTrend}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                <XAxis dataKey="label" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={60} />
+                <Tooltip formatter={(v: number) => money(v)} />
+                <Line type="monotone" dataKey="revenue" stroke="#7c3aed" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Round 5A Phase 2: Production needed its own trend, not just
+            today/month totals -- same 30-day shape as Sales. */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Production Trend (last 30 days)</h3>
+          {productionTrend.length === 0 ? (
+            <div className="h-[220px] flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">No production in the last 30 days</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={productionTrend}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                <XAxis dataKey="label" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={60} />
+                <Tooltip formatter={(v: number) => `${Number(v).toLocaleString()} L`} />
+                <Line type="monotone" dataKey="liters" stroke="#2563eb" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
@@ -125,6 +157,55 @@ const InvestorPage: React.FC = () => {
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
           High-level totals only -- individual debtor names, salaries, and petty cash line items are not part of this view.
         </p>
+      </div>
+
+      {/* Round 5A Phase 2: "Debt and stock-depletion alerts -- a simple
+          summary of new debt entries and low-stock/depletion warnings, so
+          the investor stays aware of financial and operational risk
+          without needing operational access." Counts and totals only. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <UserPlus className="w-5 h-5 text-amber-500" />
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Debt Alerts</h3>
+          </div>
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600 dark:text-gray-400">New debt (last {data.alerts.new_debt.window_days} days)</span>
+              <span className="font-semibold text-gray-900 dark:text-gray-100">
+                {data.alerts.new_debt.count} · {money(data.alerts.new_debt.total)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600 dark:text-gray-400">Overdue</span>
+              <span className={`font-semibold ${data.alerts.overdue_debt.count > 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
+                {data.alerts.overdue_debt.count} · {money(data.alerts.overdue_debt.total)}
+              </span>
+            </div>
+          </div>
+          {data.alerts.new_debt.count === 0 && data.alerts.overdue_debt.count === 0 && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">No new or overdue debt to flag right now.</p>
+          )}
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <PackageX className="w-5 h-5 text-red-500" />
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Stock-Depletion Alerts</h3>
+          </div>
+          {data.alerts.low_stock.count === 0 ? (
+            <p className="text-sm text-gray-400 dark:text-gray-500">No items are low on stock right now.</p>
+          ) : (
+            <>
+              <p className="text-sm text-gray-900 dark:text-gray-100 font-semibold mb-2">{data.alerts.low_stock.count} item(s) at or below reorder point</p>
+              <div className="flex flex-wrap gap-2">
+                {data.alerts.low_stock.items.map((name, i) => (
+                  <span key={i} className="text-xs bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full px-3 py-1">{name}</span>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
