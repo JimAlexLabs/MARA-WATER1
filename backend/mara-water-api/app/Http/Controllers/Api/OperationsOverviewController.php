@@ -28,6 +28,23 @@ class OperationsOverviewController extends Controller
 {
     public function overview(Request $request)
     {
+        try {
+            return response()->json([
+                'success' => true,
+                'data' => $this->buildOverviewPayload(),
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load operations overview',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    private function buildOverviewPayload(): array
+    {
         $monthStart = now()->startOfMonth()->toDateString();
         $today = now()->toDateString();
         $trendStart = now()->subDays(29)->toDateString();
@@ -58,7 +75,7 @@ class OperationsOverviewController extends Controller
         // Bag inventory (raw bottles) — qty still on material_batches with package_unit bag
         $bagBatches = MaterialBatch::query()
             ->when(Schema::hasColumn('material_batches', 'package_unit'), fn ($q) => $q->where('package_unit', 'bag'))
-            ->with('material:id,name,unit')
+            ->with('material:id,name,uom')
             ->orderByDesc('purchase_date')
             ->limit(50)
             ->get();
@@ -67,10 +84,8 @@ class OperationsOverviewController extends Controller
         $bagsBySupplier = $bagBatches->groupBy(fn ($b) => strtoupper($b->supplier_code ?: $this->guessSupplierCode($b->supplier_name)))
             ->map(fn ($g) => round((float) $g->sum(fn ($b) => (float) ($b->qty_remaining ?? $b->qty_received)), 2));
 
-        // Finished warehouse (SKU bales / units)
-        $finishedStock = StockItem::where('item_type', 'sku')
-            ->selectRaw('SUM(qty_on_hand) as qty')
-            ->value('qty');
+        // Finished warehouse (SKU bales / units) — column is `qty`, not qty_on_hand
+        $finishedStock = (float) StockItem::where('item_type', 'sku')->sum('qty');
 
         // Production this month (bales = good_qty on packaging runs)
         $producedMonth = (float) PackagingRun::whereNotNull('run_end')
@@ -135,73 +150,78 @@ class OperationsOverviewController extends Controller
 
         $conversions = SkuPackageConversion::with('sku:id,name,brand,size_liters')->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'site' => $cfg['site'] ?? [],
-                'stages' => $cfg['supply_chain_stages'] ?? [],
-                'bottle_suppliers' => $cfg['bottle_suppliers'] ?? [],
-                'bottle_transport_cost_kes' => (float) ($cfg['bottle_transport_cost_kes'] ?? 45000),
-                'other_inputs' => $cfg['other_inputs'] ?? [],
-                'salary_bands' => $salaryBands->values(),
-                'payroll' => [
-                    'target_monthly_operational_kes' => round($targetMonthlyPayroll, 2),
-                    'actual_monthly_operational_kes' => $actualMonthlyPayroll,
-                    'director_allowance_kes' => (float) ($salaryBands->firstWhere('role_key', 'director')['default_kes'] ?? 60000),
-                    'director_excluded_from_payroll_export' => true,
-                    'headcount_operational' => $operationalStaff->count(),
-                    'by_role' => $staffByRole,
-                ],
-                'inventory' => [
-                    'bags_on_hand' => $bagsOnHand,
-                    'bags_by_supplier' => $bagsBySupplier,
-                    'package_unit' => 'bag',
-                    'note' => 'Empty bottles arrive in BAGS from FineLine & Blowplast (Nairobi). Bales start after production conversion.',
-                ],
-                'production' => [
-                    'bales_produced_month' => $producedMonth,
-                    'trend_30d' => $productionTrend,
-                ],
-                'warehouse' => [
-                    'finished_qty_on_hand' => (float) $finishedStock,
-                    'unit' => 'bales / finished units',
-                ],
-                'dispatch_sales' => [
-                    'dispatched_bales_month' => $dispatched,
-                    'sold_bales_month' => $sold,
-                    'returned_bales_logged' => $returnedLogged,
-                    'returned_bales_computed' => $returnsComputed,
-                    'returns_formula' => 'dispatched_bales − sold_bales',
-                    'in_house_sales_kes' => round($inHouseSales, 2),
-                    'trip_sales_kes' => round($tripSalesAmount, 2),
-                    'sales_trend_30d' => $salesTrend,
-                ],
-                'conversions' => $conversions,
-                'default_conversions' => $cfg['default_conversions'] ?? [],
-                'automation_ideas' => $this->automationIdeas(),
-                'exports' => [
-                    ['key' => 'payroll', 'label' => 'Payroll (Finalis-style, no Director)', 'path' => '/hr/payroll/runs/{id}/payroll-export', 'needs' => 'payroll_run_id'],
-                    ['key' => 'inventory_control', 'label' => 'Inventory Control Sheet', 'path' => '/operations/exports/inventory-control'],
-                    ['key' => 'raw_materials', 'label' => 'Raw Materials Usage', 'path' => '/operations/exports/raw-materials'],
-                    ['key' => 'production', 'label' => 'Production Data', 'path' => '/reports/production-export'],
-                    ['key' => 'warehouse', 'label' => 'Main Stock Warehouse Cards', 'path' => '/operations/exports/warehouse-stock'],
-                    ['key' => 'refills', 'label' => 'Refills', 'path' => '/operations/exports/refills'],
-                    ['key' => 'driver_worksheet', 'label' => 'Driver Work Sheet', 'path' => '/operations/exports/driver-worksheet'],
-                    ['key' => 'sales_control', 'label' => 'HSL Sales Control / Recon', 'path' => '/operations/exports/sales-control'],
-                    ['key' => 'debtors', 'label' => 'Debtors Ledger', 'path' => '/finance/debtors/export'],
-                ],
+        return [
+            'site' => $cfg['site'] ?? [],
+            'stages' => $cfg['supply_chain_stages'] ?? [],
+            'bottle_suppliers' => $cfg['bottle_suppliers'] ?? [],
+            'bottle_transport_cost_kes' => (float) ($cfg['bottle_transport_cost_kes'] ?? 45000),
+            'other_inputs' => $cfg['other_inputs'] ?? [],
+            'salary_bands' => $salaryBands->values(),
+            'payroll' => [
+                'target_monthly_operational_kes' => round($targetMonthlyPayroll, 2),
+                'actual_monthly_operational_kes' => $actualMonthlyPayroll,
+                'director_allowance_kes' => (float) ($salaryBands->firstWhere('role_key', 'director')['default_kes'] ?? 60000),
+                'director_excluded_from_payroll_export' => true,
+                'headcount_operational' => $operationalStaff->count(),
+                'by_role' => $staffByRole,
             ],
-        ]);
+            'inventory' => [
+                'bags_on_hand' => $bagsOnHand,
+                'bags_by_supplier' => $bagsBySupplier,
+                'package_unit' => 'bag',
+                'note' => 'Empty bottles arrive in BAGS from FineLine & Blowplast (Nairobi). Bales start after production conversion.',
+            ],
+            'production' => [
+                'bales_produced_month' => $producedMonth,
+                'trend_30d' => $productionTrend,
+            ],
+            'warehouse' => [
+                'finished_qty_on_hand' => $finishedStock,
+                'unit' => 'bales / finished units',
+            ],
+            'dispatch_sales' => [
+                'dispatched_bales_month' => $dispatched,
+                'sold_bales_month' => $sold,
+                'returned_bales_logged' => $returnedLogged,
+                'returned_bales_computed' => $returnsComputed,
+                'returns_formula' => 'dispatched_bales − sold_bales',
+                'in_house_sales_kes' => round($inHouseSales, 2),
+                'trip_sales_kes' => round($tripSalesAmount, 2),
+                'sales_trend_30d' => $salesTrend,
+            ],
+            'conversions' => $conversions,
+            'default_conversions' => $cfg['default_conversions'] ?? [],
+            'automation_ideas' => $this->automationIdeas(),
+            'exports' => [
+                ['key' => 'payroll', 'label' => 'Payroll (Finalis-style, no Director)', 'path' => '/hr/payroll/runs/{id}/payroll-export', 'needs' => 'payroll_run_id'],
+                ['key' => 'inventory_control', 'label' => 'Inventory Control Sheet', 'path' => '/operations/exports/inventory-control'],
+                ['key' => 'raw_materials', 'label' => 'Raw Materials Usage', 'path' => '/operations/exports/raw-materials'],
+                ['key' => 'production', 'label' => 'Production Data', 'path' => '/reports/production-export'],
+                ['key' => 'warehouse', 'label' => 'Main Stock Warehouse Cards', 'path' => '/operations/exports/warehouse-stock'],
+                ['key' => 'refills', 'label' => 'Refills', 'path' => '/operations/exports/refills'],
+                ['key' => 'driver_worksheet', 'label' => 'Driver Work Sheet', 'path' => '/operations/exports/driver-worksheet'],
+                ['key' => 'sales_control', 'label' => 'HSL Sales Control / Recon', 'path' => '/operations/exports/sales-control'],
+                ['key' => 'debtors', 'label' => 'Debtors Ledger', 'path' => '/finance/debtors/export'],
+            ],
+        ];
     }
 
     /** Investor-safe: stage totals only — no salaries, no names. */
     public function investorOverview()
     {
-        $full = $this->overview(request())->getData(true);
-        $d = $full['data'] ?? [];
-        unset($d['salary_bands'], $d['payroll'], $d['conversions'], $d['exports'], $d['automation_ideas']);
-        $d['note'] = 'High-level supply-chain snapshot. No payroll or staff detail.';
-        return response()->json(['success' => true, 'data' => $d]);
+        try {
+            $d = $this->buildOverviewPayload();
+            unset($d['salary_bands'], $d['payroll'], $d['conversions'], $d['exports'], $d['automation_ideas']);
+            $d['note'] = 'High-level supply-chain snapshot. No payroll or staff detail.';
+            return response()->json(['success' => true, 'data' => $d]);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load operations overview',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
     }
 
     public function upsertConversion(Request $request)

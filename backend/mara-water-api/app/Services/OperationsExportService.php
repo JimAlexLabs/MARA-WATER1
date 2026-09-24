@@ -94,7 +94,7 @@ class OperationsExportService
         // StockItem as end-of-period proxy for opening of first day when
         // no historical card exists — production rows still exact.
         $opening = StockItem::where('item_type', 'sku')->get()
-            ->groupBy('sku_id')->map(fn ($g) => (float) $g->sum('qty_on_hand'));
+            ->groupBy('sku_id')->map(fn ($g) => (float) $g->sum('qty'));
 
         $row = 4;
         $cursor = $start->copy();
