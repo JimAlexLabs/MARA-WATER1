@@ -61,6 +61,8 @@ interface TripSale {
   mpesa_reference: string | null;
   debt_signatory: string | null;
   debt_expected_repayment_date: string | null;
+  // Round 5A Phase 3: optional proof-of-delivery / shop-stock photo.
+  photo_url: string | null;
 }
 
 interface StockMismatch {
@@ -1012,6 +1014,7 @@ const FleetPage: React.FC = () => {
                       <th className="pr-4 py-1">Method</th>
                       <th className="pr-4 py-1">Amount</th>
                       <th className="pr-4 py-1">Details</th>
+                      <th className="pr-4 py-1">Photo</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -1026,6 +1029,11 @@ const FleetPage: React.FC = () => {
                           {sale.payment_method === 'mpesa' && (sale.mpesa_reference || '—')}
                           {sale.payment_method === 'debt' && `Signed: ${sale.debt_signatory || '—'} · Repay by ${sale.debt_expected_repayment_date || '—'}`}
                           {sale.payment_method === 'cash' && '—'}
+                        </td>
+                        <td className="pr-4 py-1">
+                          {sale.photo_url ? (
+                            <a href={sale.photo_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline">View</a>
+                          ) : '—'}
                         </td>
                       </tr>
                     ))}

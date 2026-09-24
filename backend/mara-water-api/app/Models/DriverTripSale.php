@@ -24,6 +24,10 @@ class DriverTripSale extends Model
         // for a non-cash, non-debt payment" concept.
         'mpesa_reference', 'debt_signatory', 'debt_expected_repayment_date', 'debt_id',
         'physical_receipt_no', 'physical_delivery_note_no',
+        // Round 5A Phase 3: optional proof-of-delivery / shop-stock /
+        // scanned-receipt photo, uploaded via the existing
+        // FileUploadController and stored here as just a URL.
+        'photo_url',
         'created_by', 'updated_by',
     ];
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, CheckCircle, XCircle, MapPin, X, Lock, Download, AlertTriangle } from 'lucide-react';
+import { Plus, CheckCircle, XCircle, MapPin, X, Lock, Download, AlertTriangle, Camera } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 
@@ -35,7 +35,7 @@ interface TripItem {
 interface TripSaleItem { id: string; sku_id: string; qty_bales: string; }
 interface TripSale {
   id: string; customer_id: string; customer?: { name: string }; payment_method: string;
-  amount: string; items?: TripSaleItem[];
+  amount: string; items?: TripSaleItem[]; photo_url?: string | null;
 }
 interface ActiveTrip {
   id: string; trip_date: string; status: 'pending_departure' | 'in_transit' | 'completed';
@@ -353,8 +353,16 @@ const DriverTripsPage: React.FC = () => {
                 {activeTrip.sales.length > 0 && (
                   <div className="space-y-1">
                     {activeTrip.sales.map(s => (
-                      <div key={s.id} className="flex justify-between text-sm py-1 border-b border-gray-100 dark:border-gray-700">
-                        <span className="text-gray-700 dark:text-gray-300">{s.customer?.name || 'Customer'} · {s.payment_method}</span>
+                      <div key={s.id} className="flex justify-between items-center text-sm py-1 border-b border-gray-100 dark:border-gray-700">
+                        <span className="text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                          {s.customer?.name || 'Customer'} · {s.payment_method}
+                          {/* Round 5A Phase 3: viewable, not just stored. */}
+                          {s.photo_url && (
+                            <a href={s.photo_url} target="_blank" rel="noopener noreferrer" title="View attached photo" className="text-gray-400 hover:text-blue-600">
+                              <Camera className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                        </span>
                         <span className="font-medium text-gray-900 dark:text-gray-100">KES {parseFloat(s.amount).toLocaleString()}</span>
                       </div>
                     ))}

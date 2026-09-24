@@ -339,6 +339,10 @@ class DriverTripController extends Controller
             // today, this just lets the number also be looked up here.
             'physical_receipt_no' => 'nullable|string|max:50',
             'physical_delivery_note_no' => 'nullable|string|max:50',
+            // Round 5A Phase 3: optional proof-of-delivery photo -- the
+            // frontend uploads via /files/upload first and passes back
+            // just the resulting URL, same pattern as Issue photos.
+            'photo_url' => 'nullable|url|max:500',
             // Round 4 Phase 0/4: line items are mandatory, price is keyed
             // per line, and the sale total is never typed in separately --
             // it's always the computed sum of these (see below). This is
@@ -426,6 +430,7 @@ class DriverTripController extends Controller
                 'debt_id' => $debtId,
                 'physical_receipt_no' => $request->physical_receipt_no,
                 'physical_delivery_note_no' => $request->physical_delivery_note_no,
+                'photo_url' => $request->photo_url,
                 'created_by' => Auth::id(),
                 'updated_by' => Auth::id(),
             ]);
@@ -508,8 +513,15 @@ class DriverTripController extends Controller
 
         $stockWarnings = [];
         $discrepancies = [];
+        // Round 5A Phase 3: "the moment [Returned] computation runs (on
+        // End Trip submission), push a notification to Manager/Director
+        // showing the computed return figures -- don't just store it
+        // silently." Captured per item here, sent unconditionally after
+        // the transaction commits (below), separate from the
+        // discrepancy-only notification that already existed.
+        $returnedSummary = [];
 
-        DB::transaction(function () use ($request, $trip, $soldBySku, &$stockWarnings, &$discrepancies) {
+        DB::transaction(function () use ($request, $trip, $soldBySku, &$stockWarnings, &$discrepancies, &$returnedSummary) {
             $inventoryController = new InventoryController();
 
             foreach ($trip->items as $item) {
@@ -522,6 +534,10 @@ class DriverTripController extends Controller
                     'qty_returned_bales' => $returnedBales,
                     'qty_sold' => (int) min($sold, $dispatched),
                 ]);
+
+                if ($dispatched > 0) {
+                    $returnedSummary[] = ($item->sku->name ?? 'Item') . ": {$returnedBales}";
+                }
 
                 if ($oversold > 0.001) {
                     // Only reachable if a Director unlocked and corrected
@@ -616,6 +632,17 @@ class DriverTripController extends Controller
                 ]);
             }
         });
+
+        // Round 5A Phase 3: unconditional -- every End Trip, not just
+        // ones with a discrepancy, so Manager/Director see the computed
+        // Returned figures as they happen instead of having to open the
+        // trip to find them.
+        if (!empty($returnedSummary)) {
+            $this->notifyManagersDirectors(
+                'Trip closed -- returns computed',
+                "{$trip->driver->full_name}'s trip on {$trip->trip_date->toDateString()} closed. Returned: " . implode(', ', $returnedSummary) . '.'
+            );
+        }
 
         // Round 4 Phase 6: never to the Driver dashboard -- Manager/
         // Director only, via the same Notification bell every other

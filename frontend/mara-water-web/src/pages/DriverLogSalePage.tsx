@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { X, Camera } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 
@@ -55,6 +55,11 @@ const DriverLogSalePage: React.FC = () => {
   const [showDebtConfirm, setShowDebtConfirm] = useState(false);
   const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
   const [savingSale, setSavingSale] = useState(false);
+  // Round 5A Phase 3: optional photo -- proof of delivery, the
+  // customer's shop/stock, or a scanned paper receipt. Never required;
+  // high-volume field days shouldn't be slowed down by it.
+  const [salePhoto, setSalePhoto] = useState<File | null>(null);
+  const [salePhotoPreview, setSalePhotoPreview] = useState<string | null>(null);
 
   const [customerQuery, setCustomerQuery] = useState('');
   const [customerResults, setCustomerResults] = useState<CustomerRef[]>([]);
@@ -154,6 +159,20 @@ const DriverLogSalePage: React.FC = () => {
     setShowPaymentConfirm(true);
   };
 
+  // Round 5A Phase 3: same upload-then-attach-the-URL pattern as the
+  // Issues page's photo attachment -- entity_id is 'pending' since the
+  // sale doesn't exist yet at upload time.
+  const uploadSalePhoto = async (): Promise<string | null> => {
+    if (!salePhoto) return null;
+    const form = new FormData();
+    form.append('file', salePhoto);
+    form.append('type', 'image');
+    form.append('entity_type', 'driver_trip_sale');
+    form.append('entity_id', 'pending');
+    const res = await api.post('/files/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return res.data?.data?.url ?? null;
+  };
+
   const submitSale = async () => {
     if (!activeTrip) return;
     setSavingSale(true);
@@ -161,6 +180,7 @@ const DriverLogSalePage: React.FC = () => {
       const items = validSaleLineItems.map(l => ({
         sku_id: l.sku_id, qty_bales: parseFloat(l.qty_bales) || 0, unit_price: parseFloat(l.unit_price) || 0,
       }));
+      const photo_url = await uploadSalePhoto().catch(() => null);
       await api.post(`/fleet/trips/${activeTrip.id}/sales`, {
         customer_id: saleForm.customer_id, payment_method: saleForm.payment_method,
         mpesa_reference: (saleForm.payment_method === 'mpesa' || saleForm.payment_method === 'pay_direct') ? (saleForm.mpesa_reference || undefined) : undefined,
@@ -168,6 +188,7 @@ const DriverLogSalePage: React.FC = () => {
         debt_expected_repayment_date: saleForm.payment_method === 'debt' ? saleForm.debt_expected_repayment_date : undefined,
         physical_receipt_no: saleForm.physical_receipt_no || undefined,
         physical_delivery_note_no: saleForm.physical_delivery_note_no || undefined,
+        photo_url: photo_url || undefined,
         items,
       });
       toast.success('Sale recorded');
@@ -331,6 +352,30 @@ const DriverLogSalePage: React.FC = () => {
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Physical Delivery Note No. (optional)</label>
               <input type="text" value={saleForm.physical_delivery_note_no} onChange={e => setSaleForm({ ...saleForm, physical_delivery_note_no: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+            </div>
+          </div>
+
+          {/* Round 5A Phase 3: optional photo -- proof of delivery, the
+              customer's shop/stock, or a scanned paper receipt. Never
+              required. Uploaded at submit time, not on selection, so
+              nothing is stored if the sale form gets cancelled. */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Photo (optional)</label>
+            <div className="mt-1 flex items-center gap-3">
+              <label className="flex items-center text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                <Camera className="w-4 h-4 mr-2" /> {salePhoto ? 'Change photo' : 'Add photo'}
+                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                  const file = e.target.files?.[0] ?? null;
+                  setSalePhoto(file);
+                  setSalePhotoPreview(file ? URL.createObjectURL(file) : null);
+                }} />
+              </label>
+              {salePhotoPreview && (
+                <div className="flex items-center gap-2">
+                  <img src={salePhotoPreview} alt="Sale attachment preview" className="h-12 w-12 object-cover rounded-md border border-gray-200 dark:border-gray-700" />
+                  <button type="button" onClick={() => { setSalePhoto(null); setSalePhotoPreview(null); }} className="text-gray-400 hover:text-red-600"><X className="w-4 h-4" /></button>
+                </div>
+              )}
             </div>
           </div>
 
