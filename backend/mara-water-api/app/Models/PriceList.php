@@ -14,6 +14,7 @@ class PriceList extends Model
     protected $fillable = [
         'name',
         'is_default',
+        'list_kind',
         'valid_from',
         'valid_to',
         'created_by',

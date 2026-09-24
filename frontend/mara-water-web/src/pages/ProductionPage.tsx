@@ -153,6 +153,7 @@ const ProductionPage: React.FC = () => {
     material_id: '', new_material_name: '', new_material_code: '', new_material_category: '', new_material_uom: 'PCS',
     batch_number: '', purchase_date: new Date().toISOString().slice(0, 10), supplier_name: '',
     unit_cost: '', qty_received: '', warehouse_id: '', notes: '',
+    quality_status: 'passed', quality_notes: '',
   });
   const isNewMaterial = batchReceiveForm.material_id === '__new__';
 
@@ -256,6 +257,8 @@ const ProductionPage: React.FC = () => {
       qty_received: batchReceiveForm.qty_received,
       warehouse_id: batchReceiveForm.warehouse_id,
       notes: batchReceiveForm.notes || undefined,
+      quality_status: batchReceiveForm.quality_status,
+      quality_notes: batchReceiveForm.quality_notes || undefined,
     };
     if (isNewMaterial) {
       payload.new_material = {
@@ -271,12 +274,17 @@ const ProductionPage: React.FC = () => {
     setSubmittingBatch(true);
     try {
       await api.post('/inventory/material-batches', payload);
-      toast.success('Batch received -- stock updated');
+      toast.success(
+        batchReceiveForm.quality_status === 'passed'
+          ? 'Batch received, quality passed — stock updated (Warehouse Audit linked)'
+          : `Batch received — quality ${batchReceiveForm.quality_status} (complete QA on Warehouse Audit to release stock)`
+      );
       setShowBatchReceiveForm(false);
       setBatchReceiveForm({
         material_id: '', new_material_name: '', new_material_code: '', new_material_category: '', new_material_uom: 'PCS',
         batch_number: '', purchase_date: new Date().toISOString().slice(0, 10), supplier_name: '',
         unit_cost: '', qty_received: '', warehouse_id: '', notes: '',
+        quality_status: 'passed', quality_notes: '',
       });
       api.get('/production/materials').then(res => setMaterials(res.data.data)).catch(() => {});
     } catch (error: any) {
@@ -1181,6 +1189,21 @@ const ProductionPage: React.FC = () => {
                   <option value="">Select warehouse...</option>
                   {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                 </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-md border border-amber-200 dark:border-amber-800">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Warehouse Audit quality</label>
+                  <select value={batchReceiveForm.quality_status} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, quality_status: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
+                    <option value="passed">Passed — release to stock</option>
+                    <option value="pending">Pending — hold until QA pass</option>
+                    <option value="failed">Failed — do not release</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quality notes</label>
+                  <input type="text" value={batchReceiveForm.quality_notes} onChange={(e) => setBatchReceiveForm({ ...batchReceiveForm, quality_notes: e.target.value })} placeholder="Inspection notes" className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                </div>
               </div>
 
               <div>

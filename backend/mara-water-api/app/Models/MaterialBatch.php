@@ -16,15 +16,22 @@ class MaterialBatch extends Model
         'supplier_name',
         'unit_cost',
         'qty_received',
+        'qty_remaining',
         'warehouse_id',
         'received_by',
         'notes',
+        'quality_status',
+        'quality_checked_at',
+        'quality_checked_by',
+        'quality_notes',
     ];
 
     protected $casts = [
         'purchase_date' => 'date',
         'unit_cost' => 'decimal:4',
         'qty_received' => 'decimal:3',
+        'qty_remaining' => 'decimal:3',
+        'quality_checked_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -42,5 +49,25 @@ class MaterialBatch extends Model
     public function receivedBy()
     {
         return $this->belongsTo(User::class, 'received_by');
+    }
+
+    public function qualityCheckedBy()
+    {
+        return $this->belongsTo(User::class, 'quality_checked_by');
+    }
+
+    public function consumptions()
+    {
+        return $this->hasMany(MaterialBatchConsumption::class);
+    }
+
+    public function scopePassedQuality($query)
+    {
+        return $query->where('quality_status', 'passed');
+    }
+
+    public function scopeAvailable($query)
+    {
+        return $query->passedQuality()->where('qty_remaining', '>', 0);
     }
 }

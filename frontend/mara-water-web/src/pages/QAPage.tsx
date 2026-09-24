@@ -152,6 +152,7 @@ const QAPage: React.FC = () => {
 
   // Warehouse Audit state
   const [criticalGaps, setCriticalGaps] = useState<{ critical_count: number; warning_count: number; gaps: CriticalGap[] }>({ critical_count: 0, warning_count: 0, gaps: [] });
+  const [receiptWatch, setReceiptWatch] = useState<any[]>([]);
   const [packagingWatch, setPackagingWatch] = useState<MaterialWatchRow[]>([]);
   const [stationeryWatch, setStationeryWatch] = useState<MaterialWatchRow[]>([]);
   const [chemicalsWatch, setChemicalsWatch] = useState<MaterialWatchRow[]>([]);
@@ -197,7 +198,7 @@ const QAPage: React.FC = () => {
   const fetchAuditData = async () => {
     try {
       setAuditLoading(true);
-      const [gaps, packaging, stationery, chemicals, ppe, equipment, testEquipment] = await Promise.all([
+      const [gaps, packaging, stationery, chemicals, ppe, equipment, testEquipment, receipts] = await Promise.all([
         api.get('/qa/audit/critical-gaps'),
         api.get('/qa/audit/packaging'),
         api.get('/qa/audit/stationery'),
@@ -205,6 +206,7 @@ const QAPage: React.FC = () => {
         api.get('/qa/audit/ppe'),
         api.get('/qa/audit/equipment'),
         api.get('/qa/audit/test-equipment'),
+        api.get('/qa/audit/receipts?limit=30'),
       ]);
       setCriticalGaps(gaps.data.data);
       setPackagingWatch(packaging.data.data);
@@ -213,6 +215,7 @@ const QAPage: React.FC = () => {
       setPpeWatch(ppe.data.data);
       setEquipmentWatch(equipment.data.data);
       setTestEquipmentWatch(testEquipment.data.data);
+      setReceiptWatch(receipts.data.data || []);
     } catch (error) {
       toast.error('Failed to fetch warehouse audit data');
     } finally {
@@ -598,6 +601,46 @@ const QAPage: React.FC = () => {
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium mr-3 ${severityBadge(gap.severity)}`}>{gap.severity}</span>
                       <span className="text-xs text-gray-400 dark:text-gray-500 uppercase mr-2 w-24 flex-shrink-0">{gap.area}</span>
                       <span className="text-sm text-gray-900 dark:text-gray-100">{gap.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          {/* Round 5B Phase 1: stock arrivals linked to Warehouse Audit quality */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Stock Receipt Quality</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Every purchase batch and its Warehouse Audit quality status. Pending/failed receipts are held off usable stock.</p>
+            </div>
+            <div className="p-6">
+              {receiptWatch.length === 0 ? (
+                <p className="text-sm text-gray-400 dark:text-gray-500">No material batches recorded yet.</p>
+              ) : (
+                <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {receiptWatch.map((row: any) => (
+                    <li key={row.material_batch?.id || row.message} className="py-2 flex items-center justify-between gap-3">
+                      <div className="flex items-center min-w-0">
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium mr-3 ${severityBadge(row.severity)}`}>{row.quality_status}</span>
+                        <span className="text-sm text-gray-900 dark:text-gray-100 truncate">{row.message}</span>
+                      </div>
+                      {row.quality_status === 'pending' && row.material_batch?.id && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await api.post(`/inventory/material-batches/${row.material_batch.id}/quality`, { quality_status: 'passed' });
+                              toast.success('Quality passed — stock released');
+                              fetchAuditData();
+                            } catch (e: any) {
+                              toast.error(e.response?.data?.message || 'Failed');
+                            }
+                          }}
+                          className="text-xs px-2 py-1 bg-green-600 text-white rounded flex-shrink-0"
+                        >
+                          Pass & release
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>

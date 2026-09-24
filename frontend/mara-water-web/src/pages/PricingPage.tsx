@@ -1,17 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Save, X, Tag } from 'lucide-react';
+import { Plus, Save, X, Tag, Download } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { usePermissions } from '../contexts/AuthContext';
 
-// Round 2 Phase 10: "Add a reference page listing every product ...
-// with its current selling price. This becomes the single source of
-// truth that Sales, Driver Trip Logs, and Stock Reconciliation pull unit
-// prices from" -- price_lists/price_list_items already existed (Sales
-// and Stock Reconciliation already read the default one); this page is
-// what makes it actually editable, and Driver Trip Log now pre-fills
-// from it too (see FleetPage's trip form).
+// Round 2 Phase 10 + Round 5B Phase 4: Director edits default (retail)
+// list; Manager edits corporate/competitive list. Both export to Excel.
+// Sales/trips read via GET /sales/prices/current (PriceService).
 
-interface PriceListRef { id: string; name: string; is_default: boolean; }
+interface PriceListRef {
+  id: string;
+  name: string;
+  is_default: boolean;
+  list_kind?: string;
+  valid_from?: string | null;
+  valid_to?: string | null;
+}
 interface Sku {
   id: string; code: string; name: string; brand: string | null;
   size_liters: string; unit: string; active: boolean; reorder_threshold: number | null;
@@ -37,8 +41,27 @@ const groupByBrand = (skus: Sku[]) => {
 
 const EMPTY_SKU_FORM = { code: '', name: '', brand: '', size_liters: '', unit: 'BOTTLE', reorder_threshold: '' };
 
+const downloadBlob = (path: string, filename: string) => {
+  api.get(path, { responseType: 'blob' }).then((res) => {
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }).catch(() => toast.error('Export failed'));
+};
+
 const PricingPage: React.FC = () => {
+  const { isDirector, accessTier } = usePermissions();
+  const director = isDirector();
+  const tier = accessTier();
+  const canEditCorporate = director || tier === 'manager';
+
   const [priceLists, setPriceLists] = useState<PriceListRef[]>([]);
+  const [activeKind, setActiveKind] = useState<'default' | 'corporate'>('default');
   const [selectedListId, setSelectedListId] = useState('');
   const [skus, setSkus] = useState<Sku[]>([]);
   const [items, setItems] = useState<Record<string, PriceListItem>>({});
@@ -50,16 +73,39 @@ const PricingPage: React.FC = () => {
   const [skuForm, setSkuForm] = useState(EMPTY_SKU_FORM);
   const [savingSku, setSavingSku] = useState(false);
 
+  const canEditSelected = useMemo(() => {
+    const list = priceLists.find(l => l.id === selectedListId);
+    const kind = list?.list_kind || (list?.is_default ? 'default' : 'other');
+    if (kind === 'default') return director;
+    if (kind === 'corporate') return canEditCorporate;
+    return director;
+  }, [priceLists, selectedListId, director, canEditCorporate]);
+
   const fetchSkus = () => api.get('/production/skus').then(res => setSkus(res.data.data)).catch(() => toast.error('Failed to load products'));
 
   const fetchPriceLists = async () => {
     const res = await api.get('/sales/price-lists');
     const lists: PriceListRef[] = res.data.data;
     setPriceLists(lists);
-    if (!selectedListId) {
-      setSelectedListId((lists.find(l => l.is_default) || lists[0])?.id || '');
-    }
   };
+
+  const listsForKind = useMemo(() => {
+    return priceLists.filter(l => {
+      const kind = l.list_kind || (l.is_default ? 'default' : 'other');
+      if (activeKind === 'default') return kind === 'default' || l.is_default;
+      return kind === 'corporate';
+    });
+  }, [priceLists, activeKind]);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([fetchSkus(), fetchPriceLists()]).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const preferred = listsForKind.find(l => l.is_default) || listsForKind[0];
+    setSelectedListId(preferred?.id || '');
+  }, [activeKind, priceLists]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchItems = (listId: string) => {
     if (!listId) return;
@@ -71,12 +117,6 @@ const PricingPage: React.FC = () => {
     }).catch(() => toast.error('Failed to load prices'));
   };
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([fetchSkus(), fetchPriceLists()]).finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   useEffect(() => { fetchItems(selectedListId); }, [selectedListId]);
 
   const visibleSkus = useMemo(() => showInactive ? skus : skus.filter(s => s.active), [skus, showInactive]);
@@ -86,6 +126,12 @@ const PricingPage: React.FC = () => {
   const isDirty = (skuId: string) => drafts[skuId] !== undefined && drafts[skuId] !== (items[skuId]?.unit_price ?? '');
 
   const savePrice = async (skuId: string) => {
+    if (!canEditSelected) {
+      toast.error(activeKind === 'default'
+        ? 'Only the Director can edit the default price list'
+        : 'Only Manager or Director can edit the corporate list');
+      return;
+    }
     const value = drafts[skuId];
     const price = parseFloat(value);
     if (isNaN(price) || price < 0) { toast.error('Enter a valid price'); return; }
@@ -104,6 +150,7 @@ const PricingPage: React.FC = () => {
 
   const handleSkuSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!director) { toast.error('Only the Director can create products'); return; }
     setSavingSku(true);
     try {
       await api.post('/production/skus', {
@@ -138,24 +185,56 @@ const PricingPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Products &amp; Prices</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Pricing</h1>
           <p className="text-gray-600 dark:text-gray-400">
-            The current selling price for every product -- Sales, Driver Trip Logs, and Stock Reconciliation all read from this.
+            Default list (Director) and Corporate/Competitive list (Manager). Sales and trips read live prices from these lists.
           </p>
         </div>
-        <button onClick={() => setShowSkuForm(true)} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-          <Plus className="w-4 h-4 mr-2" /> New Product
+        <div className="flex gap-2">
+          {selectedListId && (
+            <button
+              onClick={() => downloadBlob(`/sales/price-lists/${selectedListId}/export`, `price-list-${activeKind}.xlsx`)}
+              className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <Download className="w-4 h-4 mr-2" /> Export Excel
+            </button>
+          )}
+          {director && (
+            <button onClick={() => setShowSkuForm(true)} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              <Plus className="w-4 h-4 mr-2" /> New Product
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => setActiveKind('default')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium ${activeKind === 'default' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}
+        >
+          Default (retail){director ? '' : ' — view only'}
+        </button>
+        <button
+          onClick={() => setActiveKind('corporate')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium ${activeKind === 'corporate' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}
+        >
+          Corporate / Competitive
         </button>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
         <select value={selectedListId} onChange={e => setSelectedListId(e.target.value)}
           className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 text-sm">
-          {priceLists.map(l => <option key={l.id} value={l.id}>{l.name}{l.is_default ? ' (default)' : ''}</option>)}
+          {listsForKind.length === 0 && <option value="">No list for this kind</option>}
+          {listsForKind.map(l => (
+            <option key={l.id} value={l.id}>
+              {l.name}{l.is_default ? ' (default)' : ''}{l.valid_from ? ` · ${l.valid_from}` : ''}{l.valid_to ? `–${l.valid_to}` : ''}
+            </option>
+          ))}
         </select>
-        {selectedList && !selectedList.is_default && (
-          <span className="text-xs text-amber-700 bg-amber-100 px-2 py-1 rounded-full">
-            Not the default list -- Sales/Driver Trips/Stock Reconciliation use "{priceLists.find(l => l.is_default)?.name}" unless a sale explicitly picks this one
+        {!canEditSelected && (
+          <span className="text-xs text-amber-800 bg-amber-100 px-2 py-1 rounded">
+            Read-only for your role
           </span>
         )}
         <label className="flex items-center text-sm text-gray-600 dark:text-gray-400 ml-auto">
@@ -202,13 +281,14 @@ const PricingPage: React.FC = () => {
                             value={currentValue(sku.id)}
                             onChange={e => setDrafts(prev => ({ ...prev, [sku.id]: e.target.value }))}
                             placeholder="Not set"
-                            className="w-28 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm"
+                            disabled={!canEditSelected}
+                            className="w-28 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm disabled:opacity-60"
                           />
                         </td>
                         <td className="px-4 py-2">
                           <button
                             onClick={() => savePrice(sku.id)}
-                            disabled={!isDirty(sku.id) || saving[sku.id]}
+                            disabled={!canEditSelected || !isDirty(sku.id) || saving[sku.id]}
                             className="flex items-center px-2.5 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <Save className="w-3.5 h-3.5 mr-1" /> {saving[sku.id] ? 'Saving…' : 'Save'}
@@ -226,46 +306,22 @@ const PricingPage: React.FC = () => {
 
       {showSkuForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-lg">
+            <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">New Product</h3>
-              <button onClick={() => setShowSkuForm(false)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"><X className="w-5 h-5" /></button>
+              <button onClick={() => setShowSkuForm(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
-            <form onSubmit={handleSkuSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Product Code</label>
-                <input required type="text" placeholder="e.g. PREM-CUSTOM-0.5L" value={skuForm.code} onChange={e => setSkuForm({ ...skuForm, code: e.target.value.toUpperCase() })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+            <form onSubmit={handleSkuSubmit} className="space-y-3">
+              <input required placeholder="Code" value={skuForm.code} onChange={e => setSkuForm({ ...skuForm, code: e.target.value })} className="w-full border rounded-md px-3 py-2 dark:bg-gray-700 dark:border-gray-600" />
+              <input required placeholder="Name" value={skuForm.name} onChange={e => setSkuForm({ ...skuForm, name: e.target.value })} className="w-full border rounded-md px-3 py-2 dark:bg-gray-700 dark:border-gray-600" />
+              <input placeholder="Brand" value={skuForm.brand} onChange={e => setSkuForm({ ...skuForm, brand: e.target.value })} className="w-full border rounded-md px-3 py-2 dark:bg-gray-700 dark:border-gray-600" />
+              <div className="grid grid-cols-2 gap-3">
+                <input required type="number" step="0.01" placeholder="Size (L)" value={skuForm.size_liters} onChange={e => setSkuForm({ ...skuForm, size_liters: e.target.value })} className="border rounded-md px-3 py-2 dark:bg-gray-700 dark:border-gray-600" />
+                <input required placeholder="Unit" value={skuForm.unit} onChange={e => setSkuForm({ ...skuForm, unit: e.target.value })} className="border rounded-md px-3 py-2 dark:bg-gray-700 dark:border-gray-600" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
-                <input required type="text" placeholder="e.g. Premium Custom 0.5L Bottle" value={skuForm.name} onChange={e => setSkuForm({ ...skuForm, name: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Brand</label>
-                  <input type="text" placeholder="e.g. Premium" value={skuForm.brand} onChange={e => setSkuForm({ ...skuForm, brand: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Size (Litres)</label>
-                  <input required type="number" step="0.01" min="0.01" value={skuForm.size_liters} onChange={e => setSkuForm({ ...skuForm, size_liters: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit</label>
-                  <select value={skuForm.unit} onChange={e => setSkuForm({ ...skuForm, unit: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
-                    <option value="BOTTLE">Bottle</option>
-                    <option value="CONTAINER">Container</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reorder Threshold</label>
-                  <input type="number" min="0" placeholder="Default" value={skuForm.reorder_threshold} onChange={e => setSkuForm({ ...skuForm, reorder_threshold: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
-                </div>
-              </div>
-              <div className="flex justify-end space-x-3">
-                <button type="button" onClick={() => setShowSkuForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
-                <button type="submit" disabled={savingSku} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingSku ? 'Creating…' : 'Create Product'}</button>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowSkuForm(false)} className="px-4 py-2 border rounded-md">Cancel</button>
+                <button type="submit" disabled={savingSku} className="px-4 py-2 bg-blue-600 text-white rounded-md">{savingSku ? 'Saving…' : 'Create'}</button>
               </div>
             </form>
           </div>

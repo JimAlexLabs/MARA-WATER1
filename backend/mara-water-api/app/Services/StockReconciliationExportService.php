@@ -25,6 +25,35 @@ class StockReconciliationExportService
 {
     public function generate(string $warehouseId, string $dateFrom, string $dateTo): StreamedResponse
     {
+        $spreadsheet = $this->buildSpreadsheet($warehouseId, $dateFrom, $dateTo);
+        $warehouse = Warehouse::findOrFail($warehouseId);
+        $from = Carbon::parse($dateFrom)->startOfDay();
+        $to = Carbon::parse($dateTo)->endOfDay();
+
+        $writer = new Xlsx($spreadsheet);
+        return new StreamedResponse(function () use ($writer) {
+            $writer->save('php://output');
+        }, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => "attachment; filename=\"stock-reconciliation-{$warehouse->code}-{$from->toDateString()}-to-{$to->toDateString()}.xlsx\"",
+        ]);
+    }
+
+    /** Round 5B: raw xlsx bytes for scheduled/on-demand persistence. */
+    public function generateBinary(string $warehouseId, string $dateFrom, string $dateTo): string
+    {
+        $spreadsheet = $this->buildSpreadsheet($warehouseId, $dateFrom, $dateTo);
+        $writer = new Xlsx($spreadsheet);
+        $tmp = tmpfile();
+        $path = stream_get_meta_data($tmp)['uri'];
+        $writer->save($path);
+        $binary = file_get_contents($path);
+        fclose($tmp);
+        return $binary;
+    }
+
+    private function buildSpreadsheet(string $warehouseId, string $dateFrom, string $dateTo): Spreadsheet
+    {
         $warehouse = Warehouse::findOrFail($warehouseId);
         $from = Carbon::parse($dateFrom)->startOfDay();
         $to = Carbon::parse($dateTo)->endOfDay();
@@ -42,13 +71,7 @@ class StockReconciliationExportService
             $this->buildDaySheet($spreadsheet, $warehouse, $skus, $day, $prices);
         }
 
-        $writer = new Xlsx($spreadsheet);
-        return new StreamedResponse(function () use ($writer) {
-            $writer->save('php://output');
-        }, 200, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'Content-Disposition' => "attachment; filename=\"stock-reconciliation-{$warehouse->code}-{$from->toDateString()}-to-{$to->toDateString()}.xlsx\"",
-        ]);
+        return $spreadsheet;
     }
 
     private function buildDaySheet(Spreadsheet $spreadsheet, Warehouse $warehouse, $skus, Carbon $day, $prices): void

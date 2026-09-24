@@ -182,6 +182,7 @@ const FinancePage: React.FC = () => {
   const [profitLoss, setProfitLoss] = useState<ProfitLoss | null>(null);
   const [plDateFrom, setPlDateFrom] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
   const [plDateTo, setPlDateTo] = useState(new Date().toISOString().slice(0, 10));
+  const [ledgerSummary, setLedgerSummary] = useState<any>(null);
 
   useEffect(() => {
     fetchData();
@@ -209,8 +210,14 @@ const FinancePage: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/finance/invoices');
-      setInvoices(response.data.data);
+      const from = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+      const to = new Date().toISOString().slice(0, 10);
+      const [invRes, ledgerRes] = await Promise.all([
+        api.get('/finance/invoices'),
+        api.get(`/finance/ledger-summary?date_from=${from}&date_to=${to}`).catch(() => null),
+      ]);
+      setInvoices(invRes.data.data);
+      if (ledgerRes) setLedgerSummary(ledgerRes.data.data);
     } catch (error) {
       toast.error('Failed to fetch finance data');
     } finally {
@@ -463,6 +470,29 @@ const FinancePage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {ledgerSummary && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div>
+            <p className="text-gray-500 dark:text-gray-400">Shared revenue (Manager = Director)</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">KES {Number(ledgerSummary.revenue || 0).toLocaleString()}</p>
+          </div>
+          <div>
+            <p className="text-gray-500 dark:text-gray-400">Invoiced / paid</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {Number(ledgerSummary.invoices?.invoiced_total || 0).toLocaleString()} / {Number(ledgerSummary.invoices?.paid_total || 0).toLocaleString()}
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-500 dark:text-gray-400">Petty cash net</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">KES {Number(ledgerSummary.petty_cash?.net || 0).toLocaleString()}</p>
+          </div>
+          <div>
+            <p className="text-gray-500 dark:text-gray-400">Open debtors</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">KES {Number(ledgerSummary.debtors?.open_balance || 0).toLocaleString()}</p>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow">

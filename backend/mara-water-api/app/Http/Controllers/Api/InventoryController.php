@@ -951,4 +951,133 @@ class InventoryController extends Controller
             }
         }
     }
+
+    /**
+     * Round 5B seam: stable inventory + production figures for the
+     * Discrepancies page (Claude Code Round 5A) and Reports.
+     * expected_on_hand ≈ opening + produced - sold (+ returns).
+     */
+    public function figures(Request $request)
+    {
+        $dateFrom = $request->get('date_from', now()->startOfMonth()->toDateString());
+        $dateTo = $request->get('date_to', now()->toDateString());
+
+        $onHand = (float) StockItem::where('item_type', 'sku')->whereNull('deleted_at')->sum('qty');
+        $produced = (float) StockMove::whereNull('deleted_at')->where('item_type', 'sku')->where('move_type', 'produce')
+            ->whereBetween('moved_at', [$dateFrom . ' 00:00:00', $dateTo . ' 23:59:59'])->sum('qty');
+        $issued = (float) StockMove::whereNull('deleted_at')->where('item_type', 'sku')->where('move_type', 'issue')
+            ->whereBetween('moved_at', [$dateFrom . ' 00:00:00', $dateTo . ' 23:59:59'])->sum('qty');
+        $returned = (float) StockMove::whereNull('deleted_at')->where('item_type', 'sku')->where('move_type', 'return')
+            ->whereBetween('moved_at', [$dateFrom . ' 00:00:00', $dateTo . ' 23:59:59'])->sum('qty');
+
+        $materialOnHand = (float) StockItem::where('item_type', 'material')->whereNull('deleted_at')->sum('qty');
+        $batchesReceived = \App\Models\MaterialBatch::whereBetween('purchase_date', [$dateFrom, $dateTo])->count();
+        $batchesPendingQuality = \App\Models\MaterialBatch::where('quality_status', 'pending')->count();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+                'finished_goods' => [
+                    'on_hand_qty' => round($onHand, 3),
+                    'produced_qty' => round($produced, 3),
+                    'issued_qty' => round($issued, 3),
+                    'returned_qty' => round($returned, 3),
+                    'net_movement' => round($produced - $issued + $returned, 3),
+                ],
+                'materials' => [
+                    'on_hand_qty' => round($materialOnHand, 3),
+                    'batches_received' => $batchesReceived,
+                    'batches_pending_quality' => $batchesPendingQuality,
+                ],
+            ],
+        ]);
+    }
+
+    public function listReconciliationReports(Request $request)
+    {
+        $reports = \App\Models\StockReconciliationReport::with('warehouse')
+            ->orderByDesc('period_end')
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get()
+            ->map(fn ($r) => [
+                'id' => $r->id,
+                'period_type' => $r->period_type,
+                'period_start' => $r->period_start,
+                'period_end' => $r->period_end,
+                'warehouse' => $r->warehouse,
+                'filename' => $r->filename,
+                'size_bytes' => $r->size_bytes,
+                'generated_by' => $r->generated_by,
+                'created_at' => $r->created_at,
+            ]);
+
+        return response()->json(['success' => true, 'data' => $reports]);
+    }
+
+    public function createReconciliationReport(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'period_type' => 'nullable|in:weekly,monthly,on_demand',
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date|after_or_equal:date_from',
+            'warehouse_id' => 'nullable|exists:warehouses,id',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        $service = app(\App\Services\StockReconciliationReportService::class);
+        $type = $request->get('period_type', 'on_demand');
+
+        try {
+            if ($type === 'weekly' && !$request->filled('date_from')) {
+                $report = $service->runWeekly();
+            } elseif ($type === 'monthly' && !$request->filled('date_from')) {
+                $report = $service->runMonthly();
+            } else {
+                if (!$request->filled('date_from') || !$request->filled('date_to')) {
+                    return response()->json(['success' => false, 'message' => 'date_from and date_to are required for on-demand reports'], 422);
+                }
+                $report = $service->generateAndStore(
+                    $type === 'on_demand' ? 'on_demand' : $type,
+                    $request->date_from,
+                    $request->date_to,
+                    $request->warehouse_id,
+                    Auth::id()
+                );
+            }
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Stock reconciliation report generated',
+            'data' => [
+                'id' => $report->id,
+                'filename' => $report->filename,
+                'period_type' => $report->period_type,
+                'period_start' => $report->period_start,
+                'period_end' => $report->period_end,
+                'size_bytes' => $report->size_bytes,
+            ],
+        ], 201);
+    }
+
+    public function downloadReconciliationReport($id)
+    {
+        $report = \App\Models\StockReconciliationReport::find($id);
+        if (!$report) {
+            return response()->json(['success' => false, 'message' => 'Report not found'], 404);
+        }
+
+        $binary = base64_decode($report->payload);
+        return response($binary, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="' . $report->filename . '"',
+        ]);
+    }
 }

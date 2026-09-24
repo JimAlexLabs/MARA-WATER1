@@ -38,8 +38,9 @@ use App\Http\Controllers\Api\ChartOfAccountController;
 use App\Http\Controllers\Api\PettyCashController;
 use App\Http\Controllers\Api\DebtorLedgerController;
 use App\Http\Controllers\Api\CostingController;
-use App\Http\Controllers\Api\EquipmentController;
+use App\Http\Controllers\Api\FinanceController;
 use App\Http\Controllers\Api\WarehouseAuditController;
+use App\Http\Controllers\Api\EquipmentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -116,8 +117,10 @@ Route::prefix('v1')->group(function () {
         // Laravel matches routes in registration order, so /users/roles
         // and /users/departments have to come first or they'd match
         // /users/{id} (with id="roles") instead, under the wrong middleware.
+        // Round 5B Phase 6: ALL employee record access is Director-only
+        // (list/show/statistics as well as mutate). Manager keeps
+        // Attendance via /hr/attendance — not raw employee records.
         Route::middleware('tier:manager,director')->prefix('users')->group(function () {
-            Route::get('/', [UserController::class, 'index']);
             Route::get('/roles', [UserController::class, 'roles']);
             Route::get('/departments', [UserController::class, 'departments']);
         });
@@ -145,16 +148,14 @@ Route::prefix('v1')->group(function () {
 
             // Users routes -- user management, role assignment, salary/
             // bank detail editing, deletion, and password resets are
-            // explicitly Director-only in the spec. (Round 2 Phase 11
-            // finding: update()/destroy()/changePassword()/updateStatus()
-            // had no authorization check at all before this -- any
-            // authenticated user could edit anyone's role, salary, or
-            // password. This middleware is the actual fix, not just
-            // defense in depth.)
+            // explicitly Director-only in the spec. Round 5B Phase 6
+            // also moves list/show/statistics here (Manager must not
+            // reach raw employee records).
             Route::prefix('users')->group(function () {
+                Route::get('/', [UserController::class, 'index']);
+                Route::get('/statistics', [UserController::class, 'statistics']);
                 Route::post('/', [UserController::class, 'store']);
                 Route::post('/bulk', [UserController::class, 'bulkStore']);
-                Route::get('/statistics', [UserController::class, 'statistics']);
                 Route::get('/{id}', [UserController::class, 'show']);
                 Route::put('/{id}', [UserController::class, 'update']);
                 Route::delete('/{id}', [UserController::class, 'destroy']);
@@ -194,6 +195,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/audit/equipment', [WarehouseAuditController::class, 'equipmentStatus']);
             Route::get('/audit/test-equipment', [WarehouseAuditController::class, 'testEquipmentStatus']);
             Route::get('/audit/critical-gaps', [WarehouseAuditController::class, 'criticalGaps']);
+            Route::get('/audit/receipts', [WarehouseAuditController::class, 'receiptQuality']);
 
             Route::get('/equipment', [EquipmentController::class, 'index']);
             Route::post('/equipment', [EquipmentController::class, 'store']);
@@ -253,6 +255,15 @@ Route::prefix('v1')->group(function () {
             // see MaterialBatchController docblock).
             Route::get('/material-batches', [MaterialBatchController::class, 'index']);
             Route::post('/material-batches', [MaterialBatchController::class, 'store']);
+            Route::post('/material-batches/{id}/quality', [MaterialBatchController::class, 'completeQuality']);
+
+            // Round 5B Phase 3: scheduled/on-demand reconciliation reports
+            Route::get('/reconciliation-reports', [InventoryController::class, 'listReconciliationReports']);
+            Route::post('/reconciliation-reports', [InventoryController::class, 'createReconciliationReport']);
+            Route::get('/reconciliation-reports/{id}/download', [InventoryController::class, 'downloadReconciliationReport']);
+
+            // Round 5B seam for Discrepancies (Claude Code): stable inventory/production figures
+            Route::get('/figures', [InventoryController::class, 'figures']);
         });
 
         // Sales routes -- Manager/Director operational access.
@@ -269,8 +280,10 @@ Route::prefix('v1')->group(function () {
 
             // Reference lists the Log-a-Sale form reads from. Fixed
             // segments before /{id}, same reason as everywhere else here.
+            Route::get('/prices/current', [PriceListController::class, 'currentPrice']);
             Route::get('/price-lists', [PriceListController::class, 'index']);
             Route::get('/price-lists/{id}/items', [PriceListController::class, 'items']);
+            Route::get('/price-lists/{id}/export', [PriceListController::class, 'export']);
             Route::put('/price-lists/{id}/items/{skuId}', [PriceListController::class, 'upsertItem']);
 
             Route::get('/customers/statistics', [CustomerController::class, 'statistics']);
@@ -338,6 +351,9 @@ Route::prefix('v1')->group(function () {
             // Costing & P&L (Phase 9).
             Route::get('/costing/per-bottle', [CostingController::class, 'perBottleCost']);
             Route::get('/costing/profit-loss', [CostingController::class, 'profitAndLoss']);
+
+            // Round 5B Phase 5: shared Manager/Director ledger summary
+            Route::get('/ledger-summary', [FinanceController::class, 'ledgerSummary']);
         });
 
         // Fleet routes -- vehicle management is Manager/Director; the
@@ -500,6 +516,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/inventory', [ReportsController::class, 'inventoryReport']);
             Route::get('/attendance', [ReportsController::class, 'attendanceReport']);
             Route::get('/financial', [ReportsController::class, 'financialReport']);
+            // Round 5B Phase 7: full metric set + revenue/tax forecast
+            Route::get('/analytics', [ReportsController::class, 'analytics']);
         });
 
         // File upload routes. Round 3 Phase 5: now actually called from the

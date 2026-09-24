@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Setting;
+use App\Services\BackupService;
 
 class SettingsController extends Controller
 {
@@ -20,6 +21,10 @@ class SettingsController extends Controller
         // server-side too, this isn't just a frontend show/hide flag.
         'danger_zone_unlocked',
     ];
+
+    public function __construct(private BackupService $backups)
+    {
+    }
 
     public function index()
     {
@@ -39,6 +44,27 @@ class SettingsController extends Controller
         }
 
         $values = $request->only(self::ALLOWED_KEYS);
+
+        // Round 5B Phase 8: unlocking Danger Zone requires a fresh backup
+        // first — force one if missing, then allow unlock.
+        if (array_key_exists('danger_zone_unlocked', $values)
+            && filter_var($values['danger_zone_unlocked'], FILTER_VALIDATE_BOOLEAN)
+            && !$this->backups->latestFreshBackup()
+        ) {
+            $backup = $this->backups->snapshot('pre_danger_unlock', $request->user()->id);
+            $this->backups->cleanup();
+            Setting::putMany($values);
+            return response()->json([
+                'success' => true,
+                'message' => 'No fresh backup existed — one was created automatically, then Danger Zone was unlocked.',
+                'data' => Setting::allAsMap(),
+                'forced_backup' => [
+                    'id' => $backup->id,
+                    'created_at' => $backup->created_at,
+                ],
+            ]);
+        }
+
         Setting::putMany($values);
 
         return response()->json([

@@ -518,6 +518,17 @@ class PackagingRunController extends Controller
             foreach ($bomItems as $bomItem) {
                 $qtyNeeded = (float) $bomItem->qty_per_unit * $packagingRun->good_qty;
 
+                // Round 5B Phase 2: FIFO drawdown of quality-passed
+                // material purchase batches for this warehouse, then the
+                // existing rollup stock move (unchanged totals path).
+                $this->consumeMaterialBatchesFifo(
+                    $bomItem->material_id,
+                    $warehouseId,
+                    $qtyNeeded,
+                    $bomItem->uom,
+                    $packagingRun->id
+                );
+
                 $inventory->recordMove([
                     'move_type' => 'issue',
                     'item_type' => 'material',
@@ -547,5 +558,54 @@ class PackagingRunController extends Controller
         }
 
         return $warnings;
+    }
+
+    /**
+     * Round 5B Phase 2: consume specific Inventory purchase batches
+     * (oldest quality-passed first) so raw-material usage is
+     * batch-traceable, not only a generic total decrement.
+     */
+    private function consumeMaterialBatchesFifo(
+        string $materialId,
+        string $warehouseId,
+        float $qtyNeeded,
+        string $uom,
+        string $packagingRunId
+    ): void {
+        if ($qtyNeeded <= 0) {
+            return;
+        }
+
+        $remaining = $qtyNeeded;
+        $batches = \App\Models\MaterialBatch::where('material_id', $materialId)
+            ->where('warehouse_id', $warehouseId)
+            ->available()
+            ->orderBy('purchase_date')
+            ->orderBy('created_at')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($batches as $batch) {
+            if ($remaining <= 0) {
+                break;
+            }
+            $take = min((float) $batch->qty_remaining, $remaining);
+            if ($take <= 0) {
+                continue;
+            }
+
+            $batch->qty_remaining = round((float) $batch->qty_remaining - $take, 3);
+            $batch->save();
+
+            \App\Models\MaterialBatchConsumption::create([
+                'material_batch_id' => $batch->id,
+                'packaging_run_id' => $packagingRunId,
+                'material_id' => $materialId,
+                'qty_consumed' => $take,
+                'uom' => $uom,
+            ]);
+
+            $remaining = round($remaining - $take, 3);
+        }
     }
 }

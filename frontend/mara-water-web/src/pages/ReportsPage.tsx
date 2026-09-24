@@ -25,6 +25,24 @@ interface DashboardStats {
   employee_productivity: number;
 }
 
+interface AnalyticsPayload {
+  metrics: {
+    sales: { revenue: number };
+    finance: any;
+    production: { batches: number; good_qty: number };
+    turnover: { revenue: number; units_issued: number };
+    quality: { tests: number; passed: number; score_pct: number | null };
+    inventory_rate: number;
+    productivity: { units_per_active_staff: number; attendance_records: number; active_staff: number };
+  };
+  forecast: {
+    expected_revenue: number;
+    expected_tax: number;
+    tax_rate: number;
+    basis: string;
+  };
+}
+
 interface SalesBreakdownRow {
   warehouse_id?: string;
   sku_id?: string;
@@ -78,6 +96,7 @@ const downloadBlob = (path: string, params: Record<string, string>, filename: st
 
 const ReportsPage: React.FC = () => {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState('30');
   const [showSalesReport, setShowSalesReport] = useState(false);
@@ -89,6 +108,7 @@ const ReportsPage: React.FC = () => {
   const [reconciliation, setReconciliation] = useState<ReconciliationRow[]>([]);
   const [materialsUsage, setMaterialsUsage] = useState<MaterialUsageRow[]>([]);
   const [refills, setRefills] = useState<RefillsSummary[]>([]);
+  const [reconReports, setReconReports] = useState<any[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -99,8 +119,16 @@ const ReportsPage: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/reports/dashboard?days=${dateRange}`);
-      setDashboardStats(response.data.data);
+      const dateTo = new Date().toISOString().slice(0, 10);
+      const dateFrom = new Date(Date.now() - Number(dateRange) * 86400000).toISOString().slice(0, 10);
+      const [dashRes, analyticsRes, reconRes] = await Promise.all([
+        api.get(`/reports/dashboard?days=${dateRange}`).catch(() => null),
+        api.get(`/reports/analytics?date_from=${dateFrom}&date_to=${dateTo}`),
+        api.get('/inventory/reconciliation-reports').catch(() => null),
+      ]);
+      if (dashRes) setDashboardStats(dashRes.data.data);
+      setAnalytics(analyticsRes.data.data);
+      if (reconRes) setReconReports(reconRes.data.data || []);
     } catch (error) {
       toast.error('Failed to fetch dashboard data');
     } finally {
@@ -209,73 +237,135 @@ const ReportsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Key Metrics */}
+      {/* Key Metrics — Round 5B Phase 7 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <DollarSign className="w-8 h-8 text-green-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Revenue</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Sales</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                KES {dashboardStats?.total_revenue?.toLocaleString() || '0'}
+                KES {(analytics?.metrics.sales.revenue ?? dashboardStats?.total_revenue ?? 0).toLocaleString()}
               </p>
-              <div className="flex items-center text-sm text-green-600">
-                <TrendingUp className="w-4 h-4 mr-1" />
-                +12.5%
-              </div>
             </div>
           </div>
         </div>
-
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
             <Package className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Orders</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Production</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                {dashboardStats?.total_orders?.toLocaleString() || '0'}
+                {(analytics?.metrics.production.good_qty ?? 0).toLocaleString()} units
               </p>
-              <div className="flex items-center text-sm text-blue-600">
-                <TrendingUp className="w-4 h-4 mr-1" />
-                +8.2%
-              </div>
+              <p className="text-xs text-gray-500">{analytics?.metrics.production.batches ?? 0} batches</p>
             </div>
           </div>
         </div>
-
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
-            <Users className="w-8 h-8 text-purple-600" />
+            <TrendingUp className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Customers</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Turnover</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                {dashboardStats?.total_customers?.toLocaleString() || '0'}
+                KES {(analytics?.metrics.turnover.revenue ?? 0).toLocaleString()}
               </p>
-              <div className="flex items-center text-sm text-purple-600">
-                <TrendingUp className="w-4 h-4 mr-1" />
-                +15.3%
-              </div>
+              <p className="text-xs text-gray-500">{(analytics?.metrics.turnover.units_issued ?? 0).toLocaleString()} units issued</p>
             </div>
           </div>
         </div>
-
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
           <div className="flex items-center">
-            <Truck className="w-8 h-8 text-orange-600" />
+            <BarChart3 className="w-8 h-8 text-amber-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Vehicles</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Quality</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                {dashboardStats?.total_vehicles || '0'}
+                {analytics?.metrics.quality.score_pct != null ? `${analytics.metrics.quality.score_pct}%` : '—'}
               </p>
-              <div className="flex items-center text-sm text-orange-600">
-                <TrendingUp className="w-4 h-4 mr-1" />
-                +5.7%
-              </div>
+              <p className="text-xs text-gray-500">{analytics?.metrics.quality.passed ?? 0}/{analytics?.metrics.quality.tests ?? 0} passed</p>
             </div>
           </div>
+        </div>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Finance (shared ledger)</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+            KES {(analytics?.metrics.finance?.revenue ?? 0).toLocaleString()}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Petty net KES {(analytics?.metrics.finance?.petty_cash?.net ?? 0).toLocaleString()} · Open debtors KES {(analytics?.metrics.finance?.debtors?.open_balance ?? 0).toLocaleString()}
+          </p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Inventory rate</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{analytics?.metrics.inventory_rate ?? dashboardStats?.inventory_turnover ?? 0}</p>
+          <p className="text-xs text-gray-500">Issued ÷ on-hand (30-day scaled)</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Productivity</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{analytics?.metrics.productivity.units_per_active_staff ?? dashboardStats?.employee_productivity ?? 0}</p>
+          <p className="text-xs text-gray-500">Units per active staff · {analytics?.metrics.productivity.active_staff ?? 0} staff</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-blue-200 dark:border-blue-800">
+          <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Revenue / tax forecast</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+            KES {(analytics?.forecast.expected_revenue ?? 0).toLocaleString()}
+          </p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+            Expected tax ({((analytics?.forecast.tax_rate ?? 0.16) * 100).toFixed(0)}%): KES {(analytics?.forecast.expected_tax ?? 0).toLocaleString()}
+          </p>
+          <p className="text-xs text-gray-500 mt-2">{analytics?.forecast.basis}</p>
         </div>
       </div>
 
+      {/* Round 5B Phase 3: stored stock reconciliation reports */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Stock reconciliation exports</h2>
+            <p className="text-sm text-gray-500">Weekly/monthly scheduled + on-demand Excel (template layout)</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  await api.post('/inventory/reconciliation-reports', { period_type: 'weekly' });
+                  toast.success('Weekly report generated');
+                  fetchData();
+                } catch (e: any) { toast.error(e.response?.data?.message || 'Failed'); }
+              }}
+              className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg"
+            >Generate weekly</button>
+            <button
+              onClick={async () => {
+                try {
+                  await api.post('/inventory/reconciliation-reports', { period_type: 'monthly' });
+                  toast.success('Monthly report generated');
+                  fetchData();
+                } catch (e: any) { toast.error(e.response?.data?.message || 'Failed'); }
+              }}
+              className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg"
+            >Generate monthly</button>
+          </div>
+        </div>
+        <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-48 overflow-y-auto">
+          {reconReports.length === 0 ? (
+            <p className="text-sm text-gray-500 py-2">No stored reports yet.</p>
+          ) : reconReports.map((r) => (
+            <div key={r.id} className="flex items-center justify-between py-2 text-sm">
+              <div>
+                <span className="font-medium text-gray-900 dark:text-gray-100">{r.period_type}</span>
+                <span className="text-gray-500 dark:text-gray-400"> · {r.period_start?.slice?.(0, 10) || r.period_start} → {r.period_end?.slice?.(0, 10) || r.period_end}</span>
+              </div>
+              <button
+                onClick={() => downloadBlob(`/inventory/reconciliation-reports/${r.id}/download`, {}, r.filename || 'stock-reconciliation.xlsx', () => toast.error('Download failed'))}
+                className="text-blue-600 hover:underline flex items-center"
+              >
+                <Download className="w-3.5 h-3.5 mr-1" /> Download
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
       {/* Performance Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">

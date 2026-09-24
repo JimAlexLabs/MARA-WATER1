@@ -730,4 +730,94 @@ class ReportsController extends Controller
 
         return (new \App\Services\DailySalesDebtReportService())->generate((int) $request->year, (int) $request->month);
     }
+
+    /**
+     * Round 5B Phase 7: Sales, Finance, Production, Turnover, Quality,
+     * Inventory rate, Productivity + revenue/tax forecast from production
+     * × default price list.
+     */
+    public function analytics(Request $request)
+    {
+        $dateFrom = $request->get('date_from', now()->startOfMonth()->toDateString());
+        $dateTo = $request->get('date_to', now()->toDateString());
+        $days = max(1, \Carbon\Carbon::parse($dateFrom)->diffInDays(\Carbon\Carbon::parse($dateTo)) + 1);
+
+        $salesRevenue = (new SalesRevenueService())->combinedRevenueBetween($dateFrom, $dateTo);
+        $finance = (new \App\Services\FinanceLedgerService())->summary($dateFrom, $dateTo);
+
+        $producedQty = (float) PackagingRun::whereNotNull('run_end')
+            ->whereBetween('run_start', [$dateFrom, $dateTo])
+            ->sum('good_qty');
+        $batchCount = (int) Batch::whereBetween('manufacture_date', [$dateFrom, $dateTo])->count();
+
+        $qaTotal = (int) WaterTest::whereBetween('recorded_at', [$dateFrom . ' 00:00:00', $dateTo . ' 23:59:59'])->count();
+        $qaPass = (int) WaterTest::whereBetween('recorded_at', [$dateFrom . ' 00:00:00', $dateTo . ' 23:59:59'])
+            ->where('status', 'pass')->count();
+        $qualityScore = $qaTotal > 0 ? round(($qaPass / $qaTotal) * 100, 1) : null;
+
+        $skuOnHand = (float) StockItem::where('item_type', 'sku')->whereNull('deleted_at')->sum('qty');
+        $issuedQty = (float) StockMove::whereNull('deleted_at')->where('item_type', 'sku')->where('move_type', 'issue')
+            ->whereBetween('moved_at', [$dateFrom . ' 00:00:00', $dateTo . ' 23:59:59'])->sum('qty');
+        // Inventory rate: how fast stock turns (issued / avg on-hand), annualized-ish for the window.
+        $inventoryRate = $skuOnHand > 0 ? round(($issuedQty / $skuOnHand) * (30 / $days), 2) : 0;
+
+        $attendanceDays = (int) Attendance::whereBetween('date', [$dateFrom, $dateTo])->count();
+        $activeStaff = (int) \App\Models\User::where('status', 'active')->count();
+        $productivity = $activeStaff > 0 ? round($producedQty / max($activeStaff, 1), 1) : 0;
+
+        // Forecast: last 30 days production × default prices → monthly revenue expectation.
+        $prices = (new \App\Services\PriceService())->priceMap('default');
+        $recentRuns = PackagingRun::with('sku')->whereNotNull('run_end')
+            ->where('run_start', '>=', now()->subDays(30)->toDateString())
+            ->get();
+        $forecastRevenue = 0.0;
+        foreach ($recentRuns as $run) {
+            $unit = $prices[$run->sku_id] ?? 0;
+            $forecastRevenue += ((float) $run->good_qty) * $unit;
+        }
+        // Scale 30-day production value to a calendar month (30 days).
+        $forecastMonthlyRevenue = round($forecastRevenue, 2);
+        // Kenya VAT-ish estimate placeholder at 16% of forecast revenue (configurable later).
+        $taxRate = 0.16;
+        $forecastTax = round($forecastMonthlyRevenue * $taxRate, 2);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+                'metrics' => [
+                    'sales' => ['revenue' => round($salesRevenue, 2)],
+                    'finance' => $finance,
+                    'production' => [
+                        'batches' => $batchCount,
+                        'good_qty' => round($producedQty, 3),
+                    ],
+                    'turnover' => [
+                        // Sales turnover ≈ revenue for the period (shared sales totals).
+                        'revenue' => round($salesRevenue, 2),
+                        'units_issued' => round($issuedQty, 3),
+                    ],
+                    'quality' => [
+                        'tests' => $qaTotal,
+                        'passed' => $qaPass,
+                        'score_pct' => $qualityScore,
+                    ],
+                    'inventory_rate' => $inventoryRate,
+                    'productivity' => [
+                        'units_per_active_staff' => $productivity,
+                        'attendance_records' => $attendanceDays,
+                        'active_staff' => $activeStaff,
+                    ],
+                ],
+                'forecast' => [
+                    'period' => 'next_30_days_from_recent_production',
+                    'expected_revenue' => $forecastMonthlyRevenue,
+                    'tax_rate' => $taxRate,
+                    'expected_tax' => $forecastTax,
+                    'basis' => 'Recent 30-day packaging good_qty × default price list',
+                ],
+            ],
+        ]);
+    }
 }

@@ -112,7 +112,17 @@ const SettingsPage: React.FC = () => {
   };
 
   // --- Danger Zone tab (backups + guarded full-data reset) ---
-  const [dangerInfo, setDangerInfo] = useState<{ preserved: string[]; wiped: string[]; confirmation_phrase: string; restore_confirmation_phrase: string; retention_days: number } | null>(null);
+  const [dangerInfo, setDangerInfo] = useState<{
+    preserved: string[];
+    wiped: string[];
+    sections?: { key: string; label: string; table_count: number; tables: string[] }[];
+    confirmation_phrase: string;
+    restore_confirmation_phrase: string;
+    retention_days: number;
+    fresh_backup_max_hours?: number;
+    has_fresh_backup?: boolean;
+    latest_fresh_backup?: { id: string; created_at: string; reason: string } | null;
+  } | null>(null);
   const [backups, setBackups] = useState<any[]>([]);
   const [resetLogs, setResetLogs] = useState<any[]>([]);
   const [dangerLoading, setDangerLoading] = useState(false);
@@ -120,6 +130,9 @@ const SettingsPage: React.FC = () => {
   const [togglingLock, setTogglingLock] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [resetting, setResetting] = useState(false);
+  const [clearSection, setClearSection] = useState('all');
+  const [clearDateFrom, setClearDateFrom] = useState('');
+  const [clearDateTo, setClearDateTo] = useState('');
   const dangerUnlocked = !!(settings as any).danger_zone_unlocked;
 
   const loadDangerZoneData = () => {
@@ -149,7 +162,12 @@ const SettingsPage: React.FC = () => {
     try {
       const res = await api.put('/settings', { danger_zone_unlocked: !dangerUnlocked });
       setSettings((prev) => ({ ...prev, ...res.data.data }));
-      toast.success(dangerUnlocked ? 'Danger Zone locked' : 'Danger Zone unlocked');
+      if (!dangerUnlocked && res.data.forced_backup) {
+        toast.success('Fresh backup created automatically, then Danger Zone unlocked');
+        loadDangerZoneData();
+      } else {
+        toast.success(dangerUnlocked ? 'Danger Zone locked' : 'Danger Zone unlocked');
+      }
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to update');
     } finally {
@@ -190,13 +208,26 @@ const SettingsPage: React.FC = () => {
     if (!dangerInfo || confirmText !== dangerInfo.confirmation_phrase) return;
     setResetting(true);
     try {
-      const res = await api.post('/admin/reset', { confirmation: confirmText });
-      toast.success(`Data cleared. Backup ${res.data.data.backup_id.slice(0, 8)}… was taken first.`);
+      const payload: any = {
+        confirmation: confirmText,
+        section: clearSection,
+      };
+      if (clearDateFrom && clearDateTo) {
+        payload.date_from = clearDateFrom;
+        payload.date_to = clearDateTo;
+      }
+      const res = await api.post('/admin/reset', payload);
+      toast.success(res.data.message || `Section cleared. Backup ${res.data.data.backup_id.slice(0, 8)}… was taken first.`);
       setConfirmText('');
       setSettings((prev) => ({ ...prev, danger_zone_unlocked: false }));
       loadDangerZoneData();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Reset failed');
+      if (error.response?.status === 409 && error.response?.data?.data?.backup_id) {
+        toast.success('Safety backup created — confirm again to clear');
+        loadDangerZoneData();
+      } else {
+        toast.error(error.response?.data?.message || 'Reset failed');
+      }
     } finally {
       setResetting(false);
     }
@@ -657,10 +688,44 @@ const SettingsPage: React.FC = () => {
 
                     {dangerUnlocked && dangerInfo && (
                       <div className="mt-4 border border-red-200 bg-red-50 rounded-lg p-5 space-y-4">
+                        {!dangerInfo.has_fresh_backup && (
+                          <div className="bg-amber-100 border border-amber-300 text-amber-900 text-sm rounded-lg px-3 py-2">
+                            No backup in the last {dangerInfo.fresh_backup_max_hours || 24} hours. Create one (or unlock will force one) before clearing — the clear action will refuse without a fresh safety net.
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">Section to clear</label>
+                          <select
+                            value={clearSection}
+                            onChange={(e) => setClearSection(e.target.value)}
+                            className="block w-full max-w-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
+                          >
+                            {(dangerInfo.sections || [{ key: 'all', label: 'All operational data', table_count: dangerInfo.wiped.length }]).map((s) => (
+                              <option key={s.key} value={s.key}>{s.label} ({s.table_count} tables)</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">Optional date from</label>
+                            <input type="date" value={clearDateFrom} onChange={(e) => setClearDateFrom(e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 dark:bg-gray-700 dark:border-gray-600" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">Optional date to</label>
+                            <input type="date" value={clearDateTo} onChange={(e) => setClearDateTo(e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 dark:bg-gray-700 dark:border-gray-600" />
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                           <div>
-                            <p className="font-medium text-gray-900 dark:text-gray-100 mb-1">Will be wiped ({dangerInfo.wiped.length} tables)</p>
-                            <p className="text-gray-600 dark:text-gray-400 max-h-24 overflow-y-auto">{dangerInfo.wiped.join(', ')}</p>
+                            <p className="font-medium text-gray-900 dark:text-gray-100 mb-1">
+                              Will be wiped ({(dangerInfo.sections?.find(s => s.key === clearSection)?.tables || dangerInfo.wiped).length} tables)
+                            </p>
+                            <p className="text-gray-600 dark:text-gray-400 max-h-24 overflow-y-auto">
+                              {(dangerInfo.sections?.find(s => s.key === clearSection)?.tables || dangerInfo.wiped).join(', ')}
+                            </p>
                           </div>
                           <div>
                             <p className="font-medium text-gray-900 dark:text-gray-100 mb-1">Preserved ({dangerInfo.preserved.length} tables)</p>
@@ -687,7 +752,7 @@ const SettingsPage: React.FC = () => {
                           className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           <AlertTriangle className="w-4 h-4 mr-2" />
-                          {resetting ? 'Backing up and clearing…' : 'Back Up & Clear All Data'}
+                          {resetting ? 'Backing up and clearing…' : `Back Up & Clear (${clearSection})`}
                         </button>
                       </div>
                     )}

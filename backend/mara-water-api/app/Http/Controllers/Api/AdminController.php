@@ -64,14 +64,24 @@ class AdminController extends Controller
 
     public function tableGroups()
     {
+        $fresh = $this->backups->latestFreshBackup();
+
         return response()->json([
             'success' => true,
             'data' => [
                 'preserved' => BackupService::PRESERVE_TABLES,
                 'wiped' => BackupService::WIPE_TABLES,
+                'sections' => $this->backups->sectionCatalog(),
                 'confirmation_phrase' => self::CONFIRMATION_PHRASE,
                 'restore_confirmation_phrase' => self::RESTORE_CONFIRMATION_PHRASE,
                 'retention_days' => BackupService::RETENTION_DAYS,
+                'fresh_backup_max_hours' => BackupService::FRESH_BACKUP_MAX_HOURS,
+                'has_fresh_backup' => (bool) $fresh,
+                'latest_fresh_backup' => $fresh ? [
+                    'id' => $fresh->id,
+                    'created_at' => $fresh->created_at,
+                    'reason' => $fresh->reason,
+                ] : null,
             ],
         ]);
     }
@@ -141,6 +151,26 @@ class AdminController extends Controller
             ], 403);
         }
 
+        // Round 5B Phase 8: hard gate — a fresh backup must already exist
+        // before any clear can proceed (not a dismissible warning).
+        $fresh = $this->backups->latestFreshBackup();
+        if (!$fresh) {
+            // Force-create one, then require the Director to re-confirm —
+            // unlock path also does this; here we refuse the clear itself
+            // until a backup exists within the window.
+            $forced = $this->backups->snapshot('pre_clear_required', $request->user()->id);
+            $this->backups->cleanup();
+            return response()->json([
+                'success' => false,
+                'message' => 'No fresh backup found. A safety backup was just created — download it, then confirm the clear again.',
+                'data' => [
+                    'backup_id' => $forced->id,
+                    'created_at' => $forced->created_at,
+                    'requires_reconfirm' => true,
+                ],
+            ], 409);
+        }
+
         if ($request->input('confirmation') !== self::CONFIRMATION_PHRASE) {
             return response()->json([
                 'success' => false,
@@ -148,49 +178,105 @@ class AdminController extends Controller
             ], 422);
         }
 
+        $section = $request->input('section', 'all');
+        if (!array_key_exists($section, BackupService::SECTION_TABLES)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid section. Choose one of: ' . implode(', ', array_keys(BackupService::SECTION_TABLES)),
+            ], 422);
+        }
+
+        $tables = $this->backups->tablesForSection($section);
+        if (empty($tables)) {
+            return response()->json(['success' => false, 'message' => 'No tables mapped for that section.'], 422);
+        }
+
+        // Optional date-range clear: only wipe rows in date-bearing tables
+        // within the window. When omitted, wipe the whole section.
+        $dateFrom = $request->input('date_from');
+        $dateTo = $request->input('date_to');
+
         $user = $request->user();
 
-        // 1. Back up everything, unconditionally, before touching anything.
+        // Always take another pre_reset snapshot immediately before wipe.
         $backup = $this->backups->snapshot('pre_reset', $user->id);
         $rowCountsBefore = collect($backup->table_row_counts)
-            ->only(BackupService::WIPE_TABLES)->toArray();
+            ->only($tables)->toArray();
 
-        // 2. Wipe the operational/transactional tables only -- see
-        // BackupService::PRESERVE_TABLES/WIPE_TABLES. Logins, product
-        // catalog, pricing, fleet registry, and system settings are
-        // untouched.
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
         try {
-            foreach (BackupService::WIPE_TABLES as $table) {
-                DB::table($table)->delete();
+            if ($dateFrom && $dateTo) {
+                $this->wipeTablesInDateRange($tables, $dateFrom, $dateTo);
+            } else {
+                foreach ($tables as $table) {
+                    if (\Illuminate\Support\Facades\Schema::hasTable($table)) {
+                        DB::table($table)->delete();
+                    }
+                }
             }
         } finally {
             DB::statement('SET FOREIGN_KEY_CHECKS=1');
         }
 
-        // 3. Permanent record of who did this and when -- reset_logs is
-        // never itself wiped, so this survives the very reset it describes.
         $log = ResetLog::create([
             'performed_by' => $user->id,
             'performed_by_email' => $user->email,
             'backup_id' => $backup->id,
-            'tables_wiped' => BackupService::WIPE_TABLES,
+            'tables_wiped' => $tables,
             'row_counts_before' => $rowCountsBefore,
         ]);
 
-        // 4. Auto-relock so a second reset needs a deliberate unlock again.
         Setting::putMany(['danger_zone_unlocked' => false]);
 
         return response()->json([
             'success' => true,
-            'message' => 'All operational data cleared. A backup was taken first.',
+            'message' => $section === 'all'
+                ? 'All operational data cleared. A backup was taken first.'
+                : "Section '{$section}' cleared. A backup was taken first.",
             'data' => [
+                'section' => $section,
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
                 'backup_id' => $backup->id,
                 'reset_log_id' => $log->id,
-                'tables_wiped' => BackupService::WIPE_TABLES,
+                'tables_wiped' => $tables,
                 'row_counts_before' => $rowCountsBefore,
             ],
         ]);
+    }
+
+    /**
+     * Best-effort date-scoped wipe for tables that have a known date column.
+     * Tables without a matching date column are fully wiped (section intent).
+     */
+    private function wipeTablesInDateRange(array $tables, string $dateFrom, string $dateTo): void
+    {
+        $dateColumns = [
+            'orders' => 'order_date',
+            'invoices' => 'invoice_date',
+            'batches' => 'manufacture_date',
+            'packaging_runs' => 'run_start',
+            'stock_moves' => 'created_at',
+            'petty_cash_entries' => 'entry_date',
+            'debtor_ledger_entries' => 'entry_date',
+            'driver_trips' => 'trip_date',
+            'attendances' => 'date',
+            'fuel_logs' => 'log_date',
+            'water_tests' => 'recorded_at',
+            'material_batches' => 'purchase_date',
+        ];
+
+        foreach ($tables as $table) {
+            if (!\Illuminate\Support\Facades\Schema::hasTable($table)) {
+                continue;
+            }
+            $col = $dateColumns[$table] ?? null;
+            if ($col && \Illuminate\Support\Facades\Schema::hasColumn($table, $col)) {
+                DB::table($table)->whereBetween($col, [$dateFrom, $dateTo])->delete();
+            } else {
+                DB::table($table)->delete();
+            }
+        }
     }
 
     public function listResetLogs(Request $request)

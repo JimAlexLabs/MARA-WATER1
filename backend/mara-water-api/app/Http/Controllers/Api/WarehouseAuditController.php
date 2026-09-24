@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\EquipmentItem;
 use App\Models\Material;
+use App\Models\MaterialBatch;
 use App\Models\StockItem;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -128,6 +129,16 @@ class WarehouseAuditController extends Controller
     }
 
     /**
+     * Round 5B Phase 1: stock arrivals / material batches with their
+     * quality-check status — the Warehouse Audit link for every purchase.
+     */
+    public function receiptQuality(Request $request)
+    {
+        $limit = min((int) $request->get('limit', 50), 200);
+        return response()->json(['success' => true, 'data' => $this->receiptQualityWatch($limit)]);
+    }
+
+    /**
      * Ranked critical gaps -- anything out-of-stock, overdue-
      * maintenance, expired, or missing/uncalibrated surfaces at the
      * top, same "ranked by what actually blocks production" logic the
@@ -165,8 +176,16 @@ class WarehouseAuditController extends Controller
             }
         }
 
+        // Round 5B Phase 1: pending/failed receipt quality checks are
+        // Warehouse Audit gaps — stock arrived but isn't cleared for use.
+        foreach ($this->receiptQualityWatch() as $row) {
+            if ($row['severity'] !== 'ok') {
+                $gaps[] = ['area' => 'receipts', 'severity' => $row['severity'], 'message' => $row['message']];
+            }
+        }
+
         $severityOrder = ['critical' => 0, 'warning' => 1];
-        usort($gaps, fn ($a, $b) => $severityOrder[$a['severity']] <=> $severityOrder[$b['severity']]);
+        usort($gaps, fn ($a, $b) => ($severityOrder[$a['severity']] ?? 2) <=> ($severityOrder[$b['severity']] ?? 2));
 
         return response()->json([
             'success' => true,
@@ -176,6 +195,43 @@ class WarehouseAuditController extends Controller
                 'gaps' => $gaps,
             ],
         ]);
+    }
+
+    /**
+     * Recent material-batch arrivals and their QA status.
+     */
+    private function receiptQualityWatch(?int $limit = null): array
+    {
+        $query = MaterialBatch::with(['material', 'warehouse', 'receivedBy', 'qualityCheckedBy'])
+            ->orderByDesc('purchase_date')
+            ->orderByDesc('created_at');
+
+        if ($limit) {
+            $query->limit($limit);
+        } else {
+            $query->whereIn('quality_status', ['pending', 'failed'])->limit(100);
+        }
+
+        return $query->get()->map(function (MaterialBatch $batch) {
+            $severity = match ($batch->quality_status) {
+                'failed' => 'critical',
+                'pending' => 'warning',
+                default => 'ok',
+            };
+            $materialName = $batch->material->name ?? 'Material';
+            $message = match ($batch->quality_status) {
+                'failed' => "{$materialName} batch {$batch->batch_number}: quality FAILED — not released to stock",
+                'pending' => "{$materialName} batch {$batch->batch_number}: quality check PENDING — awaiting Warehouse Audit pass",
+                default => "{$materialName} batch {$batch->batch_number}: quality passed",
+            };
+
+            return [
+                'material_batch' => $batch,
+                'quality_status' => $batch->quality_status,
+                'severity' => $severity,
+                'message' => $message,
+            ];
+        })->values()->toArray();
     }
 
     /**

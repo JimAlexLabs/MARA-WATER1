@@ -47,7 +47,45 @@ export default defineRailway(() => {
     },
   });
 
+  // Round 5B Phase 3: weekly stock reconciliation Excel (Sundays 03:00 UTC)
+  const StockReconWeekly = service("mara-water1-stock-recon-weekly", {
+    source: github("JimAlexLabs/MARA-WATER1", { rootDirectory: "backend/mara-water-api", upstreamUrl: "https://github.com/JimAlexLabs/MARA-WATER1" }),
+    deploy: { cronSchedule: "0 3 * * 0", startCommand: "php artisan stock-reconciliation:run weekly" },
+    env: {
+      APP_ENV: ref(MARAWATER1, "APP_ENV"),
+      APP_KEY: ref(MARAWATER1, "APP_KEY"),
+      DB_CONNECTION: ref(MARAWATER1, "DB_CONNECTION"),
+      DB_DATABASE: ref(MARAWATER1, "DB_DATABASE"),
+      DB_HOST: ref(MARAWATER1, "DB_HOST"),
+      DB_PASSWORD: ref(MARAWATER1, "DB_PASSWORD"),
+      DB_PORT: ref(MARAWATER1, "DB_PORT"),
+      DB_USERNAME: ref(MARAWATER1, "DB_USERNAME"),
+      LOG_CHANNEL: ref(MARAWATER1, "LOG_CHANNEL"),
+      LOG_LEVEL: ref(MARAWATER1, "LOG_LEVEL"),
+      VIEW_COMPILED_PATH: ref(MARAWATER1, "VIEW_COMPILED_PATH"),
+    },
+  });
+
+  // Round 5B Phase 3: monthly stock reconciliation Excel (1st of month 04:00 UTC)
+  const StockReconMonthly = service("mara-water1-stock-recon-monthly", {
+    source: github("JimAlexLabs/MARA-WATER1", { rootDirectory: "backend/mara-water-api", upstreamUrl: "https://github.com/JimAlexLabs/MARA-WATER1" }),
+    deploy: { cronSchedule: "0 4 1 * *", startCommand: "php artisan stock-reconciliation:run monthly" },
+    env: {
+      APP_ENV: ref(MARAWATER1, "APP_ENV"),
+      APP_KEY: ref(MARAWATER1, "APP_KEY"),
+      DB_CONNECTION: ref(MARAWATER1, "DB_CONNECTION"),
+      DB_DATABASE: ref(MARAWATER1, "DB_DATABASE"),
+      DB_HOST: ref(MARAWATER1, "DB_HOST"),
+      DB_PASSWORD: ref(MARAWATER1, "DB_PASSWORD"),
+      DB_PORT: ref(MARAWATER1, "DB_PORT"),
+      DB_USERNAME: ref(MARAWATER1, "DB_USERNAME"),
+      LOG_CHANNEL: ref(MARAWATER1, "LOG_CHANNEL"),
+      LOG_LEVEL: ref(MARAWATER1, "LOG_LEVEL"),
+      VIEW_COMPILED_PATH: ref(MARAWATER1, "VIEW_COMPILED_PATH"),
+    },
+  });
+
   return project("pure-prosperity", {
-    resources: [MySQL, MARAWATER1, BackupCron, mysqlVolume],
+    resources: [MySQL, MARAWATER1, BackupCron, StockReconWeekly, StockReconMonthly, mysqlVolume],
   });
 });

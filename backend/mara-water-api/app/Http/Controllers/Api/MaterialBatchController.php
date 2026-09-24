@@ -12,24 +12,24 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
 /**
- * Round 3 Phase 10: recording a raw-material/packaging stock purchase
- * as its own traceable batch (batch number, supplier, unit cost,
- * quantity received) instead of only being able to add the quantity to
- * a material's single running-total line. See the
- * create_material_batches_table migration docblock for how this stays
- * consistent with the existing rollup/consumption stock logic.
+ * Round 3 Phase 10 + Round 5B Phase 1: material purchase as a
+ * traceable batch, with a Warehouse Audit quality gate on receipt
+ * so every arrival is tied to a quality record from day one.
  */
 class MaterialBatchController extends Controller
 {
     public function index(Request $request)
     {
-        $query = MaterialBatch::with(['material', 'warehouse', 'receivedBy']);
+        $query = MaterialBatch::with(['material', 'warehouse', 'receivedBy', 'qualityCheckedBy']);
 
         if ($request->filled('material_id')) {
             $query->where('material_id', $request->material_id);
         }
         if ($request->filled('warehouse_id')) {
             $query->where('warehouse_id', $request->warehouse_id);
+        }
+        if ($request->filled('quality_status')) {
+            $query->where('quality_status', $request->quality_status);
         }
 
         $batches = $query->orderByDesc('purchase_date')->paginate($request->get('limit', 20));
@@ -44,11 +44,6 @@ class MaterialBatchController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            // Either point at an existing material, or describe a brand
-            // new one to create in the same write -- so recording a
-            // purchase of a material that's never been bought before
-            // doesn't require a separate trip to the Materials screen
-            // first.
             'material_id' => 'required_without:new_material|nullable|exists:materials,id',
             'new_material' => 'required_without:material_id|nullable|array',
             'new_material.code' => 'required_with:new_material|string|max:20|unique:materials,code',
@@ -64,6 +59,10 @@ class MaterialBatchController extends Controller
             'qty_received' => 'required|numeric|min:0.001',
             'warehouse_id' => 'required|exists:warehouses,id',
             'notes' => 'nullable|string|max:1000',
+
+            // Round 5B Phase 1: quality check at receipt (Warehouse Audit link).
+            'quality_status' => 'nullable|in:pending,passed,failed',
+            'quality_notes' => 'nullable|string|max:2000',
         ]);
 
         if ($validator->fails()) {
@@ -90,6 +89,14 @@ class MaterialBatchController extends Controller
                     ? $request->batch_number
                     : $material->code . '-' . $request->purchase_date . '-' . strtoupper(Str::random(4));
 
+                $qualityStatus = $request->input('quality_status', 'pending');
+                $qualityCheckedAt = null;
+                $qualityCheckedBy = null;
+                if (in_array($qualityStatus, ['passed', 'failed'], true)) {
+                    $qualityCheckedAt = now();
+                    $qualityCheckedBy = Auth::id();
+                }
+
                 $batch = MaterialBatch::create([
                     'material_id' => $material->id,
                     'batch_number' => $batchNumber,
@@ -97,47 +104,112 @@ class MaterialBatchController extends Controller
                     'supplier_name' => $request->supplier_name,
                     'unit_cost' => $request->unit_cost,
                     'qty_received' => $request->qty_received,
+                    'qty_remaining' => $request->qty_received,
                     'warehouse_id' => $request->warehouse_id,
                     'received_by' => Auth::id(),
                     'notes' => $request->notes,
+                    'quality_status' => $qualityStatus,
+                    'quality_checked_at' => $qualityCheckedAt,
+                    'quality_checked_by' => $qualityCheckedBy,
+                    'quality_notes' => $request->quality_notes,
                 ]);
 
-                // Same shared stock-ledger entry point every other move in
-                // the app uses -- this is what actually rolls the batch's
-                // quantity into the material's existing running-total
-                // StockItem for this warehouse (unchanged code path).
-                $inventory = new InventoryController();
-                $inventory->recordMove([
-                    'move_type' => 'grn',
-                    'item_type' => 'material',
-                    'material_id' => $material->id,
-                    'warehouse_to_id' => $request->warehouse_id,
-                    'qty' => $request->qty_received,
-                    'uom' => $material->uom,
-                    'unit_cost' => $request->unit_cost,
-                    'ref_entity' => 'material_batch',
-                    'ref_id' => $batch->id,
-                ]);
-
-                // Latest purchase cost becomes the material's reference
-                // unit_cost (used elsewhere for costing) -- a simple
-                // "most recent price", not a weighted average.
-                $material->update(['unit_cost' => $request->unit_cost, 'updated_by' => Auth::id()]);
+                // Only post stock when quality passed — failed/pending stays
+                // off the usable ledger until a pass check (completeQuality).
+                if ($qualityStatus === 'passed') {
+                    $inventory = new InventoryController();
+                    $inventory->recordMove([
+                        'move_type' => 'grn',
+                        'item_type' => 'material',
+                        'material_id' => $material->id,
+                        'warehouse_to_id' => $request->warehouse_id,
+                        'qty' => $request->qty_received,
+                        'uom' => $material->uom,
+                        'unit_cost' => $request->unit_cost,
+                        'ref_entity' => 'material_batch',
+                        'ref_id' => $batch->id,
+                    ]);
+                    $material->update(['unit_cost' => $request->unit_cost, 'updated_by' => Auth::id()]);
+                }
 
                 return $batch;
             });
 
-            $result->load(['material', 'warehouse', 'receivedBy']);
+            $result->load(['material', 'warehouse', 'receivedBy', 'qualityCheckedBy']);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Batch received and stock updated',
+                'message' => $result->quality_status === 'passed'
+                    ? 'Batch received, quality passed, and stock updated'
+                    : 'Batch received — quality ' . $result->quality_status . ' (stock posts when quality is passed)',
                 'data' => ['material_batch' => $result],
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to record batch',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Round 5B Phase 1: complete / update the Warehouse Audit quality
+     * check on a received batch. Passing for the first time posts GRN stock.
+     */
+    public function completeQuality(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'quality_status' => 'required|in:passed,failed',
+            'quality_notes' => 'nullable|string|max:2000',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        try {
+            $batch = DB::transaction(function () use ($request, $id) {
+                $batch = MaterialBatch::with('material')->lockForUpdate()->findOrFail($id);
+                $wasPassed = $batch->quality_status === 'passed';
+
+                $batch->update([
+                    'quality_status' => $request->quality_status,
+                    'quality_notes' => $request->quality_notes ?? $batch->quality_notes,
+                    'quality_checked_at' => now(),
+                    'quality_checked_by' => Auth::id(),
+                ]);
+
+                if ($request->quality_status === 'passed' && !$wasPassed) {
+                    $inventory = new InventoryController();
+                    $inventory->recordMove([
+                        'move_type' => 'grn',
+                        'item_type' => 'material',
+                        'material_id' => $batch->material_id,
+                        'warehouse_to_id' => $batch->warehouse_id,
+                        'qty' => $batch->qty_received,
+                        'uom' => $batch->material->uom ?? 'UNIT',
+                        'unit_cost' => $batch->unit_cost,
+                        'ref_entity' => 'material_batch',
+                        'ref_id' => $batch->id,
+                    ]);
+                    $batch->material->update([
+                        'unit_cost' => $batch->unit_cost,
+                        'updated_by' => Auth::id(),
+                    ]);
+                }
+
+                return $batch->fresh(['material', 'warehouse', 'receivedBy', 'qualityCheckedBy']);
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Quality check recorded',
+                'data' => ['material_batch' => $batch],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to record quality check',
                 'error' => $e->getMessage(),
             ], 500);
         }
