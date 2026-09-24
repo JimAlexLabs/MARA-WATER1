@@ -86,12 +86,15 @@ class AttendanceController extends Controller
     {
         try {
             $query = Attendance::with(['user', 'shift', 'createdBy'])
-                // Round 3 Phase 8: Director isn't tracked staff -- they
-                // technically can clock in (same tier grant as
-                // Manager/Driver from Round 2), but shouldn't show up as
-                // a row in the staff attendance list.
+                // Round 3 Phase 8 / Round 5A Phase 1: neither Director nor
+                // Investor is tracked staff -- they technically can clock in
+                // (same tier grant as Manager/Driver from Round 2), but
+                // shouldn't show up as a row in the Manager's staff
+                // attendance list. Driver/Sales/Field-Work keep arriving
+                // automatically from the Round 4 Phase 9 check-in/checkout
+                // flow; everyone else is still recorded the existing way.
                 ->whereHas('user.role', function ($q) {
-                    $q->where('access_tier', '!=', 'director');
+                    $q->whereNotIn('access_tier', ['director', 'investor']);
                 });
 
             // Filtering
@@ -497,8 +500,9 @@ class AttendanceController extends Controller
     {
         try {
             $query = Attendance::query()
+                // Round 5A Phase 1: same exclusion as index() above.
                 ->whereHas('user.role', function ($q) {
-                    $q->where('access_tier', '!=', 'director');
+                    $q->whereNotIn('access_tier', ['director', 'investor']);
                 });
 
             // Filter by date range
@@ -626,8 +630,9 @@ class AttendanceController extends Controller
         try {
             $query = Attendance::with(['user', 'shift'])
                 ->whereDate('date', now()->toDateString())
+                // Round 5A Phase 1: same exclusion as index() above.
                 ->whereHas('user.role', function ($q) {
-                    $q->where('access_tier', '!=', 'director');
+                    $q->whereNotIn('access_tier', ['director', 'investor']);
                 });
 
             // Filter by department

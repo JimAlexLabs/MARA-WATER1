@@ -7,16 +7,17 @@ use App\Models\Order;
 use App\Models\DriverTripSale;
 use App\Models\PackagingRun;
 use App\Models\Debt;
+use App\Models\StockItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Round 2 Phase 11: the Investor role's own dashboard -- "a daily
- * performance summary (revenue, production, sales trend, high-level
- * financial health) -- explicitly not line-level detail like individual
- * salaries, individual debtor names, or petty cash line items. Build
- * this as a distinct, deliberately limited dashboard, not the full app
- * with buttons hidden."
+ * Round 2 Phase 11 / Round 5A Phase 2: the Investor role's own dashboard
+ * -- "a daily performance summary (revenue, production, sales trend,
+ * high-level financial health) -- explicitly not line-level detail like
+ * individual salaries, individual debtor names, or petty cash line
+ * items. Build this as a distinct, deliberately limited dashboard, not
+ * the full app with buttons hidden."
  *
  * Every figure here is a total or a trend -- nothing keyed by customer,
  * employee, or petty-cash line. There is deliberately no "drill down"
@@ -24,6 +25,13 @@ use Illuminate\Support\Facades\DB;
  * the records behind it; the 'tier' middleware on every operational
  * route (sales, finance, hr, etc.) blocks that outright, not just this
  * summary being the only thing linked from the UI.
+ *
+ * Round 5A Phase 2 fills this out properly: Sales/Production/Finance
+ * trends (not just today/this-month totals), plus a "debt and
+ * stock-depletion alerts" summary -- counts and totals only, e.g. "3 new
+ * debts this week, KES 42,000" and "5 items low on stock", never a
+ * debtor-by-name list or a per-item drill-down (that's what Finance and
+ * Inventory are for, and this role can't reach either).
  */
 class InvestorController extends Controller
 {
@@ -69,6 +77,17 @@ class InvestorController extends Controller
             'revenue' => round((float) ($ordersTrend[$d] ?? 0) + (float) ($tripsTrend[$d] ?? 0), 2),
         ])->values();
 
+        // Round 5A Phase 2: Production analytics needs its own trend too
+        // -- previously this dashboard only had today/this-month totals,
+        // no way to see the shape of production over time the way sales
+        // already had.
+        $productionTrend = PackagingRun::join('skus', 'skus.id', '=', 'packaging_runs.sku_id')
+            ->whereNotNull('packaging_runs.run_end')
+            ->whereBetween('packaging_runs.run_end', ["{$trendStart} 00:00:00", "{$today} 23:59:59"])
+            ->selectRaw('DATE(packaging_runs.run_end) as date, SUM(packaging_runs.good_qty * skus.size_liters) as liters')
+            ->groupBy('date')->orderBy('date')
+            ->get()->map(fn ($r) => ['date' => $r->date, 'liters' => round((float) $r->liters, 1)])->values();
+
         // High-level financial health -- totals only. Cash/M-Pesa are
         // collected the moment they're sold (no separate receivables
         // step); debt is one outstanding total, never a debtor list.
@@ -84,6 +103,34 @@ class InvestorController extends Controller
         $cashCollectedMonth = round((float) ($orderPayments['cash'] ?? 0) + (float) ($tripPayments['cash'] ?? 0), 2);
         $mpesaCollectedMonth = round((float) ($orderPayments['mpesa'] ?? 0) + (float) ($tripPayments['mpesa'] ?? 0), 2);
 
+        // Round 5A Phase 2: "Debt and stock-depletion alerts -- a simple
+        // summary of new debt entries and low-stock/depletion warnings,
+        // so the investor stays aware of financial and operational risk
+        // without needing operational access." Counts and totals only --
+        // never a debtor-by-name list (that's Finance) or a per-item
+        // reorder workflow (that's Inventory), neither of which this
+        // tier can reach.
+        $newDebtWindowStart = now()->subDays(7);
+        $newDebts = Debt::where('created_at', '>=', $newDebtWindowStart);
+        $overdueDebts = Debt::where('balance', '>', 0)
+            ->where(function ($q) {
+                $q->where('expected_repayment_date', '<', now()->toDateString())
+                  ->orWhereHas('invoice', fn ($iq) => $iq->where('due_date', '<', now()->toDateString()));
+            });
+
+        // Same per-item reorder point as Inventory/Manager-dashboard's own
+        // low-stock query (materials.min_level, skus.reorder_threshold,
+        // falling back to a flat 10 for SKUs without one set).
+        $lowStockQuery = StockItem::whereNull('deleted_at')->where(function ($q) {
+            $q->whereHas('material', function ($m) {
+                $m->whereColumn('stock_items.qty', '<=', 'materials.min_level');
+            })->orWhereHas('sku', function ($s) {
+                $s->whereRaw('stock_items.qty <= COALESCE(skus.reorder_threshold, 10)');
+            });
+        });
+        $lowStockItems = (clone $lowStockQuery)->with(['material', 'sku'])->orderBy('qty')->limit(5)->get()
+            ->map(fn ($i) => $i->sku->name ?? $i->material->name ?? 'Item')->values();
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -98,9 +145,25 @@ class InvestorController extends Controller
                     'mpesa_collected' => $mpesaCollectedMonth,
                 ],
                 'sales_trend' => $salesTrend,
+                'production_trend' => $productionTrend,
                 'financial_health' => [
                     'cash_and_mpesa_collected_month' => round($cashCollectedMonth + $mpesaCollectedMonth, 2),
                     'outstanding_debt_total' => round((float) Debt::sum('balance'), 2),
+                ],
+                'alerts' => [
+                    'new_debt' => [
+                        'window_days' => 7,
+                        'count' => (clone $newDebts)->count(),
+                        'total' => round((float) (clone $newDebts)->sum('principal'), 2),
+                    ],
+                    'overdue_debt' => [
+                        'count' => (clone $overdueDebts)->count(),
+                        'total' => round((float) (clone $overdueDebts)->sum('balance'), 2),
+                    ],
+                    'low_stock' => [
+                        'count' => (clone $lowStockQuery)->count(),
+                        'items' => $lowStockItems,
+                    ],
                 ],
             ],
         ]);
