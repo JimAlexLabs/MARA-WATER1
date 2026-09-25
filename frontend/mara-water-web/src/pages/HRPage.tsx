@@ -14,11 +14,14 @@ import {
   DollarSign,
   Lock,
   Printer,
-  X
+  X,
+  TrendingUp,
+  ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 import { usePermissions } from '../contexts/AuthContext';
+import { clearHrUnlock, getHrUnlock, isHrUnlocked, setHrUnlock } from '../utils/hrUnlock';
 
 interface Employee {
   id: string;
@@ -104,6 +107,7 @@ interface SalaryTemplate {
 const ALL_TABS = [
   { id: 'attendance', name: 'Attendance', icon: Clock },
   { id: 'payroll', name: 'Payroll', icon: DollarSign },
+  { id: 'profit', name: 'Profit', icon: TrendingUp },
   { id: 'loans', name: 'Loans & Advances', icon: Users },
   { id: 'templates', name: 'Salary Templates', icon: Edit },
 ];
@@ -113,7 +117,9 @@ const ALL_TABS = [
 // actually reach, so they're not shown a tab that just 404s); the real
 // enforcement is the `tier:director` middleware on those routes now, not
 // this list.
-const DIRECTOR_ONLY_TAB_IDS = ['payroll', 'loans', 'templates'];
+// Ops brief §9: payroll / profit / loans / templates also need password re-auth.
+const DIRECTOR_ONLY_TAB_IDS = ['payroll', 'profit', 'loans', 'templates'];
+const SECURE_TAB_IDS = ['payroll', 'profit', 'loans', 'templates'];
 
 const LOAN_TYPE_LABELS: Record<string, string> = {
   advance: 'Staff Advance', loan: 'Loan', sacco_loan: 'Sacco Loan', sacco_advance: 'Sacco Advance',
@@ -180,13 +186,119 @@ const HRPage: React.FC = () => {
     notes: ''
   });
 
+  // Ops brief §9: password re-auth unlock for payroll / profit / loans / templates.
+  const [hrUnlocked, setHrUnlockedState] = useState(() => isHrUnlocked());
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [unlockPassword, setUnlockPassword] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
+  const [pendingSecureTab, setPendingSecureTab] = useState<string | null>(null);
+
+  const [profitMonth, setProfitMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [profitSummary, setProfitSummary] = useState<any>(null);
+  const [profitLoading, setProfitLoading] = useState(false);
+
   useEffect(() => {
     fetchEmployees();
+    api.get('/users/departments').then(res => setDepartments(res.data.data || [])).catch(() => {});
+    // Sync with server unlock status (cache may outlive a cleared sessionStorage).
+    if (isDirector()) {
+      api.get('/hr/secure-status').then((res) => {
+        if (res.data?.data?.unlocked && res.data.data.expires_at) {
+          const existing = getHrUnlock();
+          if (!existing) {
+            // Status does not return the token; keep client locked until
+            // they re-auth this session, or refresh from sessionStorage.
+            setHrUnlockedState(false);
+          } else {
+            setHrUnlockedState(true);
+          }
+        } else {
+          clearHrUnlock();
+          setHrUnlockedState(false);
+        }
+      }).catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hrUnlocked || !isDirector()) return;
     fetchPayrollRuns();
     fetchLoans();
     fetchTemplates();
-    api.get('/users/departments').then(res => setDepartments(res.data.data || [])).catch(() => {});
-  }, []);
+  }, [hrUnlocked]);
+
+  useEffect(() => {
+    if (!hrUnlocked || activeTabState !== 'profit') return;
+    fetchProfitSummary();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hrUnlocked, activeTabState, profitMonth]);
+
+  const requestSecureTab = (tabId: string) => {
+    if (!SECURE_TAB_IDS.includes(tabId) || hrUnlocked) {
+      setActiveTabState(tabId);
+      return;
+    }
+    setPendingSecureTab(tabId);
+    setShowUnlockModal(true);
+  };
+
+  const handleUnlockSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!unlockPassword) {
+      toast.error('Enter your login password');
+      return;
+    }
+    setUnlocking(true);
+    try {
+      const res = await api.post('/hr/secure-unlock', { password: unlockPassword });
+      const data = res.data.data;
+      setHrUnlock({ token: data.token, expires_at: data.expires_at });
+      setHrUnlockedState(true);
+      setShowUnlockModal(false);
+      setUnlockPassword('');
+      toast.success(res.data.message || 'Unlocked for 30 minutes');
+      if (pendingSecureTab) {
+        setActiveTabState(pendingSecureTab);
+        setPendingSecureTab(null);
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Unlock failed');
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
+  const handleLockHr = async () => {
+    try {
+      await api.post('/hr/secure-lock');
+    } catch {
+      // local clear still applies
+    }
+    clearHrUnlock();
+    setHrUnlockedState(false);
+    setSelectedRun(null);
+    setProfitSummary(null);
+    if (SECURE_TAB_IDS.includes(activeTabState)) setActiveTabState('attendance');
+    toast.success('Payroll & profit locked');
+  };
+
+  const fetchProfitSummary = async () => {
+    setProfitLoading(true);
+    try {
+      const res = await api.get('/finance/profit-summary', { params: { month: profitMonth } });
+      setProfitSummary(res.data.data);
+    } catch (error: any) {
+      if (error.response?.data?.code === 'hr_unlock_required') {
+        clearHrUnlock();
+        setHrUnlockedState(false);
+        setShowUnlockModal(true);
+      }
+      toast.error(error.response?.data?.message || 'Could not load profit summary');
+      setProfitSummary(null);
+    } finally {
+      setProfitLoading(false);
+    }
+  };
 
   const periodDates = (): { date_from?: string; date_to?: string } => {
     const now = new Date();
@@ -543,26 +655,37 @@ const HRPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 dark:border-gray-700">
-        <nav className="flex space-x-8">
+      <div className="border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-4">
+        <nav className="flex space-x-8 overflow-x-auto">
           {TABS.map((tab) => {
             const Icon = tab.icon;
+            const needsLock = SECURE_TAB_IDS.includes(tab.id);
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTabState(tab.id)}
-                className={`py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
+                onClick={() => requestSecureTab(tab.id)}
+                className={`py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 whitespace-nowrap ${
                   activeTabState === tab.id
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
                 }`}
               >
                 <Icon className="w-4 h-4" />
                 <span>{tab.name}</span>
+                {needsLock && !hrUnlocked && <Lock className="w-3 h-3 opacity-60" />}
               </button>
             );
           })}
         </nav>
+        {isDirector() && hrUnlocked && (
+          <button
+            type="button"
+            onClick={handleLockHr}
+            className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 flex items-center gap-1 shrink-0"
+          >
+            <Lock className="w-3 h-3" /> Lock payroll
+          </button>
+        )}
       </div>
 
       {/* ============ ATTENDANCE TAB ============ */}
@@ -743,6 +866,9 @@ const HRPage: React.FC = () => {
 
       {/* ============ PAYROLL TAB ============ */}
       {activeTabState === 'payroll' && (
+        !hrUnlocked ? (
+          <SecureGatePrompt onUnlock={() => { setPendingSecureTab('payroll'); setShowUnlockModal(true); }} />
+        ) : (
         <div className="space-y-6">
           {!selectedRun ? (
             <>
@@ -852,10 +978,76 @@ const HRPage: React.FC = () => {
             </>
           )}
         </div>
+        )
+      )}
+
+      {/* ============ PROFIT TAB (ops brief §9) ============ */}
+      {activeTabState === 'profit' && (
+        !hrUnlocked ? (
+          <SecureGatePrompt onUnlock={() => { setPendingSecureTab('profit'); setShowUnlockModal(true); }} />
+        ) : (
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Live profit</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Gross revenue − COGS − salaries − other (petty cash out + trip fuel)
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="month"
+                  value={profitMonth}
+                  onChange={(e) => setProfitMonth(e.target.value)}
+                  className="rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2 text-sm"
+                />
+                <Link
+                  to="/finance"
+                  className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  Open Finance →
+                </Link>
+              </div>
+            </div>
+            {profitLoading ? (
+              <div className="flex justify-center py-12">
+                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+              </div>
+            ) : profitSummary ? (
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                {[
+                  { label: 'Gross revenue', value: money(profitSummary.gross_revenue) },
+                  { label: 'COGS (GRN)', value: money(profitSummary.cogs) },
+                  { label: 'Salaries', value: money(profitSummary.salaries) },
+                  { label: 'Other deductions', value: money(profitSummary.other_deductions) },
+                  { label: 'Profit', value: money(profitSummary.profit), emphasize: true },
+                ].map((k) => (
+                  <div key={k.label} className={`rounded-lg shadow p-4 ${k.emphasize ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800' : 'bg-white dark:bg-gray-800'}`}>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{k.label}</p>
+                    <p className={`text-xl font-bold mt-1 ${k.emphasize ? 'text-emerald-800 dark:text-emerald-200' : 'text-gray-900 dark:text-gray-100'}`}>{k.value}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">No profit data for this month.</p>
+            )}
+            {profitSummary && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 text-sm space-y-2 text-gray-600 dark:text-gray-300">
+                <p>Orders {money(profitSummary.gross_revenue_breakdown?.completed_orders)} · Trip sales {money(profitSummary.gross_revenue_breakdown?.driver_trip_sales)}</p>
+                <p>Salaries source: {profitSummary.salaries_breakdown?.source === 'payroll_run' ? `payroll run (${profitSummary.salaries_breakdown?.payroll_status})` : 'operational staff salaries'} · gross {money(profitSummary.salaries_breakdown?.gross)} · net {money(profitSummary.salaries_breakdown?.net)}</p>
+                <p>Other: petty cash out {money(profitSummary.other_breakdown?.petty_cash_out)} · fuel {money(profitSummary.other_breakdown?.fuel_cost)}</p>
+                <p className="text-xs text-gray-400">COGS uses material batch purchases (unit_cost × qty) for the month — not sold-unit BOM consumption.</p>
+              </div>
+            )}
+          </div>
+        )
       )}
 
       {/* ============ LOANS & ADVANCES TAB ============ */}
       {activeTabState === 'loans' && (
+        !hrUnlocked ? (
+          <SecureGatePrompt onUnlock={() => { setPendingSecureTab('loans'); setShowUnlockModal(true); }} />
+        ) : (
         <div className="space-y-6">
           <div className="flex justify-end">
             <button onClick={() => setShowLoanForm(true)} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
@@ -902,10 +1094,14 @@ const HRPage: React.FC = () => {
             </table>
           </div>
         </div>
+        )
       )}
 
       {/* ============ SALARY TEMPLATES TAB ============ */}
       {activeTabState === 'templates' && (
+        !hrUnlocked ? (
+          <SecureGatePrompt onUnlock={() => { setPendingSecureTab('templates'); setShowUnlockModal(true); }} />
+        ) : (
         <div className="space-y-6">
           <div className="flex justify-end">
             <button onClick={() => setShowTemplateForm(true)} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
@@ -937,9 +1133,54 @@ const HRPage: React.FC = () => {
             )}
           </div>
         </div>
+        )
       )}
 
       {/* ============ MODALS ============ */}
+
+      {/* Ops brief §9: re-auth with the logged-in user's own password */}
+      {showUnlockModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center gap-2 mb-2">
+              <ShieldCheck className="w-5 h-5 text-blue-600" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Confirm your password</h3>
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Payroll and profit figures require a second check. Enter the same password you use to log in — not a shared HR password.
+            </p>
+            <form onSubmit={handleUnlockSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Password</label>
+                <input
+                  type="password"
+                  autoFocus
+                  value={unlockPassword}
+                  onChange={(e) => setUnlockPassword(e.target.value)}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
+                  placeholder="Your login password"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowUnlockModal(false); setUnlockPassword(''); setPendingSecureTab(null); }}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={unlocking}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {unlocking ? 'Unlocking…' : 'Unlock for 30 min'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Attendance Form Modal */}
       {showAttendanceForm && (
@@ -1248,5 +1489,23 @@ const HRPage: React.FC = () => {
     </div>
   );
 };
+
+/** Locked-tab placeholder until password re-auth succeeds. */
+const SecureGatePrompt: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => (
+  <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-10 text-center space-y-4">
+    <Lock className="w-10 h-10 text-gray-400 mx-auto" />
+    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Password required</h3>
+    <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
+      Re-enter your login password to view payroll, loans, salary templates, and profit figures.
+    </p>
+    <button
+      type="button"
+      onClick={onUnlock}
+      className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+    >
+      <ShieldCheck className="w-4 h-4 mr-2" /> Unlock
+    </button>
+  </div>
+);
 
 export default HRPage;

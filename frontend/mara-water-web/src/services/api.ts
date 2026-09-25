@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getHrUnlock } from '../utils/hrUnlock';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8005/api/v1';
 
@@ -11,12 +12,16 @@ const api = axios.create({
   },
 });
 
-// Request interceptor to add auth token
+// Request interceptor to add auth token (+ optional HR unlock token)
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('auth_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    const hr = getHrUnlock();
+    if (hr?.token) {
+      config.headers['X-Hr-Unlock'] = hr.token;
     }
     return config;
   },
