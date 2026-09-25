@@ -17,6 +17,8 @@ return Application::configure(basePath: dirname(__DIR__))
         // server-side on every request that carries it.
         $middleware->alias([
             'tier' => \App\Http\Middleware\EnsureAccessTier::class,
+            // Ops brief §9: payroll / profit require password re-auth unlock.
+            'hr.unlocked' => \App\Http\Middleware\EnsureHrUnlocked::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Batch;
 use App\Models\Sku;
 use App\Models\User;
+use App\Models\Warehouse;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
@@ -68,7 +70,12 @@ class BatchController extends Controller
     }
 
     /**
-     * Store a newly created batch
+     * Store a newly created batch.
+     *
+     * Ops brief §4 / Round 5B: Production Lead enters SKU + bales +
+     * manufacture date only. Expiry is derived from the SKU shelf life.
+     * A packaging run is auto-created/completed (good_qty = bales) so
+     * warehouse finished-goods + BOM FIFO still update.
      */
     public function store(Request $request)
     {
@@ -76,8 +83,9 @@ class BatchController extends Controller
             $validator = Validator::make($request->all(), [
                 'sku_id' => 'required|exists:skus,id',
                 'manufacture_date' => 'required|date',
-                'expiry_date' => 'required|date|after:manufacture_date',
+                'expiry_date' => 'nullable|date|after:manufacture_date',
                 'planned_qty' => 'required|integer|min:1',
+                'warehouse_id' => 'nullable|exists:warehouses,id',
             ]);
 
             if ($validator->fails()) {
@@ -88,36 +96,162 @@ class BatchController extends Controller
                 ], 422);
             }
 
-            // Generate unique batch code
+            $sku = Sku::findOrFail($request->sku_id);
+            $expiryDate = $request->expiry_date
+                ?: Carbon::parse($request->manufacture_date)
+                    ->addDays((int) ($sku->expiry_days ?: 365))
+                    ->toDateString();
+
+            $warehouseId = $request->warehouse_id
+                ?: Warehouse::where('code', 'WH-MAIN')->value('id')
+                ?: Warehouse::orderBy('name')->value('id');
+
+            DB::beginTransaction();
+
             $batchCode = $this->generateBatchCode($request->sku_id, $request->manufacture_date);
 
             $batch = Batch::create([
                 'code' => $batchCode,
                 'sku_id' => $request->sku_id,
                 'manufacture_date' => $request->manufacture_date,
-                'expiry_date' => $request->expiry_date,
+                'expiry_date' => $expiryDate,
                 'planned_qty' => $request->planned_qty,
-                'status' => 'open',
+                // in_progress so the auto packaging run can complete it
+                'status' => 'in_progress',
                 'opened_by' => Auth::id(),
                 'created_by' => Auth::id(),
                 'updated_by' => Auth::id(),
             ]);
 
-            $batch->load(['sku', 'openedBy']);
+            $materialWarnings = [];
+            $packagingRun = null;
+
+            if ($warehouseId) {
+                $result = app(PackagingRunController::class)->createCompletedForBatch(
+                    $batch,
+                    (int) $request->planned_qty,
+                    $warehouseId,
+                    'Auto-created from New Batch'
+                );
+                $packagingRun = $result['packaging_run'] ?? null;
+                $materialWarnings = $result['material_warnings'] ?? [];
+            } else {
+                // No warehouse configured yet — still close the production record.
+                $batch->update([
+                    'actual_qty' => (int) $request->planned_qty,
+                    'status' => 'closed',
+                    'closed_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+            }
+
+            DB::commit();
+
+            $batch->refresh()->load(['sku', 'openedBy', 'closedBy']);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Batch created successfully',
                 'data' => [
-                    'batch' => $batch
+                    'batch' => $batch,
+                    'packaging_run' => $packagingRun,
+                    'material_warnings' => $materialWarnings,
                 ]
             ], 201);
 
         } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create batch',
                 'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Daily production aggregation.
+     *
+     * GET without ?date= → list of days with totals (for the calendar/list).
+     * GET ?date=YYYY-MM-DD → every SKU produced that day + grand total.
+     */
+    public function daily(Request $request)
+    {
+        try {
+            if ($request->filled('date')) {
+                $date = $request->date;
+
+                $batches = Batch::with(['sku', 'openedBy'])
+                    ->whereNull('deleted_at')
+                    ->whereDate('manufacture_date', $date)
+                    ->orderBy('code')
+                    ->get();
+
+                $skus = $batches->groupBy('sku_id')->map(function ($group) {
+                    $sku = $group->first()->sku;
+                    $qty = (int) $group->sum(fn ($b) => $b->actual_qty ?? $b->planned_qty);
+
+                    return [
+                        'sku_id' => $sku?->id,
+                        'sku_code' => $sku?->code,
+                        'sku_name' => $sku?->name,
+                        'brand' => $sku?->brand,
+                        'size_liters' => $sku?->size_liters,
+                        'qty_bales' => $qty,
+                        'batch_count' => $group->count(),
+                        'batches' => $group->map(fn ($b) => [
+                            'id' => $b->id,
+                            'code' => $b->code,
+                            'planned_qty' => $b->planned_qty,
+                            'actual_qty' => $b->actual_qty,
+                            'status' => $b->status,
+                            'opened_by' => $b->openedBy ? [
+                                'first_name' => $b->openedBy->first_name,
+                                'last_name' => $b->openedBy->last_name,
+                            ] : null,
+                        ])->values(),
+                    ];
+                })->values();
+
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'date' => $date,
+                        'total_bales' => (int) $skus->sum('qty_bales'),
+                        'sku_count' => $skus->count(),
+                        'batch_count' => $batches->count(),
+                        'skus' => $skus,
+                    ],
+                ]);
+            }
+
+            $limit = (int) $request->get('limit', 60);
+
+            $days = Batch::whereNull('deleted_at')
+                ->selectRaw('DATE(manufacture_date) as date')
+                ->selectRaw('COUNT(*) as batch_count')
+                ->selectRaw('COUNT(DISTINCT sku_id) as sku_count')
+                ->selectRaw('SUM(COALESCE(actual_qty, planned_qty)) as total_bales')
+                ->groupBy(DB::raw('DATE(manufacture_date)'))
+                ->orderByDesc(DB::raw('DATE(manufacture_date)'))
+                ->limit($limit)
+                ->get()
+                ->map(fn ($row) => [
+                    'date' => $row->date,
+                    'batch_count' => (int) $row->batch_count,
+                    'sku_count' => (int) $row->sku_count,
+                    'total_bales' => (int) $row->total_bales,
+                ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => $days,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve daily production',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

@@ -469,6 +469,46 @@ class PackagingRunController extends Controller
         }
     }
 
+    /**
+     * Round 5B / ops brief §4: New Batch UX creates a completed packaging
+     * run behind the scenes so finished-goods stock + BOM FIFO still move
+     * without the Production Lead filling the old Package Run form.
+     * Caller owns the DB transaction.
+     */
+    public function createCompletedForBatch(
+        Batch $batch,
+        int $goodQty,
+        string $warehouseId,
+        ?string $notes = null
+    ): array {
+        $mfg = $batch->manufacture_date
+            ? \Carbon\Carbon::parse($batch->manufacture_date)
+            : now();
+
+        $packagingRun = PackagingRun::create([
+            'batch_id' => $batch->id,
+            'sku_id' => $batch->sku_id,
+            'warehouse_id' => $warehouseId,
+            'run_start' => $mfg->copy()->startOfDay(),
+            'run_end' => $mfg->copy()->setTime(now()->hour, now()->minute, now()->second),
+            'good_qty' => $goodQty,
+            'scrap_qty' => 0,
+            'downtime_minutes' => 0,
+            'notes' => $notes ?? 'Auto-created from New Batch',
+            'run_by' => Auth::id(),
+            'created_by' => Auth::id(),
+            'updated_by' => Auth::id(),
+        ]);
+
+        $this->updateBatchStatus($batch, $goodQty);
+        $materialWarnings = $this->postProductionStockMoves($packagingRun, $warehouseId);
+
+        return [
+            'packaging_run' => $packagingRun->load(['batch', 'sku', 'warehouse', 'runBy']),
+            'material_warnings' => $materialWarnings,
+        ];
+    }
+
     private function updateBatchStatus($batch, $goodQty)
     {
         // Update batch with actual produced quantity

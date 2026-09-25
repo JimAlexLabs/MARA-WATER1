@@ -39,6 +39,7 @@ use App\Http\Controllers\Api\PettyCashController;
 use App\Http\Controllers\Api\DebtorLedgerController;
 use App\Http\Controllers\Api\CostingController;
 use App\Http\Controllers\Api\FinanceController;
+use App\Http\Controllers\Api\HrSecureController;
 use App\Http\Controllers\Api\WarehouseAuditController;
 use App\Http\Controllers\Api\EquipmentController;
 use App\Http\Controllers\Api\OperationsOverviewController;
@@ -194,6 +195,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/water-tests/{id}/verify', [WaterTestController::class, 'verify']);
 
             Route::get('/batches/statistics', [BatchController::class, 'statistics']);
+            Route::get('/batches/daily', [BatchController::class, 'daily']);
             Route::get('/batches/sku/{skuId}', [BatchController::class, 'bySku']);
             Route::get('/batches', [BatchController::class, 'index']);
             Route::post('/batches', [BatchController::class, 'store']);
@@ -220,6 +222,9 @@ Route::prefix('v1')->group(function () {
 
         // Production routes -- Manager/Director operational access.
         Route::middleware('tier:manager,director')->prefix('production')->group(function () {
+            // Ops brief §4: daily production rollup (date list + date drill-down).
+            Route::get('/daily', [BatchController::class, 'daily']);
+
             Route::get('/packaging-runs/statistics', [PackagingRunController::class, 'statistics']);
             Route::get('/packaging-runs/batch/{batchId}', [PackagingRunController::class, 'byBatch']);
             Route::get('/packaging-runs', [PackagingRunController::class, 'index']);
@@ -371,6 +376,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/ledger-summary', [FinanceController::class, 'ledgerSummary']);
         });
 
+        // Ops brief §9: Director live profit — tier:director + HR unlock.
+        Route::middleware(['tier:director', 'hr.unlocked'])->prefix('finance')->group(function () {
+            Route::get('/profit-summary', [FinanceController::class, 'profitSummary']);
+        });
+
         // Fleet routes -- vehicle management is Manager/Director; the
         // route/SKU reference lists and driver trips themselves are also
         // open to Driver (their own trip logging), with DriverTripController
@@ -487,13 +497,16 @@ Route::prefix('v1')->group(function () {
             Route::delete('/attendance/{id}', [AttendanceController::class, 'destroy']);
         });
 
-        // Round 3 Phase 8: Payroll, Loans & Advances, and Salary Templates
-        // are Director-only -- Manager previously shared this whole `hr`
-        // group (tier:manager,director) and could hit these routes even
-        // though the nav never showed them, which is exactly the "hidden
-        // nav item is not real access control" gap the spec calls out.
-        // Attendance stays Manager+Director above; only these three move.
+        // Ops brief §9: password re-auth unlock (Director's own password).
         Route::middleware('tier:director')->prefix('hr')->group(function () {
+            Route::post('/secure-unlock', [HrSecureController::class, 'unlock']);
+            Route::get('/secure-status', [HrSecureController::class, 'status']);
+            Route::post('/secure-lock', [HrSecureController::class, 'lock']);
+        });
+
+        // Round 3 Phase 8: Payroll, Loans & Advances, and Salary Templates
+        // are Director-only + HR unlock (ops brief §9 secondary gate).
+        Route::middleware(['tier:director', 'hr.unlocked'])->prefix('hr')->group(function () {
             // Round 2 Phase 4: Payroll
             Route::get('/payroll/runs', [PayrollController::class, 'index']);
             Route::post('/payroll/runs', [PayrollController::class, 'store']);
