@@ -444,7 +444,9 @@ const DriverTripsPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
-                  <input required type="date" value={newTripForm.trip_date} onChange={e => setNewTripForm({ ...newTripForm, trip_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Trip date (auto)</label>
+                  <input type="date" readOnly value={newTripForm.trip_date} className="mt-1 block w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 rounded-md px-3 py-2 bg-gray-50 cursor-not-allowed" />
+                  <p className="text-xs text-gray-500 mt-1">Captured by the system when you save — not editable.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Vehicle</label>

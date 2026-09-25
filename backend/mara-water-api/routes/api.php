@@ -475,6 +475,8 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::middleware('tier:manager,director')->prefix('hr')->group(function () {
+            Route::get('/attendance/employees', [AttendanceController::class, 'attendanceEmployees']);
+            Route::get('/attendance/export', [AttendanceController::class, 'export']);
             Route::get('/attendance/statistics', [AttendanceController::class, 'statistics']);
             Route::get('/attendance/user/{userId}', [AttendanceController::class, 'byUser']);
             Route::get('/attendance/today', [AttendanceController::class, 'today']);

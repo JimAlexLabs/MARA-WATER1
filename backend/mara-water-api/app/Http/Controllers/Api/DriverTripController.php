@@ -100,26 +100,17 @@ class DriverTripController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'trip_date' => 'required|date',
+            // Trip date is system-stamped at creation (ops brief §2.2 / §11.3).
+            // Client may send it; server always overwrites with today.
+            'trip_date' => 'nullable|date',
             'driver_id' => 'required|exists:users,id',
             'vehicle_id' => 'required|exists:vehicles,id',
             'route' => 'required|string|max:255',
             'warehouse_id' => 'required|exists:warehouses,id',
-            // Round 3 Phase 9: which branch/outlet (KDN/KDQ/Warehouse)
-            // this trip's sales are attributed to, for the Daily Sales &
-            // Debt export -- separate from warehouse_id.
             'location_id' => 'nullable|exists:locations,id',
             'mileage_start' => 'required|integer|min:0',
-            // Required -- someone has to be accountable for authorizing
-            // the dispatch. A Manager creating their own trip defaults to
-            // themselves (frontend); a Driver has no "logged-in manager"
-            // to default to, so must pick one explicitly.
             'authorizing_officer_id' => 'required|exists:users,id',
             'notes' => 'nullable|string|max:1000',
-            // Round 4 Phase 1: bales-only from Production onward -- the
-            // bottle-count column (qty_carried) is no longer a real input
-            // anywhere in this chain; qty_carried_bales is the sole
-            // dispatched quantity a driver enters.
             'items' => 'required|array|min:1',
             'items.*.sku_id' => 'required|exists:skus,id',
             'items.*.qty_carried_bales' => 'required|integer|min:1',
@@ -132,7 +123,7 @@ class DriverTripController extends Controller
 
         $trip = DB::transaction(function () use ($request) {
             $trip = DriverTrip::create([
-                'trip_date' => $request->trip_date,
+                'trip_date' => now()->toDateString(),
                 'driver_id' => $request->driver_id,
                 'vehicle_id' => $request->vehicle_id,
                 'route' => $request->route,

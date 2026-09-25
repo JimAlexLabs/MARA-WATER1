@@ -82,6 +82,32 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $data]);
     }
 
+    /**
+     * Manager attendance employee picker — id/name only, live from HR,
+     * excludes Director/Investor. Does NOT reopen full /users to Manager.
+     */
+    public function attendanceEmployees()
+    {
+        $users = User::with('role:id,name,code,access_tier')
+            ->where('status', 'active')
+            ->whereHas('role', fn ($q) => $q->whereNotIn('access_tier', ['director', 'investor']))
+            ->orderBy('first_name')
+            ->orderBy('last_name')
+            ->get(['id', 'first_name', 'last_name', 'staff_number', 'role_id', 'department_id']);
+
+        $data = $users->map(fn ($u) => [
+            'id' => $u->id,
+            'first_name' => $u->first_name,
+            'last_name' => $u->last_name,
+            'full_name' => trim(($u->first_name ?? '') . ' ' . ($u->last_name ?? '')),
+            'staff_number' => $u->staff_number,
+            'role_name' => optional($u->role)->name,
+            'role_code' => optional($u->role)->code,
+        ]);
+
+        return response()->json(['success' => true, 'data' => $data]);
+    }
+
     public function index(Request $request)
     {
         try {
@@ -673,5 +699,51 @@ class AttendanceController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /** Excel export of attendance rows for Manager/Director. */
+    public function export(Request $request)
+    {
+        $query = Attendance::with(['user.role', 'user.department'])
+            ->whereHas('user.role', fn ($q) => $q->whereNotIn('access_tier', ['director', 'investor']));
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('date', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('date', '<=', $request->date_to);
+        }
+
+        $rows = $query->orderByDesc('date')->orderBy('clock_in_time')->limit(5000)->get();
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $ws = $spreadsheet->getActiveSheet();
+        $ws->setTitle('Attendance');
+        $headers = ['Date', 'Staff', 'Role', 'Department', 'Clock In', 'Clock Out', 'Hours', 'Status', 'Notes'];
+        foreach ($headers as $i => $h) {
+            $ws->setCellValue([$i + 1, 1], $h);
+        }
+        $r = 2;
+        foreach ($rows as $a) {
+            $u = $a->user;
+            $ws->setCellValue([1, $r], $a->date?->toDateString() ?? $a->date);
+            $ws->setCellValue([2, $r], $u ? trim(($u->first_name ?? '') . ' ' . ($u->last_name ?? '')) : '');
+            $ws->setCellValue([3, $r], optional($u?->role)->name);
+            $ws->setCellValue([4, $r], optional($u?->department)->name);
+            $ws->setCellValue([5, $r], $a->clock_in_time);
+            $ws->setCellValue([6, $r], $a->clock_out_time);
+            $ws->setCellValue([7, $r], $a->total_hours);
+            $ws->setCellValue([8, $r], $a->status);
+            $ws->setCellValue([9, $r], $a->notes);
+            $r++;
+        }
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        return new \Symfony\Component\HttpFoundation\StreamedResponse(function () use ($writer) {
+            $writer->save('php://output');
+        }, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="attendance-export.xlsx"',
+        ]);
     }
 }

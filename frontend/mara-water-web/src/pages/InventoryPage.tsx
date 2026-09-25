@@ -253,8 +253,8 @@ const InventoryPage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Inventory Management</h1>
-          <p className="text-gray-600 dark:text-gray-400">Manage stock items and movements</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Inventory — Stock Arrivals</h1>
+          <p className="text-gray-600 dark:text-gray-400">Single warehouse. Goods received in bags; bales expected are computed automatically.</p>
         </div>
         <div className="flex space-x-3">
           <button
@@ -262,7 +262,7 @@ const InventoryPage: React.FC = () => {
             className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             <Plus className="w-4 h-4 mr-2" />
-            New Stock Move
+            Stock Arrival (Goods Received)
           </button>
         </div>
       </div>
@@ -304,8 +304,8 @@ const InventoryPage: React.FC = () => {
           <div className="flex items-center">
             <ArrowUpDown className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Stock Moves</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stockMoves.length}</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Goods Received</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stockMoves.filter(m => (m.move_type || '') === 'grn').length}</p>
             </div>
           </div>
         </div>
@@ -333,7 +333,7 @@ const InventoryPage: React.FC = () => {
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
               }`}
             >
-              Stock Moves ({stockMoves.length})
+              Stock Arrivals ({stockMoves.filter(m => (m.move_type || '') === 'grn').length})
             </button>
             <button
               onClick={() => setActiveTab('stockcard')}
@@ -665,32 +665,31 @@ const InventoryPage: React.FC = () => {
       {showStockMoveForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">New Stock Move</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Stock Arrival — Goods Received</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Arrival type is fixed to Goods Received (single warehouse). Prefer recording bag consignments via Production → Receive Stock or Operations conversions for Fine Line / Blue Plus rates.
+            </p>
             <form onSubmit={handleStockMoveSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Move Type</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Arrival Type</label>
                   <select
-                    value={stockMoveForm.move_type}
-                    onChange={(e) => setStockMoveForm({...stockMoveForm, move_type: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value="grn"
+                    disabled
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 rounded-md px-3 py-2 bg-gray-50 cursor-not-allowed"
                   >
-                    <option value="grn">Goods Receipt (GRN)</option>
-                    <option value="issue">Issue</option>
-                    <option value="produce">Produce</option>
-                    <option value="adjust">Adjust</option>
-                    <option value="transfer">Transfer</option>
+                    <option value="grn">Goods Received</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item Type</label>
                   <select
                     value={stockMoveForm.item_type}
-                    onChange={(e) => setStockMoveForm({...stockMoveForm, item_type: e.target.value})}
+                    onChange={(e) => setStockMoveForm({...stockMoveForm, item_type: e.target.value, move_type: 'grn'})}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="material">Material</option>
-                    <option value="sku">SKU</option>
+                    <option value="material">Material (bags)</option>
+                    <option value="sku">Finished SKU</option>
                   </select>
                 </div>
               </div>

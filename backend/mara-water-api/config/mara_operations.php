@@ -22,21 +22,33 @@ return [
     'bottle_suppliers' => [
         [
             'code' => 'FINELINE',
-            'name' => 'FineLine',
+            'name' => 'Fine Line',
             'city' => 'Nairobi',
             'package_unit' => 'bag',
-            'notes' => 'Empty bottles + top seals; bag packaging specific to FineLine',
+            'notes' => 'Empty bottles + top seals; bag packaging specific to Fine Line',
+        ],
+        [
+            'code' => 'BLUEPLUS',
+            'name' => 'Blue Plus',
+            'city' => 'Nairobi',
+            'package_unit' => 'bag',
+            'notes' => 'Empty bottles + top seals; bag packaging specific to Blue Plus',
         ],
         [
             'code' => 'BLOWPLAST',
             'name' => 'Blowplast',
             'city' => 'Nairobi',
             'package_unit' => 'bag',
-            'notes' => 'Empty bottles + top seals; bag packaging specific to Blowplast',
+            'notes' => 'Legacy supplier code — prefer Blue Plus / Fine Line going forward',
         ],
     ],
 
-    /** Flat Nairobi → Rongo haulage for a bottle consignment (KES). */
+    /**
+     * Fixed bottles per finished bale (sales/production unit).
+     * Bottles-per-bag varies by supplier+SKU and is stored per arrival.
+     * Bales expected = (bags × bottles_per_bag) ÷ bottles_per_bale.
+     */
+    'bottles_per_bale' => 24,
     'bottle_transport_cost_kes' => 45000,
 
     'other_inputs' => [

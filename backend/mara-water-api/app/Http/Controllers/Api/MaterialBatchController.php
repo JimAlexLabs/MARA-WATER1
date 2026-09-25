@@ -55,12 +55,21 @@ class MaterialBatchController extends Controller
             'batch_number' => 'nullable|string|max:50',
             'purchase_date' => 'required|date',
             'supplier_name' => 'nullable|string|max:200',
+            'supplier_code' => 'nullable|string|in:FINELINE,BLUEPLUS,BLOWPLAST,OTHER',
+            'sku_id' => 'nullable|exists:skus,id',
             'unit_cost' => 'required|numeric|min:0',
-            'qty_received' => 'required|numeric|min:0.001',
+            // Ops brief §3: bags received is the capture unit; qty_received
+            // stays as bags for ledger compatibility. Bales are computed.
+            'bags_received' => 'nullable|numeric|min:0.001',
+            'qty_received' => 'required_without:bags_received|nullable|numeric|min:0.001',
+            'bottles_per_bag' => 'nullable|numeric|min:0.001',
+            'bottles_per_bale' => 'nullable|numeric|min:0.001',
             'warehouse_id' => 'required|exists:warehouses,id',
+            'transport_cost' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string|max:1000',
+            'document_path' => 'nullable|string|max:500',
+            'arrival_type' => 'nullable|in:goods_received',
 
-            // Round 5B Phase 1: quality check at receipt (Warehouse Audit link).
             'quality_status' => 'nullable|in:pending,passed,failed',
             'quality_notes' => 'nullable|string|max:2000',
         ]);
@@ -77,7 +86,7 @@ class MaterialBatchController extends Controller
                         'code' => $request->input('new_material.code'),
                         'name' => $request->input('new_material.name'),
                         'category' => $request->input('new_material.category'),
-                        'uom' => $request->input('new_material.uom'),
+                        'uom' => $request->input('new_material.uom', 'bag'),
                         'unit_cost' => $request->unit_cost,
                         'is_consumable' => true,
                         'min_level' => $request->input('new_material.min_level') ?? 0,
@@ -89,6 +98,28 @@ class MaterialBatchController extends Controller
                     ? $request->batch_number
                     : $material->code . '-' . $request->purchase_date . '-' . strtoupper(Str::random(4));
 
+                $bags = (float) ($request->bags_received ?? $request->qty_received);
+                $bottlesPerBag = (float) ($request->bottles_per_bag
+                    ?? config('mara_operations.default_conversions.bottles_per_bag', 24));
+                $bottlesPerBale = (float) ($request->bottles_per_bale
+                    ?? config('mara_operations.bottles_per_bale', 24));
+                // Hard rule: never typed — always derived.
+                $balesExpected = ($bottlesPerBag > 0 && $bottlesPerBale > 0)
+                    ? round(($bags * $bottlesPerBag) / $bottlesPerBale, 3)
+                    : 0;
+
+                // Prefer conversion table when supplier+SKU provided
+                if ($request->filled('supplier_code') && $request->filled('sku_id')) {
+                    $conv = \App\Models\SkuPackageConversion::where('supplier_code', strtoupper($request->supplier_code))
+                        ->where('sku_id', $request->sku_id)
+                        ->first();
+                    if ($conv) {
+                        $bottlesPerBag = (float) $conv->bottles_per_bag;
+                        $bottlesPerBale = (float) $conv->bottles_per_bale;
+                        $balesExpected = $conv->bagsToBales($bags);
+                    }
+                }
+
                 $qualityStatus = $request->input('quality_status', 'pending');
                 $qualityCheckedAt = null;
                 $qualityCheckedBy = null;
@@ -97,25 +128,43 @@ class MaterialBatchController extends Controller
                     $qualityCheckedBy = Auth::id();
                 }
 
+                $supplierCode = $request->supplier_code
+                    ? strtoupper($request->supplier_code)
+                    : null;
+                $supplierName = $request->supplier_name;
+                if (!$supplierName && $supplierCode) {
+                    $known = collect(config('mara_operations.bottle_suppliers', []))
+                        ->firstWhere('code', $supplierCode);
+                    $supplierName = $known['name'] ?? $supplierCode;
+                }
+
                 $batch = MaterialBatch::create([
                     'material_id' => $material->id,
+                    'sku_id' => $request->sku_id,
                     'batch_number' => $batchNumber,
+                    'arrival_type' => 'goods_received',
                     'purchase_date' => $request->purchase_date,
-                    'supplier_name' => $request->supplier_name,
+                    'supplier_name' => $supplierName,
+                    'supplier_code' => $supplierCode,
                     'unit_cost' => $request->unit_cost,
-                    'qty_received' => $request->qty_received,
-                    'qty_remaining' => $request->qty_received,
+                    'transport_cost' => $request->transport_cost,
+                    'qty_received' => $bags,
+                    'bags_received' => $bags,
+                    'bottles_per_bag' => $bottlesPerBag,
+                    'bottles_per_bale' => $bottlesPerBale,
+                    'bales_expected' => $balesExpected,
+                    'qty_remaining' => $bags,
+                    'package_unit' => 'bag',
                     'warehouse_id' => $request->warehouse_id,
                     'received_by' => Auth::id(),
                     'notes' => $request->notes,
+                    'document_path' => $request->document_path,
                     'quality_status' => $qualityStatus,
                     'quality_checked_at' => $qualityCheckedAt,
                     'quality_checked_by' => $qualityCheckedBy,
                     'quality_notes' => $request->quality_notes,
                 ]);
 
-                // Only post stock when quality passed — failed/pending stays
-                // off the usable ledger until a pass check (completeQuality).
                 if ($qualityStatus === 'passed') {
                     $inventory = new InventoryController();
                     $inventory->recordMove([
@@ -123,8 +172,8 @@ class MaterialBatchController extends Controller
                         'item_type' => 'material',
                         'material_id' => $material->id,
                         'warehouse_to_id' => $request->warehouse_id,
-                        'qty' => $request->qty_received,
-                        'uom' => $material->uom,
+                        'qty' => $bags,
+                        'uom' => 'bag',
                         'unit_cost' => $request->unit_cost,
                         'ref_entity' => 'material_batch',
                         'ref_id' => $batch->id,
@@ -140,14 +189,14 @@ class MaterialBatchController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => $result->quality_status === 'passed'
-                    ? 'Batch received, quality passed, and stock updated'
-                    : 'Batch received — quality ' . $result->quality_status . ' (stock posts when quality is passed)',
+                    ? "Stock arrival recorded — {$result->bales_expected} bales expected from {$result->bags_received} bags"
+                    : 'Stock arrival recorded — quality ' . $result->quality_status . " ({$result->bales_expected} bales expected; stock posts when quality is passed)",
                 'data' => ['material_batch' => $result],
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to record batch',
+                'message' => 'Failed to record stock arrival',
                 'error' => $e->getMessage(),
             ], 500);
         }
@@ -187,7 +236,7 @@ class MaterialBatchController extends Controller
                         'material_id' => $batch->material_id,
                         'warehouse_to_id' => $batch->warehouse_id,
                         'qty' => $batch->qty_received,
-                        'uom' => $batch->material->uom ?? 'UNIT',
+                        'uom' => 'bag',
                         'unit_cost' => $batch->unit_cost,
                         'ref_entity' => 'material_batch',
                         'ref_id' => $batch->id,

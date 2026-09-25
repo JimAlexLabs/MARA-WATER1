@@ -21,7 +21,11 @@ interface FieldTeamMember {
   id: string; full_name: string; role_code: string | null; role_name: string | null;
   clocked_in: boolean; clocked_out: boolean; clock_in_time: string | null; clock_out_time: string | null;
 }
-const ROLE_SECTION_LABEL: Record<string, string> = { DRV: 'Driver', SALES: 'Sales', FIELDWORK: 'Field Work / Marketing' };
+const ROLE_SECTION_LABEL: Record<string, string> = {
+  DRV: 'Driver Check-In / Check-Out',
+  SALES: 'Sales Executive Check-In / Check-Out',
+  FIELDWORK: 'Field Work / Marketing Check-In / Check-Out',
+};
 
 const DriverAttendancePage: React.FC = () => {
   const { user } = useAuth();
@@ -109,7 +113,9 @@ const DriverAttendancePage: React.FC = () => {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Check In / Check Out</h1>
-        <p className="text-gray-600 dark:text-gray-400">Your own attendance, plus independent controls for whoever else is on this trip -- Driver, Sales, and Field Work each have their own row, not one shared control.</p>
+        <p className="text-gray-600 dark:text-gray-400">
+          Separate records for Driver and Sales Executive (and Field Work). Timestamps are system-generated and feed Manager + Director attendance.
+        </p>
       </div>
 
       {/* Your own quick clock in/out */}
@@ -118,33 +124,33 @@ const DriverAttendancePage: React.FC = () => {
           <div className="flex items-center">
             <Clock className="w-8 h-8 text-blue-600 mr-3" />
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Today (you)</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Your attendance today</p>
               <p className="text-gray-900 dark:text-gray-100 font-medium">
-                {summary?.today.clocked_in ? `Clocked in at ${summary.today.clock_in_time}` : 'Not clocked in yet'}
-                {summary?.today.clocked_out ? ` · Clocked out at ${summary.today.clock_out_time}` : ''}
+                {summary?.today.clocked_in ? `Checked in at ${summary.today.clock_in_time}` : 'Not checked in yet'}
+                {summary?.today.clocked_out ? ` · Checked out at ${summary.today.clock_out_time}` : ''}
               </p>
             </div>
           </div>
           <div className="flex gap-3">
             <button onClick={handleClockIn} disabled={clockLoading || !!summary?.today.clocked_in}
               className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
-              <LogIn className="w-4 h-4 mr-2" /> Clock In
+              <LogIn className="w-4 h-4 mr-2" /> Check In
             </button>
             <button onClick={handleClockOut} disabled={clockLoading || !summary?.today.clocked_in || !!summary?.today.clocked_out}
               className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50">
-              <LogOut className="w-4 h-4 mr-2" /> Clock Out
+              <LogOut className="w-4 h-4 mr-2" /> Check Out
             </button>
           </div>
         </div>
       </div>
 
-      {/* Round 4 Phase 9: three independent Check In/Check Out
-          controls -- one per person on this trip, never one generic
-          control standing in for everyone. */}
+      {/* Distinct role sections — never one shared ambiguous control */}
       {fieldTeam.length > 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">Team Check In / Check Out</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">One shared dashboard, three independent check-in/checkout controls -- each person checks themselves in/out here, whether or not they're the one logged in.</p>
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">Role check-in stations</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Each role has its own labeled station. Driver and Sales Executive are never mixed into one "clock-in teammate" control.
+          </p>
           <div className="space-y-4">
             {(['DRV', 'SALES', 'FIELDWORK'] as const).filter(code => fieldTeam.some(m => m.role_code === code)).map(code => (
               <div key={code}>
@@ -178,7 +184,7 @@ const DriverAttendancePage: React.FC = () => {
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <p className="text-sm text-gray-500 dark:text-gray-400">No Driver, Sales, or Field Work team members are assigned yet -- your Director assigns these roles under Users/HR.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No Driver, Sales Executive, or Field Work team members are assigned yet — your Director assigns these roles under Users.</p>
         </div>
       )}
     </div>

@@ -147,7 +147,7 @@ const DashboardPage: React.FC = () => {
   const quickActions = [
     { name: 'Log a Sale', description: 'Create a customer order', icon: Truck, color: 'bg-purple-600 hover:bg-purple-700', route: '/sales?tab=orders' },
     { name: 'Add a Customer', description: 'Register a new customer', icon: UserPlus, color: 'bg-blue-600 hover:bg-blue-700', route: '/sales?tab=customers' },
-    { name: 'Add Stock Movement', description: 'Log stock in/out', icon: Package, color: 'bg-green-600 hover:bg-green-700', route: '/inventory' },
+    { name: 'Stock Arrival', description: 'Goods received (bags)', icon: Package, color: 'bg-green-600 hover:bg-green-700', route: '/inventory' },
     { name: 'New Water Test', description: 'Record QA parameters', icon: Droplets, color: 'bg-cyan-600 hover:bg-cyan-700', route: '/qa' },
     { name: 'Record Payment', description: 'Mark an invoice paid', icon: DollarSign, color: 'bg-orange-600 hover:bg-orange-700', route: '/finance' },
     { name: 'Staff Attendance', description: 'Record today’s attendance', icon: Users, color: 'bg-pink-600 hover:bg-pink-700', route: '/hr' },

@@ -230,11 +230,11 @@ const HRPage: React.FC = () => {
 
   const fetchEmployees = async () => {
     try {
-      const response = await api.get('/users', { params: { per_page: 200 } });
+      // Manager cannot hit Director-only /users — use the attendance staff list.
+      const response = await api.get('/hr/attendance/employees');
       setEmployees(response.data.data || []);
     } catch (error) {
-      // Non-fatal -- the attendance list itself still works, only the
-      // "Record Attendance" form's employee picker would be empty.
+      toast.error('Could not load staff list for attendance');
     }
   };
 
@@ -575,6 +575,25 @@ const HRPage: React.FC = () => {
             >
               <Plus className="w-4 h-4 mr-2" />
               Record Attendance
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const res = await api.get('/hr/attendance/export', { responseType: 'blob' });
+                  const url = window.URL.createObjectURL(new Blob([res.data]));
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'attendance-export.xlsx';
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                } catch {
+                  toast.error('Attendance export failed');
+                }
+              }}
+              className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
+            >
+              Export Excel
             </button>
           </div>
 
