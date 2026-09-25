@@ -39,11 +39,34 @@ interface TripSale {
 }
 interface ActiveTrip {
   id: string; trip_date: string; status: 'pending_departure' | 'in_transit' | 'completed';
-  route: string | null; vehicle?: VehicleRef; warehouse?: WarehouseRef; authorizingOfficer?: OfficerRef;
+  route: string | null; vehicle?: VehicleRef; warehouse?: WarehouseRef;
+  authorizingOfficer?: OfficerRef | null;
+  authorizing_officer_id?: string | null;
   mileage_start: number | null; mileage_end: number | null; has_discrepancy: boolean;
   items: TripItem[]; sales: TripSale[];
   total_collected: number; reconciliation: { expected_revenue: number; collected: number; variance: number; matches: boolean; stock_matches: boolean };
 }
+
+/** Laravel serializes relations as snake_case (`authorizing_officer`); the UI historically expected camelCase. */
+const officerFromTripPayload = (raw: any): OfficerRef | null => {
+  const o = raw?.authorizingOfficer ?? raw?.authorizing_officer ?? null;
+  if (!o) return null;
+  const full = o.full_name || [o.first_name, o.last_name].filter(Boolean).join(' ').trim();
+  return { id: o.id, full_name: full || 'Officer' };
+};
+
+const normalizeActiveTrip = (raw: any): ActiveTrip => ({
+  ...raw,
+  authorizing_officer_id: raw.authorizing_officer_id ?? raw.authorizingOfficer?.id ?? raw.authorizing_officer?.id ?? null,
+  authorizingOfficer: officerFromTripPayload(raw),
+  vehicle: raw.vehicle,
+  warehouse: raw.warehouse,
+  items: raw.items || [],
+  sales: raw.sales || [],
+});
+
+const hasAuthorizingOfficer = (trip: ActiveTrip | null | undefined): boolean =>
+  Boolean(trip?.authorizing_officer_id || trip?.authorizingOfficer?.id);
 
 const BRAND_ORDER = ['Premium', 'Platinum', 'Grace', 'Refill'];
 const brandLabel = (brand: string | null) => brand || 'Uncategorized';
@@ -106,10 +129,12 @@ const DriverTripsPage: React.FC = () => {
     api.get('/fleet/trips', { params: { limit: 10 } }).then(res => {
       const open = (res.data.data as { id: string; status: string }[]).find(t => t.status !== 'completed');
       if (!open) { setActiveTrip(null); setActiveTripLoading(false); return; }
-      api.get(`/fleet/trips/${open.id}`).then(r => setActiveTrip(r.data.data)).finally(() => setActiveTripLoading(false));
+      api.get(`/fleet/trips/${open.id}`)
+        .then(r => setActiveTrip(normalizeActiveTrip(r.data.data)))
+        .finally(() => setActiveTripLoading(false));
     }).catch(() => setActiveTripLoading(false));
   };
-  useEffect(() => { fetchActiveTrip(); }, []);
+  useEffect(() => { fetchActiveTrip(); fetchTripRefData(); }, []);
 
   const fetchTripRefData = () => {
     // Driver-tier accessible reference lists only -- /fleet/vehicles-list
@@ -162,10 +187,16 @@ const DriverTripsPage: React.FC = () => {
 
     setSavingTrip(true);
     try {
-      const res = await api.post('/fleet/trips', { ...newTripForm, items });
+      const payload = {
+        ...newTripForm,
+        mileage_start: parseInt(String(newTripForm.mileage_start), 10),
+        authorizing_officer_id: newTripForm.authorizing_officer_id,
+        items,
+      };
+      const res = await api.post('/fleet/trips', payload);
       toast.success('Trip created -- pending departure. Start it once loaded.');
       setShowNewTripForm(false);
-      setActiveTrip(res.data.data);
+      setActiveTrip(normalizeActiveTrip(res.data.data));
     } catch (error: any) {
       const errors = error.response?.data?.errors;
       const firstError = errors ? Object.values(errors)[0] : null;
@@ -178,17 +209,32 @@ const DriverTripsPage: React.FC = () => {
   // ============ Stage 3: Start Trip ============
   const startTrip = async () => {
     if (!activeTrip) return;
+    if (!hasAuthorizingOfficer(activeTrip)) {
+      toast.error('Select an authorizing officer before starting the trip');
+      return;
+    }
     setStarting(true);
     try {
       const res = await api.post(`/fleet/trips/${activeTrip.id}/start`);
       toast.success('Trip started -- dispatch is now locked');
       const warnings: { message: string }[] = res.data?.stock_warnings || [];
       warnings.forEach(w => toast.error(w.message, { duration: 8000 }));
-      setActiveTrip(res.data.data);
+      setActiveTrip(normalizeActiveTrip(res.data.data));
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to start trip');
     } finally {
       setStarting(false);
+    }
+  };
+
+  const saveAuthorizingOfficer = async (officerId: string) => {
+    if (!activeTrip || !officerId) return;
+    try {
+      const res = await api.put(`/fleet/trips/${activeTrip.id}`, { authorizing_officer_id: officerId });
+      setActiveTrip(normalizeActiveTrip(res.data.data));
+      toast.success('Authorizing officer saved');
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to save authorizing officer');
     }
   };
 
@@ -304,6 +350,21 @@ const DriverTripsPage: React.FC = () => {
             <div><dt className="text-gray-500 dark:text-gray-400">Mileage Start</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{activeTrip.mileage_start ?? '—'}</dd></div>
           </dl>
 
+          {activeTrip.status === 'pending_departure' && !hasAuthorizingOfficer(activeTrip) && (
+            <div className="mb-4 p-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800">
+              <p className="text-sm text-amber-900 dark:text-amber-200 mb-2">Authorizing officer is required before Start Trip.</p>
+              <select
+                defaultValue=""
+                onFocus={() => { if (officers.length === 0) fetchTripRefData(); }}
+                onChange={e => { if (e.target.value) saveAuthorizingOfficer(e.target.value); }}
+                className="w-full sm:w-80 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 text-sm"
+              >
+                <option value="">Select authorizing officer…</option>
+                {officers.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
+              </select>
+            </div>
+          )}
+
           <div className="overflow-x-auto mb-4">
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
               <thead>
@@ -327,12 +388,14 @@ const DriverTripsPage: React.FC = () => {
 
           {activeTrip.status === 'pending_departure' && (
             <div className="flex flex-col items-end">
-              {/* Round 4 Phase 3: disabled (not just validated on
-                  submit) while Authorizing Officer is empty. */}
-              <button onClick={startTrip} disabled={starting || !activeTrip.authorizingOfficer} className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed">
+              <button
+                onClick={startTrip}
+                disabled={starting || !hasAuthorizingOfficer(activeTrip)}
+                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
                 <Lock className="w-4 h-4 mr-2" /> {starting ? 'Starting…' : 'Start Trip'}
               </button>
-              {!activeTrip.authorizingOfficer && (
+              {!hasAuthorizingOfficer(activeTrip) && (
                 <p className="text-xs text-red-600 mt-1">Required before you can start the trip</p>
               )}
             </div>

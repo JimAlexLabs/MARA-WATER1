@@ -257,6 +257,12 @@ class DriverTripController extends Controller
         if ($trip->status !== 'pending_departure') {
             return response()->json(['success' => false, 'message' => 'Trip already started'], 422);
         }
+        if (!$trip->authorizing_officer_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Authorizing officer is required before you can start the trip.',
+            ], 422);
+        }
         if ($trip->items->isEmpty()) {
             return response()->json(['success' => false, 'message' => 'Add at least one dispatched item before starting the trip'], 422);
         }

@@ -1085,7 +1085,11 @@ const FleetPage: React.FC = () => {
               <div><dt className="text-gray-500 dark:text-gray-400">Mileage</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.mileage_start ?? '—'} → {viewingTrip.mileage_end ?? '—'} ({viewingTrip.km_covered ?? '—'} km)</dd></div>
               <div><dt className="text-gray-500 dark:text-gray-400">Fuel</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.fuel_liters ?? '—'} L (KES {viewingTrip.fuel_cost ?? '0'})</dd></div>
               <div><dt className="text-gray-500 dark:text-gray-400">Departure / Return</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.time_out ?? '—'} → {viewingTrip.time_in ?? '—'}</dd></div>
-              <div><dt className="text-gray-500 dark:text-gray-400">Authorizing Officer</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.authorizingOfficer ? `${viewingTrip.authorizingOfficer.first_name} ${viewingTrip.authorizingOfficer.last_name}` : '—'}</dd></div>
+              <div><dt className="text-gray-500 dark:text-gray-400">Authorizing Officer</dt><dd className="text-gray-900 dark:text-gray-100">{(() => {
+                const o = viewingTrip.authorizingOfficer || (viewingTrip as any).authorizing_officer;
+                if (!o) return '—';
+                return o.full_name || `${o.first_name || ''} ${o.last_name || ''}`.trim() || '—';
+              })()}</dd></div>
               {viewingTrip.notes && <div className="col-span-2 md:col-span-3"><dt className="text-gray-500 dark:text-gray-400">Notes</dt><dd className="text-gray-900 dark:text-gray-100">{viewingTrip.notes}</dd></div>}
             </dl>
 
