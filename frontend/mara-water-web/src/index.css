@@ -166,3 +166,20 @@
     display: none;
   }
 }
+
+/* Capacitor / Android shell — safe areas + denser field chrome */
+html.mara-mobile,
+body.mara-mobile {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+}
+
+body.mara-mobile button,
+body.mara-mobile a,
+body.mara-mobile [role="button"] {
+  min-height: 44px;
+}
