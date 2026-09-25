@@ -6,10 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\Customer;
 use App\Models\Debt;
+use App\Models\Discrepancy;
+use App\Models\DriverAssignment;
 use App\Models\DriverTrip;
 use App\Models\DriverTripItem;
 use App\Models\DriverTripSale;
 use App\Models\DriverTripSaleItem;
+use App\Models\FuelLog;
+use App\Models\Issue;
+use App\Models\VehicleRepair;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -230,6 +235,179 @@ class DriverSummaryController extends Controller
                 'per_page' => $sales->perPage(),
                 'total' => $sales->total(),
                 'last_page' => $sales->lastPage(),
+            ],
+        ]);
+    }
+
+    /**
+     * Ops brief §2.5: customer base for route planning — customers this
+     * driver registered or sold to (central CRM subset, not company-wide).
+     */
+    public function myCustomers(Request $request)
+    {
+        $userId = Auth::id();
+
+        $soldToIds = DriverTripSale::whereNull('deleted_at')
+            ->whereNotNull('customer_id')
+            ->whereHas('trip', fn ($q) => $q->where('driver_id', $userId))
+            ->pluck('customer_id');
+
+        $customers = Customer::whereNull('deleted_at')
+            ->where(function ($q) use ($userId, $soldToIds) {
+                $q->where('created_by', $userId)
+                    ->orWhereIn('id', $soldToIds);
+            })
+            ->orderBy('name')
+            ->paginate($request->get('limit', 50));
+
+        $items = collect($customers->items())->map(fn ($c) => [
+            'id' => $c->id,
+            'name' => $c->name,
+            'phone' => $c->phone,
+            'type' => $c->type,
+            'address' => $c->address,
+            'created_by_me' => $c->created_by === $userId,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $items,
+            'pagination' => [
+                'current_page' => $customers->currentPage(),
+                'per_page' => $customers->perPage(),
+                'total' => $customers->total(),
+                'last_page' => $customers->lastPage(),
+            ],
+        ]);
+    }
+
+    /**
+     * Ops brief §2.5: operational KPIs — km, sell-through, fuel, repairs,
+     * flagged discrepancies / open issues for this driver.
+     */
+    public function opsKpis(Request $request)
+    {
+        $userId = Auth::id();
+        $monthStart = now()->startOfMonth()->toDateString();
+        $today = now()->toDateString();
+
+        $monthTrips = DriverTrip::with('items')
+            ->where('driver_id', $userId)
+            ->where('trip_date', '>=', $monthStart)
+            ->get();
+
+        $dispatched = (int) $monthTrips->sum(fn ($t) => $t->items->sum('qty_carried_bales'));
+        $sold = (int) DriverTripSaleItem::join('driver_trip_sales', 'driver_trip_sales.id', '=', 'driver_trip_sale_items.driver_trip_sale_id')
+            ->join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
+            ->where('driver_trips.driver_id', $userId)
+            ->where('driver_trips.trip_date', '>=', $monthStart)
+            ->whereNull('driver_trip_sales.deleted_at')
+            ->sum('driver_trip_sale_items.qty_bales');
+        $returned = max(0, $dispatched - $sold);
+        $sellThrough = $dispatched > 0 ? round(($sold / $dispatched) * 100, 1) : null;
+
+        $activeTrip = DriverTrip::with('items')
+            ->where('driver_id', $userId)
+            ->where('status', 'in_transit')
+            ->first();
+
+        $activeDispatched = $activeTrip ? (int) $activeTrip->items->sum('qty_carried_bales') : 0;
+        $activeSold = 0;
+        if ($activeTrip) {
+            $activeSold = (int) DriverTripSaleItem::join('driver_trip_sales', 'driver_trip_sales.id', '=', 'driver_trip_sale_items.driver_trip_sale_id')
+                ->where('driver_trip_sales.driver_trip_id', $activeTrip->id)
+                ->whereNull('driver_trip_sales.deleted_at')
+                ->sum('driver_trip_sale_items.qty_bales');
+        }
+
+        $vehicleIds = DriverAssignment::where('driver_id', $userId)
+            ->whereNull('end_date')
+            ->pluck('vehicle_id');
+        // Also include vehicles used on this month's trips.
+        $vehicleIds = $vehicleIds->merge($monthTrips->pluck('vehicle_id'))->filter()->unique()->values();
+
+        $fuelMonth = (float) FuelLog::whereNull('deleted_at')
+            ->whereIn('vehicle_id', $vehicleIds)
+            ->where('date', '>=', $monthStart)
+            ->where('date', '<=', $today)
+            ->sum('cost');
+
+        $fuelActiveTrip = 0.0;
+        if ($activeTrip && $activeTrip->vehicle_id) {
+            $fuelActiveTrip = (float) FuelLog::whereNull('deleted_at')
+                ->where('vehicle_id', $activeTrip->vehicle_id)
+                ->where('date', $activeTrip->trip_date?->toDateString() ?? $activeTrip->trip_date)
+                ->sum('cost');
+            // Fallback to trip fuel_cost if fuel_logs empty for that day.
+            if ($fuelActiveTrip <= 0 && $activeTrip->fuel_cost) {
+                $fuelActiveTrip = (float) $activeTrip->fuel_cost;
+            }
+        }
+
+        $repairs = VehicleRepair::whereNull('deleted_at')
+            ->whereIn('vehicle_id', $vehicleIds)
+            ->orderByDesc('repair_date')
+            ->limit(20)
+            ->get()
+            ->map(fn ($r) => [
+                'id' => $r->id,
+                'repair_date' => optional($r->repair_date)->toDateString(),
+                'category' => $r->category,
+                'description' => $r->description,
+                'cost' => (float) $r->cost,
+                'vehicle_id' => $r->vehicle_id,
+            ]);
+
+        $repairsMonthCost = (float) VehicleRepair::whereNull('deleted_at')
+            ->whereIn('vehicle_id', $vehicleIds)
+            ->where('repair_date', '>=', $monthStart)
+            ->sum('cost');
+
+        $flaggedTrips = DriverTrip::where('driver_id', $userId)
+            ->where('has_discrepancy', true)
+            ->orderByDesc('trip_date')
+            ->limit(10)
+            ->get(['id', 'trip_date', 'route', 'status', 'has_discrepancy']);
+
+        $openIssues = Issue::where('created_by', $userId)
+            ->whereNotIn('status', ['resolved', 'closed'])
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get(['id', 'subject', 'status', 'created_at']);
+
+        $myDiscrepancies = Discrepancy::where('driver_id', $userId)
+            ->where('status', 'open')
+            ->orderByDesc('date')
+            ->limit(10)
+            ->get(['id', 'date', 'category', 'status', 'description', 'driver_trip_id']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'this_month' => [
+                    'km_covered' => (int) $monthTrips->sum('km_covered'),
+                    'bales_dispatched' => $dispatched,
+                    'bales_sold' => $sold,
+                    'bales_returned' => $returned,
+                    'sell_through_pct' => $sellThrough,
+                    'fuel_cost' => round($fuelMonth, 2),
+                    'repair_cost' => round($repairsMonthCost, 2),
+                ],
+                'active_trip' => $activeTrip ? [
+                    'id' => $activeTrip->id,
+                    'km_covered' => $activeTrip->km_covered,
+                    'bales_dispatched' => $activeDispatched,
+                    'bales_sold' => $activeSold,
+                    'bales_returned' => max(0, $activeDispatched - $activeSold),
+                    'sell_through_pct' => $activeDispatched > 0
+                        ? round(($activeSold / $activeDispatched) * 100, 1)
+                        : null,
+                    'fuel_cost' => round($fuelActiveTrip, 2),
+                ] : null,
+                'repairs' => $repairs,
+                'flagged_trips' => $flaggedTrips,
+                'open_issues' => $openIssues,
+                'discrepancies' => $myDiscrepancies,
             ],
         ]);
     }

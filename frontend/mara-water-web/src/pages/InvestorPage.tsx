@@ -43,6 +43,14 @@ const InvestorPage: React.FC = () => {
     dispatch_sales?: { returned_bales_computed: number; dispatched_bales_month: number; sold_bales_month: number };
     site?: { operations_base: string; sourcing_city: string };
   } | null>(null);
+  const [pricing, setPricing] = useState<{
+    companies: string[];
+    rows: {
+      sku: string; brand: string | null; size_liters: number;
+      mara_default: number | null; mara_corporate: number | null;
+      competitors: { company: string; unit_price: number | null }[];
+    }[];
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -50,10 +58,12 @@ const InvestorPage: React.FC = () => {
     Promise.all([
       api.get('/investor/summary'),
       api.get('/investor/operations-overview').catch(() => null),
+      api.get('/investor/pricing-overview').catch(() => null),
     ])
-      .then(([sumRes, opsRes]) => {
+      .then(([sumRes, opsRes, priceRes]) => {
         setData(sumRes.data.data);
         if (opsRes?.data?.data) setOps(opsRes.data.data);
+        if (priceRes?.data?.data) setPricing(priceRes.data.data);
       })
       .catch(() => setError('Could not load the summary.'))
       .finally(() => setLoading(false));
@@ -247,6 +257,42 @@ const InvestorPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {pricing && pricing.rows.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 overflow-x-auto">
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Market pricing overview</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Default, corporate, and competitive rates — strategic comparison only, not editable here.
+          </p>
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-500 uppercase">
+                <th className="py-2 pr-3">SKU</th>
+                <th className="py-2 pr-3">MARA Default</th>
+                <th className="py-2 pr-3">Corporate</th>
+                {(pricing.companies || []).map(c => (
+                  <th key={c} className="py-2 pr-3">{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {pricing.rows.slice(0, 12).map((row, i) => (
+                <tr key={i}>
+                  <td className="py-2 pr-3 text-gray-900 dark:text-gray-100">
+                    {row.sku}
+                    <span className="block text-xs text-gray-500">{row.size_liters}L</span>
+                  </td>
+                  <td className="py-2 pr-3">{row.mara_default != null ? money(row.mara_default) : '—'}</td>
+                  <td className="py-2 pr-3">{row.mara_corporate != null ? money(row.mara_corporate) : '—'}</td>
+                  {row.competitors.map((c, j) => (
+                    <td key={j} className="py-2 pr-3">{c.unit_price != null ? money(c.unit_price) : '—'}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 };

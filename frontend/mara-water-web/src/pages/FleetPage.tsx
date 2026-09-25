@@ -323,6 +323,47 @@ const FleetPage: React.FC = () => {
     }).catch(() => toast.error('Failed to export fuel logs'));
   };
 
+  // Ops brief §2.5: vehicle repairs (major/minor)
+  interface RepairRow {
+    id: string; repair_date: string; category: string; description: string; cost: string;
+    vehicle?: { id: string; reg_no: string };
+  }
+  const [repairs, setRepairs] = useState<RepairRow[]>([]);
+  const [repairVehicleFilter, setRepairVehicleFilter] = useState('');
+  const [showRepairForm, setShowRepairForm] = useState(false);
+  const [repairForm, setRepairForm] = useState({ vehicle_id: '', repair_date: today, category: 'minor', description: '', cost: '' });
+  const [savingRepair, setSavingRepair] = useState(false);
+
+  const fetchRepairs = () => {
+    api.get('/fleet/repairs', { params: { vehicle_id: repairVehicleFilter || undefined, limit: 100 } })
+      .then(res => setRepairs(res.data.data)).catch(() => toast.error('Failed to load repairs'));
+  };
+  useEffect(() => { if (activeTab === 'repairs') fetchRepairs(); }, [activeTab, repairVehicleFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submitRepair = async () => {
+    if (!repairForm.vehicle_id || !repairForm.description || !repairForm.cost) {
+      toast.error('Vehicle, description, and cost are required'); return;
+    }
+    setSavingRepair(true);
+    try {
+      await api.post('/fleet/repairs', {
+        vehicle_id: repairForm.vehicle_id,
+        repair_date: repairForm.repair_date,
+        category: repairForm.category,
+        description: repairForm.description,
+        cost: parseFloat(repairForm.cost),
+      });
+      toast.success('Repair logged');
+      setShowRepairForm(false);
+      setRepairForm({ vehicle_id: '', repair_date: today, category: 'minor', description: '', cost: '' });
+      fetchRepairs();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to log repair');
+    } finally {
+      setSavingRepair(false);
+    }
+  };
+
   // ============ Round 4 Phase 7: Mileage Logs ============
   const [mileageLogs, setMileageLogs] = useState<MileageLogRow[]>([]);
   const [mileageVehicleFilter, setMileageVehicleFilter] = useState('');
@@ -438,7 +479,7 @@ const FleetPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="flex space-x-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1 w-fit">
-        {[{ id: 'vehicles', name: 'Vehicles' }, { id: 'trips', name: 'Driver Trips' }, { id: 'fuel', name: 'Fuel Logs' }, { id: 'mileage', name: 'Mileage Logs' }].map(tab => (
+        {[{ id: 'vehicles', name: 'Vehicles' }, { id: 'trips', name: 'Driver Trips' }, { id: 'fuel', name: 'Fuel Logs' }, { id: 'repairs', name: 'Repairs' }, { id: 'mileage', name: 'Mileage Logs' }].map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -795,6 +836,88 @@ const FleetPage: React.FC = () => {
               <button onClick={submitFuelLog} disabled={savingFuel} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingFuel ? 'Saving…' : 'Save'}</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Ops brief §2.5: major/minor vehicle repairs */}
+      {activeTab === 'repairs' && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-wrap gap-3 items-end justify-between">
+            <div className="flex flex-wrap gap-3 items-end">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Vehicle</label>
+                <select value={repairVehicleFilter} onChange={e => setRepairVehicleFilter(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm">
+                  <option value="">All vehicles</option>
+                  {vehicles.map(v => <option key={v.id} value={v.id}>{v.reg_no}</option>)}
+                </select>
+              </div>
+              <button
+                onClick={() => api.get('/fleet/repairs/export', { params: { vehicle_id: repairVehicleFilter || undefined }, responseType: 'blob' }).then(res => {
+                  const url = window.URL.createObjectURL(new Blob([res.data]));
+                  const a = document.createElement('a');
+                  a.href = url; a.download = 'vehicle-repairs.xlsx';
+                  document.body.appendChild(a); a.click(); a.remove();
+                  window.URL.revokeObjectURL(url);
+                }).catch(() => toast.error('Export failed'))}
+                className="flex items-center px-3 py-1.5 border rounded-md text-sm"
+              >
+                <Download className="w-4 h-4 mr-1" /> Export
+              </button>
+            </div>
+            <button onClick={() => setShowRepairForm(true)} className="flex items-center px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm">
+              <Plus className="w-4 h-4 mr-1" /> Log Repair
+            </button>
+          </div>
+          {repairs.length === 0 ? (
+            <p className="p-8 text-center text-sm text-gray-500">No repairs logged.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead>
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Vehicle</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cost</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {repairs.map(r => (
+                    <tr key={r.id}>
+                      <td className="px-4 py-2 text-sm">{new Date(r.repair_date).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-sm">{r.vehicle?.reg_no ?? '—'}</td>
+                      <td className="px-4 py-2 text-sm capitalize">{r.category}</td>
+                      <td className="px-4 py-2 text-sm">{r.description}</td>
+                      <td className="px-4 py-2 text-sm font-medium">KES {Number(r.cost).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {showRepairForm && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md space-y-3">
+                <h3 className="text-lg font-medium">Log vehicle repair</h3>
+                <select required value={repairForm.vehicle_id} onChange={e => setRepairForm({ ...repairForm, vehicle_id: e.target.value })} className="w-full border rounded-md px-3 py-2 dark:bg-gray-700">
+                  <option value="">Select vehicle</option>
+                  {vehicles.map(v => <option key={v.id} value={v.id}>{v.reg_no}</option>)}
+                </select>
+                <input type="date" value={repairForm.repair_date} onChange={e => setRepairForm({ ...repairForm, repair_date: e.target.value })} className="w-full border rounded-md px-3 py-2 dark:bg-gray-700" />
+                <select value={repairForm.category} onChange={e => setRepairForm({ ...repairForm, category: e.target.value })} className="w-full border rounded-md px-3 py-2 dark:bg-gray-700">
+                  <option value="minor">Minor</option>
+                  <option value="major">Major</option>
+                </select>
+                <input placeholder="Description" value={repairForm.description} onChange={e => setRepairForm({ ...repairForm, description: e.target.value })} className="w-full border rounded-md px-3 py-2 dark:bg-gray-700" />
+                <input type="number" min="0" step="0.01" placeholder="Cost (KES)" value={repairForm.cost} onChange={e => setRepairForm({ ...repairForm, cost: e.target.value })} className="w-full border rounded-md px-3 py-2 dark:bg-gray-700" />
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setShowRepairForm(false)} className="px-4 py-2 border rounded-md">Cancel</button>
+                  <button onClick={submitRepair} disabled={savingRepair} className="px-4 py-2 bg-blue-600 text-white rounded-md">{savingRepair ? 'Saving…' : 'Save'}</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -6,10 +7,11 @@ import {
 import {
   Users, Package, Factory, Warehouse, Truck, ShoppingCart,
   RotateCcw, FileSpreadsheet, Download, Lightbulb, ArrowRight,
-  MapPin, Loader2,
+  MapPin, Loader2, TrendingUp, Lock,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { isHrUnlocked, setHrUnlock, clearHrUnlock } from '../utils/hrUnlock';
 
 type Stage = { key: string; label: string; href: string };
 type Band = {
@@ -78,6 +80,33 @@ const OperationsPage: React.FC = () => {
     supplier_code: 'FINELINE', sku_id: '', bottles_per_bag: 24, bottles_per_bale: 12, notes: '',
   });
   const [savingConv, setSavingConv] = useState(false);
+  const [profit, setProfit] = useState<{ profit: number; gross_revenue: number; month: string } | null>(null);
+  const [profitLocked, setProfitLocked] = useState(!isHrUnlocked());
+  const [showProfitUnlock, setShowProfitUnlock] = useState(false);
+  const [profitPassword, setProfitPassword] = useState('');
+  const [profitUnlocking, setProfitUnlocking] = useState(false);
+
+  const monthParam = `${year}-${String(month).padStart(2, '0')}`;
+
+  const loadProfit = () => {
+    if (!isHrUnlocked()) {
+      setProfitLocked(true);
+      setProfit(null);
+      return;
+    }
+    api.get('/finance/profit-summary', { params: { month: monthParam } })
+      .then((res) => {
+        setProfit(res.data.data);
+        setProfitLocked(false);
+      })
+      .catch((err) => {
+        if (err.response?.data?.code === 'hr_unlock_required') {
+          clearHrUnlock();
+          setProfitLocked(true);
+          setProfit(null);
+        }
+      });
+  };
 
   const load = () => {
     setLoading(true);
@@ -95,6 +124,29 @@ const OperationsPage: React.FC = () => {
       if (list[0]) setConvForm((f) => ({ ...f, sku_id: list[0].id }));
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadProfit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, month]);
+
+  const unlockProfit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfitUnlocking(true);
+    try {
+      const res = await api.post('/hr/secure-unlock', { password: profitPassword });
+      setHrUnlock({ token: res.data.data.token, expires_at: res.data.data.expires_at });
+      setShowProfitUnlock(false);
+      setProfitPassword('');
+      setProfitLocked(false);
+      loadProfit();
+      toast.success('Unlocked');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Unlock failed');
+    } finally {
+      setProfitUnlocking(false);
+    }
+  };
 
   const exportFile = async (key: string, path: string, name: string) => {
     setDlKey(key);
@@ -201,7 +253,7 @@ const OperationsPage: React.FC = () => {
       </section>
 
       {/* KPI strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           { label: 'Operational payroll / mo', value: money(data.payroll.actual_monthly_operational_kes), sub: `Target band ${money(data.payroll.target_monthly_operational_kes)}` },
           { label: 'Bags on hand', value: String(data.inventory.bags_on_hand), sub: 'FineLine / Blowplast' },
@@ -214,7 +266,54 @@ const OperationsPage: React.FC = () => {
             <p className="text-xs text-gray-500 mt-1">{k.sub}</p>
           </div>
         ))}
+        {/* Ops brief §9: Director live profit card → Finance / HR profit */}
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-200 dark:border-emerald-800 p-4 flex flex-col justify-between">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-emerald-700 dark:text-emerald-300" />
+            <p className="text-xs text-emerald-800 dark:text-emerald-200 font-medium">Live profit ({monthParam})</p>
+          </div>
+          {profitLocked ? (
+            <button
+              type="button"
+              onClick={() => setShowProfitUnlock(true)}
+              className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-emerald-800 dark:text-emerald-100 hover:underline"
+            >
+              <Lock className="w-3.5 h-3.5" /> Unlock to view
+            </button>
+          ) : (
+            <>
+              <p className="text-xl font-bold text-emerald-900 dark:text-emerald-100 mt-1">
+                {profit ? money(profit.profit) : '—'}
+              </p>
+              <Link to="/hr?tab=profit" className="text-xs text-emerald-700 dark:text-emerald-300 mt-1 hover:underline">
+                Breakdown &amp; Finance →
+              </Link>
+            </>
+          )}
+        </div>
       </div>
+
+      {showProfitUnlock && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <form onSubmit={unlockProfit} className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-sm space-y-3">
+            <h3 className="font-medium text-gray-900 dark:text-gray-100">Confirm your password</h3>
+            <p className="text-xs text-gray-500">Same password you use to log in.</p>
+            <input
+              type="password"
+              autoFocus
+              value={profitPassword}
+              onChange={(e) => setProfitPassword(e.target.value)}
+              className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-3 py-2 text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowProfitUnlock(false)} className="px-3 py-1.5 text-sm border rounded-md">Cancel</button>
+              <button type="submit" disabled={profitUnlocking} className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-md disabled:opacity-50">
+                {profitUnlocking ? '…' : 'Unlock'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* People */}
       <section id="people" className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">

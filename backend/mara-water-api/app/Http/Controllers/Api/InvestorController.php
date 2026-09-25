@@ -8,6 +8,10 @@ use App\Models\DriverTripSale;
 use App\Models\PackagingRun;
 use App\Models\Debt;
 use App\Models\StockItem;
+use App\Models\CompetitorCompany;
+use App\Models\CompetitorPrice;
+use App\Models\Sku;
+use App\Services\PriceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -165,6 +169,51 @@ class InvestorController extends Controller
                         'items' => $lowStockItems,
                     ],
                 ],
+            ],
+        ]);
+    }
+
+    /**
+     * Ops brief §5 / §7: curated pricing overview for investors —
+     * default, corporate, and competitive comparison. No edit affordance.
+     */
+    public function pricingOverview(Request $request, PriceService $prices)
+    {
+        $companies = CompetitorCompany::where('active', true)->orderBy('name')->get();
+        $skus = Sku::where('active', true)->whereNull('deleted_at')
+            ->orderBy('brand')->orderBy('name')->get();
+        $maraDefault = $prices->priceMap('default');
+        $maraCorporate = $prices->priceMap('corporate');
+        $compPrices = CompetitorPrice::whereNull('deleted_at')
+            ->whereIn('competitor_company_id', $companies->pluck('id'))
+            ->get()
+            ->groupBy('competitor_company_id');
+
+        $rows = $skus->map(function ($sku) use ($maraDefault, $maraCorporate, $companies, $compPrices) {
+            $competitors = [];
+            foreach ($companies as $c) {
+                $price = optional($compPrices->get($c->id)?->firstWhere('sku_id', $sku->id))->unit_price;
+                $competitors[] = [
+                    'company' => $c->name,
+                    'unit_price' => $price !== null ? (float) $price : null,
+                ];
+            }
+
+            return [
+                'sku' => $sku->name,
+                'brand' => $sku->brand,
+                'size_liters' => (float) $sku->size_liters,
+                'mara_default' => $maraDefault[$sku->id] ?? null,
+                'mara_corporate' => $maraCorporate[$sku->id] ?? null,
+                'competitors' => $competitors,
+            ];
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'companies' => $companies->pluck('name'),
+                'rows' => $rows,
             ],
         ]);
     }

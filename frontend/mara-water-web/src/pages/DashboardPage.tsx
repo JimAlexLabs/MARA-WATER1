@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, usePermissions } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { toast } from 'react-hot-toast';
 import {
@@ -21,7 +21,9 @@ import {
   Loader2,
   LogIn,
   LogOut,
+  Lock,
 } from 'lucide-react';
+import { isHrUnlocked, setHrUnlock, clearHrUnlock } from '../utils/hrUnlock';
 
 interface MyAttendanceToday {
   id: string;
@@ -81,11 +83,39 @@ const dayLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, { 
 
 const DashboardPage: React.FC = () => {
   const { user } = useAuth();
+  const { isDirector } = usePermissions();
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [monthProfit, setMonthProfit] = useState<number | null>(null);
+  const [profitNeedsUnlock, setProfitNeedsUnlock] = useState(false);
+  const [showDashUnlock, setShowDashUnlock] = useState(false);
+  const [dashPassword, setDashPassword] = useState('');
+  const [dashUnlocking, setDashUnlocking] = useState(false);
+
+  const loadMonthProfit = () => {
+    if (!isDirector()) return;
+    const month = new Date().toISOString().slice(0, 7);
+    if (!isHrUnlocked()) {
+      setProfitNeedsUnlock(true);
+      setMonthProfit(null);
+      return;
+    }
+    api.get('/finance/profit-summary', { params: { month } })
+      .then((res) => {
+        setMonthProfit(res.data.data?.profit ?? null);
+        setProfitNeedsUnlock(false);
+      })
+      .catch((err) => {
+        if (err.response?.data?.code === 'hr_unlock_required') {
+          clearHrUnlock();
+          setProfitNeedsUnlock(true);
+          setMonthProfit(null);
+        }
+      });
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -97,7 +127,26 @@ const DashboardPage: React.FC = () => {
       .then((res) => setData(res.data.data))
       .catch(() => setError('Could not load dashboard data.'))
       .finally(() => setLoading(false));
+    loadMonthProfit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const submitDashUnlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDashUnlocking(true);
+    try {
+      const res = await api.post('/hr/secure-unlock', { password: dashPassword });
+      setHrUnlock({ token: res.data.data.token, expires_at: res.data.data.expires_at });
+      setShowDashUnlock(false);
+      setDashPassword('');
+      loadMonthProfit();
+      toast.success('Unlocked');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Unlock failed');
+    } finally {
+      setDashUnlocking(false);
+    }
+  };
 
   // --- Round 2 Phase 5: self-service clock in/out ---
   const [myAttendance, setMyAttendance] = useState<MyAttendanceToday | null>(null);
@@ -253,6 +302,53 @@ const DashboardPage: React.FC = () => {
             <KpiCard label="Staff Present Today" value={String(d.today.staff_present)} icon={Users} color="from-pink-500 to-pink-600" onClick={() => navigate('/hr')} compact />
             <KpiCard label="Orders This Month" value={String(d.this_month.orders)} icon={TrendingUp} color="from-slate-500 to-slate-600" onClick={() => navigate('/sales?tab=orders')} compact />
           </div>
+
+          {isDirector() && (
+            <button
+              type="button"
+              onClick={() => {
+                if (profitNeedsUnlock) setShowDashUnlock(true);
+                else navigate('/hr?tab=profit');
+              }}
+              className="w-full text-left bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl px-4 py-3 flex items-center justify-between gap-3 hover:bg-emerald-100/80 dark:hover:bg-emerald-900/40"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-emerald-600 text-white">
+                  {profitNeedsUnlock ? <Lock className="w-4 h-4" /> : <DollarSign className="w-4 h-4" />}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
+                    {profitNeedsUnlock ? 'Month profit (locked)' : `Month profit · ${money(monthProfit ?? 0)}`}
+                  </p>
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                    {profitNeedsUnlock ? 'Re-enter your password to view · links to Finance' : 'Open HR profit breakdown → Finance'}
+                  </p>
+                </div>
+              </div>
+              <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-300 shrink-0" />
+            </button>
+          )}
+
+          {showDashUnlock && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <form onSubmit={submitDashUnlock} className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-sm space-y-3">
+                <h3 className="font-medium text-gray-900 dark:text-gray-100">Confirm your password</h3>
+                <input
+                  type="password"
+                  autoFocus
+                  value={dashPassword}
+                  onChange={(e) => setDashPassword(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-3 py-2 text-sm"
+                />
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => setShowDashUnlock(false)} className="px-3 py-1.5 text-sm border rounded-md">Cancel</button>
+                  <button type="submit" disabled={dashUnlocking} className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-md disabled:opacity-50">
+                    {dashUnlocking ? '…' : 'Unlock'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
 
           {/* Trends */}
           <div>

@@ -43,6 +43,8 @@ use App\Http\Controllers\Api\HrSecureController;
 use App\Http\Controllers\Api\WarehouseAuditController;
 use App\Http\Controllers\Api\EquipmentController;
 use App\Http\Controllers\Api\OperationsOverviewController;
+use App\Http\Controllers\Api\CompetitorPriceController;
+use App\Http\Controllers\Api\VehicleRepairController;
 
 /*
 |--------------------------------------------------------------------------
@@ -96,6 +98,7 @@ Route::prefix('v1')->group(function () {
         Route::middleware('tier:investor,director')->group(function () {
             Route::get('/investor/summary', [\App\Http\Controllers\Api\InvestorController::class, 'summary']);
             Route::get('/investor/operations-overview', [OperationsOverviewController::class, 'investorOverview']);
+            Route::get('/investor/pricing-overview', [\App\Http\Controllers\Api\InvestorController::class, 'pricingOverview']);
         });
 
         // Director supply-chain Operations Overview + template Excel pack.
@@ -123,6 +126,9 @@ Route::prefix('v1')->group(function () {
             // deliberately NOT exposed here at all (spec default: a
             // driver-tier user doesn't see either).
             Route::get('/driver/sales', [\App\Http\Controllers\Api\DriverSummaryController::class, 'mySales']);
+            // Ops brief §2.5: customer base + ops KPIs for driver/sales exec.
+            Route::get('/driver/customers', [\App\Http\Controllers\Api\DriverSummaryController::class, 'myCustomers']);
+            Route::get('/driver/ops-kpis', [\App\Http\Controllers\Api\DriverSummaryController::class, 'opsKpis']);
         });
 
         // Round 2 Phase 11: a plain staff directory (name/role/department,
@@ -306,6 +312,12 @@ Route::prefix('v1')->group(function () {
             Route::get('/price-lists/{id}/export', [PriceListController::class, 'export']);
             Route::put('/price-lists/{id}/items/{skuId}', [PriceListController::class, 'upsertItem']);
 
+            // Ops brief §5: competitive comparison (named competitors × SKU).
+            Route::get('/competitive/companies', [CompetitorPriceController::class, 'companies']);
+            Route::get('/competitive/matrix', [CompetitorPriceController::class, 'matrix']);
+            Route::get('/competitive/export', [CompetitorPriceController::class, 'export']);
+            Route::put('/competitive/prices', [CompetitorPriceController::class, 'upsert']);
+
             Route::get('/customers/statistics', [CustomerController::class, 'statistics']);
             Route::get('/customers/route/{routeId}', [CustomerController::class, 'byRoute']);
             Route::post('/customers/bulk-assign-route', [CustomerController::class, 'bulkAssignRoute']);
@@ -416,6 +428,12 @@ Route::prefix('v1')->group(function () {
             Route::get('/fuel-logs', [FuelLogController::class, 'index']);
             Route::post('/fuel-logs', [FuelLogController::class, 'store']);
             Route::delete('/fuel-logs/{id}', [FuelLogController::class, 'destroy']);
+
+            // Ops brief §2.5: vehicle repair costs (major/minor).
+            Route::get('/repairs/export', [VehicleRepairController::class, 'export']);
+            Route::get('/repairs', [VehicleRepairController::class, 'index']);
+            Route::post('/repairs', [VehicleRepairController::class, 'store']);
+            Route::delete('/repairs/{id}', [VehicleRepairController::class, 'destroy']);
 
             // Round 4 Phase 6: Discrepancies page -- Manager/Director
             // only, never surfaced on the Driver dashboard.
