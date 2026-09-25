@@ -17,10 +17,11 @@ Grounded simulation inputs: `EXCELLS/` includes DRIVER WORK SHEET, production, i
 - [x] Driver ops KPIs: sell-through, fuel, repairs, customer base, discrepancies (`/driver/ops-kpis`, `/driver/customers`)
 - [x] Vehicle repairs module (Fleet → Repairs tab)
 - [x] Month simulation seeder: `OpsMonthSimulationSeeder` (run on migrated DB)
+- [x] Production simulation run (Sep 2026): Sales KES 1,500,400 | COGS KES 580,160; payroll skipped (existing month run)
 
 ## Remaining / polish
 - [ ] Full Inventory Stock Arrival form (supplier+SKU+bags+doc upload) replacing free-form move — partial
 - [ ] Manager walk-in/field sales polish
 - [ ] End-trip report inbox on Manager/Director
 - [ ] Excel export on every remaining table
-- [ ] Run simulation on production + cross-dashboard audit pass
+- [ ] Deeper cross-dashboard UI audit with live logins
