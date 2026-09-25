@@ -1,0 +1,42 @@
+{
+  "appId": "com.marawater.ops",
+  "appName": "MARA Water",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "backgroundColor": "#0B3D2E",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0B3D2E",
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#0B3D2E",
+      "showSpinner": false,
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP"
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#0B3D2E"
+    },
+    "Keyboard": {
+      "resize": "body",
+      "resizeOnFullScreen": true
+    }
+  },
+  "server": {
+    "url": "https://marawater.online",
+    "cleartext": false,
+    "allowNavigation": [
+      "marawater.online",
+      "*.marawater.online",
+      "mara-water-web.vercel.app",
+      "*.vercel.app",
+      "mara-water1-production.up.railway.app",
+      "*.up.railway.app"
+    ]
+  }
+}

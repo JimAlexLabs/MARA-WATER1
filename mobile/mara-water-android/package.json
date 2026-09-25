@@ -1,0 +1,27 @@
+{
+  "name": "mara-water-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MARA Water Android ops shell — Capacitor native wrapper syncing to marawater.online + Railway API",
+  "scripts": {
+    "sync": "npx cap sync android",
+    "open": "npx cap open android",
+    "build:apk": "cd android && ./gradlew assembleDebug",
+    "build:release": "cd android && ./gradlew assembleRelease",
+    "copy:apk": "mkdir -p ../../dist/android && cp android/app/build/outputs/apk/debug/app-debug.apk ../../dist/android/MARA-Water-Ops-debug.apk && cp android/app/build/outputs/apk/debug/app-debug.apk ../../dist/android/MARA-Water-Ops.apk"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/app": "8.1.1",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/haptics": "8.0.2",
+    "@capacitor/keyboard": "8.0.5",
+    "@capacitor/network": "8.0.1",
+    "@capacitor/preferences": "8.0.1",
+    "@capacitor/splash-screen": "8.0.2",
+    "@capacitor/status-bar": "8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2"
+  }
+}

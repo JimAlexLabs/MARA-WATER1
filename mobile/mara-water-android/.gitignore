@@ -1,0 +1,15 @@
+# Ignore Capacitor/node noise; keep android project source tracked
+node_modules/
+.idea/
+*.iml
+.gradle/
+local.properties
+android/.gradle/
+android/app/build/
+android/build/
+android/captures/
+android/*.apk
+android/**/*.apk
+*.keystore
+*.jks
+.DS_Store

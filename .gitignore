@@ -304,3 +304,15 @@ vendor/
 
 # Claude Code local project settings
 .claude/
+
+# Android mobile shell
+mobile/mara-water-android/node_modules/
+mobile/mara-water-android/android/.gradle/
+mobile/mara-water-android/android/app/build/
+mobile/mara-water-android/android/build/
+mobile/mara-water-android/android/local.properties
+mobile/mara-water-android/android/captures/
+
+# Keep published mobile APKs
+!mobile/releases/
+!mobile/releases/**

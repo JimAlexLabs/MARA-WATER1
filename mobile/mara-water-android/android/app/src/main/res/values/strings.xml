@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MARA Water Ops</string>
+    <string name="title_activity_main">MARA Water Ops</string>
+    <string name="package_name">com.marawater.ops</string>
+    <string name="custom_url_scheme">marawater</string>
+</resources>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0B3D2E" />
+  <meta name="color-scheme" content="light dark" />
+  <title>MARA Water</title>
+  <style>
+    :root {
+      --bg: #0B3D2E;
+      --fg: #F4F7F5;
+      --muted: #A8C5B8;
+      --accent: #2E8B6A;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; height: 100%;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(120% 80% at 50% 0%, #145C45 0%, var(--bg) 55%, #06261C 100%);
+      color: var(--fg);
+    }
+    .shell {
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.5rem;
+      text-align: center;
+      padding-top: max(2rem, env(safe-area-inset-top));
+      padding-bottom: max(2rem, env(safe-area-inset-bottom));
+    }
+    .mark {
+      width: 72px; height: 72px; border-radius: 18px;
+      background: linear-gradient(145deg, #2E8B6A, #0B3D2E);
+      border: 1px solid rgba(255,255,255,0.18);
+      display: grid; place-items: center;
+      font-weight: 700; letter-spacing: 0.04em; font-size: 1.1rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    }
+    h1 { margin: 0 0 0.35rem; font-size: 1.45rem; font-weight: 650; letter-spacing: -0.02em; }
+    p { margin: 0; color: var(--muted); font-size: 0.95rem; line-height: 1.45; max-width: 22rem; }
+    .status {
+      margin-top: 1.5rem; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--accent); font-weight: 600;
+    }
+    .pulse {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent); margin-right: 0.5rem;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.35; transform: scale(0.85); }
+      50% { opacity: 1; transform: scale(1); }
+    }
+    .actions { margin-top: 2rem; display: flex; flex-direction: column; gap: 0.65rem; width: min(100%, 18rem); }
+    button, a.btn {
+      appearance: none; border: 0; border-radius: 12px; padding: 0.9rem 1rem;
+      font-size: 0.95rem; font-weight: 600; text-decoration: none; text-align: center;
+      cursor: pointer;
+    }
+    .primary { background: #F4F7F5; color: #0B3D2E; }
+    .ghost { background: rgba(255,255,255,0.08); color: var(--fg); border: 1px solid rgba(255,255,255,0.12); }
+    .meta { margin-top: 2rem; font-size: 0.72rem; color: rgba(168,197,184,0.75); }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="mark" aria-hidden="true">MW</div>
+    <h1>MARA Water Ops</h1>
+    <p>Field operations shell. Live app loads from production so web redeploys reach this device automatically.</p>
+    <div class="status" id="status"><span class="pulse"></span>Connecting</div>
+    <div class="actions" id="actions" hidden>
+      <a class="btn primary" id="openApp" href="https://marawater.online">Open operations</a>
+      <button type="button" class="ghost" id="retry">Retry connection</button>
+    </div>
+    <p class="meta">Same Railway API as web · Homa Springs Limited</p>
+  </main>
+  <script>
+    (function () {
+      var LIVE = 'https://marawater.online';
+      var statusEl = document.getElementById('status');
+      var actions = document.getElementById('actions');
+      function go() {
+        statusEl.innerHTML = '<span class="pulse"></span>Loading live ops';
+        window.location.replace(LIVE + '/?mobile=1&utm_source=android_shell');
+      }
+      function fail() {
+        statusEl.textContent = 'Offline — open when network returns';
+        actions.hidden = false;
+      }
+      document.getElementById('retry').addEventListener('click', function () {
+        actions.hidden = true;
+        statusEl.innerHTML = '<span class="pulse"></span>Connecting';
+        probe();
+      });
+      function probe() {
+        var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        var t = setTimeout(function () { if (ctrl) ctrl.abort(); fail(); }, 8000);
+        fetch(LIVE + '/manifest.json', { method: 'GET', mode: 'no-cors', cache: 'no-store', signal: ctrl && ctrl.signal })
+          .then(function () { clearTimeout(t); go(); })
+          .catch(function () {
+            // no-cors may still "succeed"; try navigation after short wait
+            clearTimeout(t);
+            setTimeout(go, 400);
+          });
+      }
+      // Capacitor loads server.url in production; this page is the bundled offline/boot fallback.
+      if (navigator.onLine === false) fail();
+      else setTimeout(probe, 350);
+    })();
+  </script>
+</body>
+</html>
