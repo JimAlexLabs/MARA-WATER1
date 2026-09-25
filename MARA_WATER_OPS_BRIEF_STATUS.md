@@ -9,13 +9,14 @@ Grounded simulation inputs: `EXCELLS/` includes DRIVER WORK SHEET, production, i
 - [x] Trip date auto-captured server-side; authorizing officer already hard-required
 - [x] Stock Arrival terminology (Goods Received only); bags→bales computation on material batch receive
 - [x] Fine Line / Blue Plus suppliers in config; bottles_per_bale = 24
+- [x] Production: New Batch (SKU + bales + date only); daily rollup; package-run auto behind the scenes
+- [x] Director live profit (`GET /finance/profit-summary`) behind HR unlock
+- [x] HR/Payroll/Profit secondary password re-auth (own password, 30 min)
 
-## Next waves (in progress)
+## Next waves (remaining)
 - [ ] Full Inventory Stock Arrival form (supplier+SKU+bags+doc upload) replacing free-form move
-- [ ] Production: New Batch only; remove Package Run UI
-- [ ] Competitive pricing table + Investor surface
+- [ ] Competitive pricing comparison table + Investor surface
 - [ ] Manager walk-in/field sales
-- [ ] HR/Payroll/Profit secondary password gate
-- [ ] Director live profit formula
-- [ ] Driver KPI/customer-base enhancements
+- [ ] Driver KPI/customer-base enhancements + end-trip report inbox
 - [ ] Month simulation + cross-dashboard audit
+- [ ] Excel export on every remaining table
