@@ -505,20 +505,23 @@ class OpsMonthSimulationSeeder extends Seeder
     private function seedPayroll(): void
     {
         $month = $this->monthStart->toDateString();
-        if (PayrollRun::whereDate('month', $month)->where('status', 'finalized')->where('created_by', '!=', $this->actor->id)->exists()) {
-            $this->command?->warn('Non-SIM finalized payroll exists for '.$month.' — skip');
+        $existing = PayrollRun::whereDate('month', $month)->first();
+        if ($existing) {
+            // Unique month constraint — do not replace a live payroll run.
+            $this->command?->warn('Payroll already exists for '.$month.' — skip SIM payroll');
             return;
         }
-        PayrollRun::whereDate('month', $month)->where('created_by', $this->actor->id)->each(function ($r) {
-            Payslip::where('payroll_run_id', $r->id)->forceDelete();
-            $r->forceDelete();
-        });
 
         $calc = app(PayrollCalculationService::class);
         $run = PayrollRun::create([
-            'month' => $month, 'status' => 'finalized', 'run_by' => $this->actor->id,
-            'finalized_at' => now(), 'created_by' => $this->actor->id, 'updated_by' => $this->actor->id,
+            'month' => $month,
+            'status' => 'finalized',
+            'run_by' => $this->actor->id,
+            'finalized_at' => now(),
+            'created_by' => $this->actor->id,
+            'updated_by' => $this->actor->id,
         ]);
+
         // Finalis-style: exclude Director
         User::with('role')->where('status', 'active')->whereNotNull('salary')->get()
             ->filter(fn ($u) => optional($u->role)->access_tier !== 'director')
