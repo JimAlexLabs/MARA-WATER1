@@ -505,9 +505,8 @@ class OpsMonthSimulationSeeder extends Seeder
     private function seedPayroll(): void
     {
         $month = $this->monthStart->toDateString();
-        $existing = PayrollRun::whereDate('month', $month)->first();
-        if ($existing) {
-            // Unique month constraint — do not replace a live payroll run.
+        // Unique index applies even to soft-deleted runs.
+        if (PayrollRun::withTrashed()->whereDate('month', $month)->exists()) {
             $this->command?->warn('Payroll already exists for '.$month.' — skip SIM payroll');
             return;
         }
