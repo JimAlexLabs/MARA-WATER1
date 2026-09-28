@@ -306,7 +306,8 @@ Route::prefix('v1')->group(function () {
 
             // Reference lists the Log-a-Sale form reads from. Fixed
             // segments before /{id}, same reason as everywhere else here.
-            Route::get('/prices/current', [PriceListController::class, 'currentPrice']);
+            // ('/prices/current' itself now lives in the driver-accessible
+            // /sales group above -- see Round 5A Phase 5's comment there.)
             Route::get('/price-lists', [PriceListController::class, 'index']);
             Route::get('/price-lists/{id}/items', [PriceListController::class, 'items']);
             Route::get('/price-lists/{id}/export', [PriceListController::class, 'export']);
@@ -338,6 +339,13 @@ Route::prefix('v1')->group(function () {
         Route::middleware('tier:driver,manager,director')->prefix('sales')->group(function () {
             Route::get('/customers/search', [CustomerController::class, 'search']);
             Route::post('/customers', [CustomerController::class, 'store']);
+            // Round 5A Phase 5: moved here (not duplicated) from the
+            // manager/director-only /sales group below -- Log a Sale is
+            // filled in by driver-tier accounts, and a duplicate route at
+            // the same URI would never be reached anyway since Laravel
+            // matches in registration order and the stricter group is
+            // registered first.
+            Route::get('/prices/current', [PriceListController::class, 'currentPrice']);
         });
 
         Route::middleware('tier:manager,director')->prefix('sales')->group(function () {
