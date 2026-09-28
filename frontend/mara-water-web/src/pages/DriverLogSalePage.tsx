@@ -50,6 +50,24 @@ const DriverLogSalePage: React.FC = () => {
     }).catch(() => setLoading(false));
   }, []);
 
+  // Round 5A Phase 5: "sale line-item pricing should read from the
+  // Pricing page's price lists" -- one lookup per dispatched item,
+  // against the Director's default retail list (Round 5B Phase 4's
+  // PriceListController::currentPrice). Pre-fills the line's price when
+  // an item is picked; the field stays editable for a genuine
+  // negotiated exception, it just no longer starts blank.
+  const [skuPrices, setSkuPrices] = useState<Record<string, number | null>>({});
+  useEffect(() => {
+    const dispatched = (activeTrip?.items || []).filter(it => it.qty_carried_bales > 0);
+    if (dispatched.length === 0) return;
+    Promise.all(dispatched.map(it =>
+      api.get('/sales/prices/current', { params: { sku_id: it.sku_id } })
+        .then(res => [it.sku_id, res.data?.data?.unit_price ?? null] as const)
+        .catch(() => [it.sku_id, null] as const)
+    )).then(pairs => setSkuPrices(Object.fromEntries(pairs)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTrip?.id]);
+
   const [saleForm, setSaleForm] = useState(EMPTY_SALE_FORM);
   const [saleLineItems, setSaleLineItems] = useState<SaleLineItem[]>([]);
   const [showDebtConfirm, setShowDebtConfirm] = useState(false);
@@ -71,7 +89,18 @@ const DriverLogSalePage: React.FC = () => {
   const addSaleLineItem = () => setSaleLineItems([...saleLineItems, { sku_id: '', qty_bales: '', unit_price: '' }]);
   const removeSaleLineItem = (i: number) => setSaleLineItems(saleLineItems.filter((_, idx) => idx !== i));
   const updateSaleLineItem = (i: number, field: keyof SaleLineItem, value: string) => {
-    setSaleLineItems(saleLineItems.map((row, idx) => idx === i ? { ...row, [field]: value } : row));
+    setSaleLineItems(saleLineItems.map((row, idx) => {
+      if (idx !== i) return row;
+      const next = { ...row, [field]: value };
+      // Round 5A Phase 5: pre-fill from the Pricing list the moment an
+      // item is picked, but only if the price hasn't already been typed
+      // -- never silently overwrite a price the driver already entered.
+      if (field === 'sku_id' && !row.unit_price) {
+        const looked = skuPrices[value];
+        if (looked != null) next.unit_price = String(looked);
+      }
+      return next;
+    }));
   };
 
   // Round 3 Phase 3: "typing a name/phone searches existing customers
