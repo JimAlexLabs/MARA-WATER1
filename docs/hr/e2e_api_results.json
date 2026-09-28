@@ -1,0 +1,590 @@
+{
+  "pass": 69,
+  "fail": 4,
+  "results": [
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /auth/me",
+      "detail": "keys=user",
+      "label": "/auth/me"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /dashboard/overview",
+      "detail": "keys=today,this_month,snapshot,trends,alerts,recent_activity,user_info",
+      "label": "/dashboard/overview"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /operations/overview",
+      "detail": "keys=site,stages,bottle_suppliers,bottle_transport_cost_kes,other_inputs,salary_bands,payroll,inventory,production,warehouse",
+      "label": "/operations/overview"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /analytics/overview",
+      "detail": "keys=period,sales,money_flow,production_vs_sales,debtors,payroll",
+      "label": "/analytics/overview"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /inventory/warehouses",
+      "detail": "list n=2",
+      "label": "/inventory/warehouses"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /inventory/stock-items",
+      "detail": "list n=15",
+      "label": "/inventory/stock-items"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /inventory/material-batches",
+      "detail": "list n=2",
+      "label": "/inventory/material-batches"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /inventory/statistics",
+      "detail": "keys=period,stock_statistics,move_statistics,top_materials,top_skus",
+      "label": "/inventory/statistics"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /inventory/figures",
+      "detail": "keys=date_from,date_to,finished_goods,materials",
+      "label": "/inventory/figures"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /production/daily",
+      "detail": "list n=22",
+      "label": "/production/daily"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /qa/batches",
+      "detail": "list n=15",
+      "label": "/qa/batches"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /qa/batches/daily",
+      "detail": "list n=22",
+      "label": "/qa/batches/daily"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /qa/water-tests",
+      "detail": "list n=3",
+      "label": "/qa/water-tests"
+    },
+    {
+      "role": "director",
+      "status": "FAIL",
+      "code": 404,
+      "path": "GET /qa/skus",
+      "detail": "keys=message | The route api/v1/qa/skus could not be found.",
+      "label": "/qa/skus"
+    },
+    {
+      "role": "director",
+      "status": "FAIL",
+      "code": 404,
+      "path": "GET /qa/materials",
+      "detail": "keys=message | The route api/v1/qa/materials could not be found.",
+      "label": "/qa/materials"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /sales/orders",
+      "detail": "list n=0",
+      "label": "/sales/orders"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /sales/customers",
+      "detail": "list n=15",
+      "label": "/sales/customers"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /sales/price-lists",
+      "detail": "list n=3",
+      "label": "/sales/price-lists"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /sales/competitive/companies",
+      "detail": "list n=3",
+      "label": "/sales/competitive/companies"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /sales/competitive/matrix",
+      "detail": "keys=companies,rows",
+      "label": "/sales/competitive/matrix"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /finance/invoices",
+      "detail": "list n=0",
+      "label": "/finance/invoices"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /finance/petty-cash",
+      "detail": "keys=opening_balance,closing_balance,entries",
+      "label": "/finance/petty-cash"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /finance/ledger-summary",
+      "detail": "keys=date_from,date_to,revenue,invoices,petty_cash,debtors",
+      "label": "/finance/ledger-summary"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /finance/costing/profit-loss",
+      "detail": "keys=period,revenue,cogs,gross_margin,gross_margin_pct,monthly_payroll,overhead_expenses,net_margin,by_sku",
+      "label": "/finance/costing/profit-loss"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /finance/accounts",
+      "detail": "list n=33",
+      "label": "/finance/accounts"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /fleet/vehicles",
+      "detail": "list n=1",
+      "label": "/fleet/vehicles"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /fleet/trips",
+      "detail": "list n=20",
+      "label": "/fleet/trips"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /fleet/repairs",
+      "detail": "list n=3",
+      "label": "/fleet/repairs"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /fleet/fuel-logs",
+      "detail": "list n=10",
+      "label": "/fleet/fuel-logs"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /fleet/discrepancies",
+      "detail": "list n=2",
+      "label": "/fleet/discrepancies"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /fleet/mileage-logs",
+      "detail": "list n=20",
+      "label": "/fleet/mileage-logs"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /hr/attendance",
+      "detail": "list n=5",
+      "label": "/hr/attendance"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /hr/attendance/employees",
+      "detail": "list n=13",
+      "label": "/hr/attendance/employees"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /hr/secure-status",
+      "detail": "keys=unlocked,expires_at",
+      "label": "/hr/secure-status"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /users",
+      "detail": "list n=15",
+      "label": "/users"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /users/roles",
+      "detail": "list n=13",
+      "label": "/users/roles"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /settings",
+      "detail": "keys=company_address,company_email,company_name,company_phone,danger_zone_unlocked,date_format,email_notifications,language,notifications_enabled,session_timeout",
+      "label": "/settings"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /reports/analytics",
+      "detail": "keys=date_from,date_to,metrics,forecast",
+      "label": "/reports/analytics"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /issues",
+      "detail": "list n=1",
+      "label": "/issues"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /investor/summary",
+      "detail": "keys=today,this_month,sales_trend,production_trend,financial_health,alerts",
+      "label": "/investor/summary"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /investor/pricing-overview",
+      "detail": "keys=companies,rows",
+      "label": "/investor/pricing-overview"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /investor/operations-overview",
+      "detail": "keys=site,stages,bottle_suppliers,bottle_transport_cost_kes,other_inputs,inventory,production,warehouse,dispatch_sales,default_conversions",
+      "label": "/investor/operations-overview"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 403,
+      "path": "GET /finance/profit-summary",
+      "detail": "keys=success,code,message | Re-enter your password to access payroll and profit figures.",
+      "label": "profit locked"
+    },
+    {
+      "role": "director",
+      "status": "PASS",
+      "code": 200,
+      "path": "POST /hr/secure-unlock",
+      "detail": "keys=token,expires_at,ttl_minutes | HR unlock granted for 30 minutes.",
+      "label": "hr unlock"
+    },
+    {
+      "role": "director",
+      "status": "FAIL",
+      "code": 422,
+      "path": "GET /finance/profit-summary",
+      "detail": "keys=message,errors | The month field is required.",
+      "label": "profit after unlock"
+    },
+    {
+      "role": "director",
+      "status": "FAIL",
+      "code": 422,
+      "path": "GET /finance/profit-summary",
+      "detail": "keys=message,errors | The month field is required.",
+      "label": "profit retry"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /dashboard/overview",
+      "detail": "keys=today,this_month,snapshot,trends,alerts,recent_activity,user_info",
+      "label": "/dashboard/overview"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 403,
+      "path": "GET /operations/overview",
+      "detail": "keys=success,message | You do not have access to this area.",
+      "label": "/operations/overview"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /inventory/stock-items",
+      "detail": "list n=15",
+      "label": "/inventory/stock-items"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /production/daily",
+      "detail": "list n=22",
+      "label": "/production/daily"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /sales/customers",
+      "detail": "list n=15",
+      "label": "/sales/customers"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /fleet/trips",
+      "detail": "list n=20",
+      "label": "/fleet/trips"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /finance/petty-cash",
+      "detail": "keys=opening_balance,closing_balance,entries",
+      "label": "/finance/petty-cash"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 403,
+      "path": "GET /finance/profit-summary",
+      "detail": "keys=success,message | You do not have access to this area.",
+      "label": "/finance/profit-summary"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 403,
+      "path": "GET /hr/secure-status",
+      "detail": "keys=success,message | You do not have access to this area.",
+      "label": "/hr/secure-status"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 403,
+      "path": "GET /users",
+      "detail": "keys=success,message | You do not have access to this area.",
+      "label": "/users"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 403,
+      "path": "GET /investor/summary",
+      "detail": "keys=success,message | You do not have access to this area.",
+      "label": "/investor/summary"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /fleet/discrepancies",
+      "detail": "list n=2",
+      "label": "/fleet/discrepancies"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /hr/attendance/employees",
+      "detail": "list n=13",
+      "label": "/hr/attendance/employees"
+    },
+    {
+      "role": "manager",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /finance/ledger-summary",
+      "detail": "keys=date_from,date_to,revenue,invoices,petty_cash,debtors",
+      "label": "/finance/ledger-summary"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /driver/summary",
+      "detail": "keys=today,this_month,recent_trips",
+      "label": "/driver/summary"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /driver/ops-kpis",
+      "detail": "keys=this_month,active_trip,repairs,flagged_trips,open_issues,discrepancies",
+      "label": "/driver/ops-kpis"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /driver/customers",
+      "detail": "list n=12",
+      "label": "/driver/customers"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /driver/sales",
+      "detail": "list n=20",
+      "label": "/driver/sales"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /fleet/trips",
+      "detail": "list n=11",
+      "label": "/fleet/trips"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /fleet/vehicles-list",
+      "detail": "list n=1",
+      "label": "/fleet/vehicles-list"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /fleet/authorizing-officers",
+      "detail": "list n=11",
+      "label": "/fleet/authorizing-officers"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 403,
+      "path": "GET /sales/customers",
+      "detail": "keys=success,message | You do not have access to this area.",
+      "label": "/sales/customers"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 403,
+      "path": "GET /inventory/stock-items",
+      "detail": "keys=success,message | You do not have access to this area.",
+      "label": "/inventory/stock-items"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 403,
+      "path": "GET /dashboard/overview",
+      "detail": "keys=success,message | You do not have access to this area.",
+      "label": "/dashboard/overview"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 403,
+      "path": "GET /finance/petty-cash",
+      "detail": "keys=success,message | You do not have access to this area.",
+      "label": "/finance/petty-cash"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /hr/field-team",
+      "detail": "list n=3",
+      "label": "/hr/field-team"
+    },
+    {
+      "role": "driver",
+      "status": "PASS",
+      "code": 200,
+      "path": "GET /issues",
+      "detail": "list n=0",
+      "label": "/issues"
+    }
+  ]
+}
