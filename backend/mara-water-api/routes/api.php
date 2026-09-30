@@ -112,6 +112,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/exports/refills', [OperationsOverviewController::class, 'exportRefills']);
             Route::get('/exports/driver-worksheet', [OperationsOverviewController::class, 'exportDriverWorksheet']);
             Route::get('/exports/sales-control', [OperationsOverviewController::class, 'exportSalesControl']);
+
+            // Editable Premium restart / what-if plan (Director daily ops foresight).
+            Route::get('/restart-plan', [\App\Http\Controllers\Api\DirectorRestartPlanController::class, 'show']);
+            Route::put('/restart-plan', [\App\Http\Controllers\Api\DirectorRestartPlanController::class, 'update']);
+            Route::post('/restart-plan/reset', [\App\Http\Controllers\Api\DirectorRestartPlanController::class, 'reset']);
         });
 
         // Round 2 Phase 11: a driver's own dashboard -- their own trip

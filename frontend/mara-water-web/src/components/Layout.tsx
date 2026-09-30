@@ -140,6 +140,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       description: 'Supply chain overview, salary bands, Excel pack'
     },
     {
+      name: 'Planning',
+      href: '/operations/planning',
+      icon: BarChart3,
+      description: 'Restart what-if: costs, restocks, capital, profit share'
+    },
+    {
       name: 'Analytics',
       href: '/analytics',
       icon: TrendingUp,
@@ -236,7 +242,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   // on each route) -- Sales/Field Work (Round 4 Phase 9) are also
   // access_tier='driver', so they get this same set.
   const tier = user?.role?.access_tier;
-  const DIRECTOR_ONLY = ['/users', '/settings', '/operations'];
+  const DIRECTOR_ONLY = ['/users', '/settings', '/operations', '/operations/planning'];
   const DRIVER_NAVIGATION = [
     { name: 'Dashboard', href: '/driver', icon: Home, description: 'This month and my analytics' },
     // Round 4 Phase 9: own sidebar page -- three independent Check In/

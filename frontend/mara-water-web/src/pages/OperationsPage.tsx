@@ -217,6 +217,12 @@ const OperationsPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            to="/operations/planning"
+            className="rounded-lg border border-emerald-600/40 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200 px-3 py-2 text-sm font-medium hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
+          >
+            Open planning what-if
+          </Link>
           <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
             className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
             {Array.from({ length: 12 }, (_, i) => (

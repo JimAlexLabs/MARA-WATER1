@@ -14,6 +14,7 @@ import './index.css';
 // eager -- they're what everyone hits first, so there's nothing to save
 // by deferring them, and it avoids a loading flash on the most common path.
 const OperationsPage = lazy(() => import('./pages/OperationsPage'));
+const DirectorPlanningPage = lazy(() => import('./pages/DirectorPlanningPage'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'));
 const PricingPage = lazy(() => import('./pages/PricingPage'));
 const DriverPage = lazy(() => import('./pages/DriverPage'));
@@ -147,6 +148,13 @@ function App() {
               <ProtectedRoute tiers={['director']}>
                 <Layout>
                   <OperationsPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/operations/planning" element={
+              <ProtectedRoute tiers={['director']}>
+                <Layout>
+                  <DirectorPlanningPage />
                 </Layout>
               </ProtectedRoute>
             } />
