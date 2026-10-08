@@ -45,6 +45,7 @@ use App\Http\Controllers\Api\EquipmentController;
 use App\Http\Controllers\Api\OperationsOverviewController;
 use App\Http\Controllers\Api\CompetitorPriceController;
 use App\Http\Controllers\Api\VehicleRepairController;
+use App\Http\Controllers\Api\PaymentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -66,6 +67,13 @@ Route::prefix('v1')->group(function () {
     Route::get('/auth/profile', [AuthController::class, 'me'])->middleware('auth:sanctum');
     Route::match(['put', 'patch'], '/auth/profile', [AuthController::class, 'updateProfile'])->middleware('auth:sanctum');
     Route::post('/auth/refresh', [AuthController::class, 'refresh'])->middleware('auth:sanctum');
+
+    // Round 6: the shared AfriGig payment gateway's webhook -- the
+    // gateway is not a MARA user, so this is deliberately outside
+    // auth:sanctum. Signature-verified inside the controller instead
+    // (HMAC-SHA256 over the raw body with PAYMENT_WEBHOOK_SECRET,
+    // constant-time compare) -- see PaymentController::webhook().
+    Route::post('/payments/webhook', [PaymentController::class, 'webhook']);
 
     // Protected routes
     Route::middleware('auth:sanctum')->group(function () {
@@ -346,6 +354,25 @@ Route::prefix('v1')->group(function () {
             // matches in registration order and the stricter group is
             // registered first.
             Route::get('/prices/current', [PriceListController::class, 'currentPrice']);
+        });
+
+        // Round 6: M-Pesa STK Push. Driver/Sales initiate + poll their
+        // own field-trip sale payments from Log a Sale; Manager/Director
+        // do the same for warehouse/refill/admin (Order-based) sales,
+        // plus the monitoring/unmatched/export endpoints below.
+        Route::middleware('tier:driver,manager,director')->prefix('payments')->group(function () {
+            // Phase B7: rate-limited per authenticated user -- 10 STK
+            // attempts/minute is generous for real use, tight enough to
+            // blunt a double-tap loop or a compromised session.
+            Route::post('/stk', [PaymentController::class, 'initiateStk'])->middleware('throttle:10,1');
+            Route::get('/{id}/status', [PaymentController::class, 'status']);
+        });
+        Route::middleware('tier:manager,director')->prefix('payments')->group(function () {
+            Route::get('/', [PaymentController::class, 'index']);
+            Route::get('/unmatched', [PaymentController::class, 'unmatched']);
+            Route::get('/export', [PaymentController::class, 'export']);
+            Route::post('/unmatched/{id}/assign', [PaymentController::class, 'assign']);
+            Route::post('/{id}/retry', [PaymentController::class, 'retry']);
         });
 
         Route::middleware('tier:manager,director')->prefix('sales')->group(function () {

@@ -35,4 +35,16 @@ return [
         ],
     ],
 
+    // Round 6: the shared AfriGig M-Pesa STK Push gateway. MARA is one
+    // of possibly several client apps of this gateway, never talks to
+    // Safaricom/Daraja directly. `mock` defaults true in
+    // PaymentGatewayClient whenever `url` is empty, so a fresh
+    // environment never tries to call a gateway that isn't configured.
+    'payment_gateway' => [
+        'url' => env('PAYMENT_GATEWAY_URL'),
+        'api_key' => env('PAYMENT_GATEWAY_API_KEY'),
+        'webhook_secret' => env('PAYMENT_WEBHOOK_SECRET'),
+        'mock' => env('PAYMENT_MOCK', true),
+    ],
+
 ];
