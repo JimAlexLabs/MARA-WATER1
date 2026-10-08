@@ -46,6 +46,7 @@ use App\Http\Controllers\Api\OperationsOverviewController;
 use App\Http\Controllers\Api\CompetitorPriceController;
 use App\Http\Controllers\Api\VehicleRepairController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\ReceiptController;
 
 /*
 |--------------------------------------------------------------------------
@@ -354,6 +355,12 @@ Route::prefix('v1')->group(function () {
             // matches in registration order and the stricter group is
             // registered first.
             Route::get('/prices/current', [PriceListController::class, 'currentPrice']);
+            // Round 5A Phase 5 / Round 6 Phase B4: "every logged sale
+            // should generate a downloadable receipt immediately" --
+            // driver-accessible so the driver who just made the sale can
+            // pull their own receipt; ReceiptController itself still
+            // checks the sale's trip belongs to them.
+            Route::get('/receipts/driver-trip-sale/{id}', [ReceiptController::class, 'driverTripSale']);
         });
 
         // Round 6: M-Pesa STK Push. Driver/Sales initiate + poll their
@@ -380,6 +387,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/customers/{id}/purchase-history', [CustomerController::class, 'purchaseHistory']);
             Route::put('/customers/{id}', [CustomerController::class, 'update']);
             Route::delete('/customers/{id}', [CustomerController::class, 'destroy']);
+            // Round 5A Phase 5: the counter/warehouse-sale (Order)
+            // equivalent of the driver-accessible receipt route above.
+            Route::get('/receipts/order/{id}', [ReceiptController::class, 'order']);
         });
 
         // Finance routes -- Manager/Director operational access (Petty
