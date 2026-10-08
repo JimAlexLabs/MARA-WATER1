@@ -34,6 +34,7 @@ const HRPage = lazy(() => import('./pages/HRPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const IssuesPage = lazy(() => import('./pages/IssuesPage'));
 const DiscrepanciesPage = lazy(() => import('./pages/DiscrepanciesPage'));
+const MpesaPaymentsPage = lazy(() => import('./pages/MpesaPaymentsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const UsersPage = lazy(() => import('./pages/UsersPage'));
 
@@ -328,6 +329,16 @@ function App() {
               <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <DiscrepanciesPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
+            {/* Round 6 Phase B5: M-Pesa Payments monitoring -- Manager/
+                Director only. */}
+            <Route path="/mpesa-payments" element={
+              <ProtectedRoute tiers={['manager', 'director']}>
+                <Layout>
+                  <MpesaPaymentsPage />
                 </Layout>
               </ProtectedRoute>
             } />
