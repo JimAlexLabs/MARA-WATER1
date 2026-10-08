@@ -299,6 +299,23 @@ const DriverTripsPage: React.FC = () => {
     }).catch(() => toast.error(`Failed to download ${kind} sheet`));
   };
 
+  // Round 5A Phase 5: "every logged sale should generate a downloadable
+  // receipt immediately" -- same authenticated-blob pattern as
+  // downloadSheet() above (the route requires auth, so a plain <a href>
+  // wouldn't carry the bearer token).
+  const downloadReceipt = (saleId: string) => {
+    api.get(`/sales/receipts/driver-trip-sale/${saleId}`, { responseType: 'blob' }).then((res) => {
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `receipt-${saleId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }).catch(() => toast.error('Failed to download receipt'));
+  };
+
   const salesTotal = (activeTrip?.sales || []).reduce((sum, s) => sum + parseFloat(s.amount), 0);
 
   return (
@@ -425,6 +442,11 @@ const DriverTripsPage: React.FC = () => {
                               <Camera className="w-3.5 h-3.5" />
                             </a>
                           )}
+                          {/* Round 5A Phase 5: "every logged sale should
+                              generate a downloadable receipt immediately". */}
+                          <button type="button" onClick={() => downloadReceipt(s.id)} title="Download receipt" className="text-gray-400 hover:text-blue-600">
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
                         </span>
                         <span className="font-medium text-gray-900 dark:text-gray-100">KES {parseFloat(s.amount).toLocaleString()}</span>
                       </div>

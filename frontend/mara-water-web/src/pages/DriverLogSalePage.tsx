@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { X, Camera } from 'lucide-react';
+import { X, Camera, Smartphone, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 
@@ -23,10 +23,22 @@ interface ActiveTrip {
 }
 
 const EMPTY_SALE_FORM = {
-  customer_id: '', customer_name: '', payment_method: 'cash' as SalePaymentMethod,
+  customer_id: '', customer_name: '', customer_phone: '', payment_method: 'cash' as SalePaymentMethod,
   mpesa_reference: '', debt_signatory: '', debt_expected_repayment_date: '',
   physical_receipt_no: '', physical_delivery_note_no: '',
 };
+
+// Round 6: accepts 07.., 7.., 01.., +254.., 254.. and normalizes to the
+// 2547XXXXXXXX / 2541XXXXXXXX shape the backend (and Safaricom) expect.
+const normalizePhone = (raw: string): string => {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.startsWith('254')) return digits;
+  if (digits.startsWith('0')) return '254' + digits.slice(1);
+  if (digits.length === 9) return '254' + digits;
+  return digits;
+};
+type StkStatus = 'idle' | 'sending' | 'waiting' | 'success' | 'failed' | 'cancelled' | 'timeout';
+interface StkPayment { id: string; mpesa_receipt?: string | null; result_desc?: string | null; driver_trip_sale_id?: string | null; status: string; }
 type SaleLineItem = { sku_id: string; qty_bales: string; unit_price: string };
 const CUSTOMER_TYPE_OPTIONS = [
   { value: 'retail', label: 'Retail' },
@@ -86,6 +98,16 @@ const DriverLogSalePage: React.FC = () => {
   const [newCustomerForm, setNewCustomerForm] = useState(EMPTY_NEW_CUSTOMER);
   const [savingCustomer, setSavingCustomer] = useState(false);
 
+  // Round 6: M-Pesa STK Push -- the system prompts the customer's own
+  // phone for payment instead of trusting a manually-typed code. This is
+  // the default for payment_method='mpesa'; "I already have the code"
+  // switches back to the old manual-reference field, for when STK isn't
+  // available or the customer already paid another way.
+  const [mpesaMode, setMpesaMode] = useState<'stk' | 'manual'>('stk');
+  const [stkPhone, setStkPhone] = useState('');
+  const [stkStatus, setStkStatus] = useState<StkStatus>('idle');
+  const [stkPayment, setStkPayment] = useState<StkPayment | null>(null);
+
   const addSaleLineItem = () => setSaleLineItems([...saleLineItems, { sku_id: '', qty_bales: '', unit_price: '' }]);
   const removeSaleLineItem = (i: number) => setSaleLineItems(saleLineItems.filter((_, idx) => idx !== i));
   const updateSaleLineItem = (i: number, field: keyof SaleLineItem, value: string) => {
@@ -118,12 +140,14 @@ const DriverLogSalePage: React.FC = () => {
   }, [customerQuery, saleForm.customer_id]);
 
   const selectCustomer = (c: CustomerRef) => {
-    setSaleForm({ ...saleForm, customer_id: c.id, customer_name: c.name });
+    setSaleForm({ ...saleForm, customer_id: c.id, customer_name: c.name, customer_phone: c.phone || '' });
+    setStkPhone(c.phone || '');
     setCustomerQuery(c.name);
     setCustomerResults([]);
   };
   const clearSelectedCustomer = () => {
-    setSaleForm({ ...saleForm, customer_id: '', customer_name: '' });
+    setSaleForm({ ...saleForm, customer_id: '', customer_name: '', customer_phone: '' });
+    setStkPhone('');
     setCustomerQuery('');
   };
 
@@ -164,6 +188,11 @@ const DriverLogSalePage: React.FC = () => {
 
   const handleSaleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Round 6: the mpesa+STK path has its own "Send Payment Request"
+    // button (type="button", calls initiateStk() directly) rather than
+    // this form's normal submit -- this guard just stops a stray Enter
+    // keypress from skipping straight to the old manual-confirm flow.
+    if (saleForm.payment_method === 'mpesa' && mpesaMode === 'stk') return;
     if (!saleForm.customer_id) { toast.error('Select a customer'); return; }
     if (validSaleLineItems.length === 0) { toast.error('Add at least one line item (brand/size, bales, price)'); return; }
     for (const l of validSaleLineItems) {
@@ -200,6 +229,91 @@ const DriverLogSalePage: React.FC = () => {
     form.append('entity_id', 'pending');
     const res = await api.post('/files/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } });
     return res.data?.data?.url ?? null;
+  };
+
+  // Round 5A Phase 5 / Round 6: the receipt route requires auth, so a
+  // plain <a href> won't carry the bearer token -- same authenticated-
+  // blob pattern DriverTripsPage's downloadSheet() already uses.
+  const downloadReceipt = (saleId: string) => {
+    api.get(`/sales/receipts/driver-trip-sale/${saleId}`, { responseType: 'blob' }).then((res) => {
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `receipt-${saleId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }).catch(() => toast.error('Failed to download receipt'));
+  };
+
+  // Round 6: polls GET /payments/{id}/status every 3s while waiting on
+  // the customer's phone -- the fallback for a webhook that hasn't
+  // arrived (mock mode never actually sits in 'waiting': the backend
+  // settles synchronously, so this effect is mostly exercised in real
+  // gateway mode). ~90s cap matches the spec's own expected STK window.
+  useEffect(() => {
+    if (stkStatus !== 'waiting' || !stkPayment) return;
+    let elapsed = 0;
+    const interval = setInterval(() => {
+      elapsed += 3000;
+      api.get(`/payments/${stkPayment.id}/status`).then(res => {
+        const p: StkPayment = res.data.data;
+        if (p.status === 'success') {
+          setStkStatus('success'); setStkPayment(p); toast.success('Payment confirmed');
+        } else if (p.status === 'failed' || p.status === 'cancelled' || p.status === 'timeout') {
+          setStkStatus(p.status as StkStatus); setStkPayment(p);
+        } else if (elapsed >= 90000) {
+          setStkStatus('timeout'); setStkPayment(p);
+        }
+      }).catch(() => {});
+    }, 3000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stkStatus, stkPayment?.id]);
+
+  const resetStk = () => { setStkStatus('idle'); setStkPayment(null); };
+
+  const initiateStk = async () => {
+    if (!activeTrip) return;
+    if (!saleForm.customer_id) { toast.error('Select a customer'); return; }
+    if (validSaleLineItems.length === 0) { toast.error('Add at least one line item (brand/size, bales, price)'); return; }
+    for (const l of validSaleLineItems) {
+      const idx = saleLineItems.indexOf(l);
+      const available = availableForSku(l.sku_id, idx);
+      if (parseFloat(l.qty_bales) > available) {
+        const sku = activeTrip?.items.find(it => it.sku_id === l.sku_id)?.sku;
+        toast.error(`Only ${available} bales of ${sku?.name ?? 'that item'} remain available on this trip`);
+        return;
+      }
+    }
+    const phone = normalizePhone(stkPhone);
+    if (!/^254(7|1)\d{8}$/.test(phone)) { toast.error('Enter a valid Safaricom number, e.g. 07XXXXXXXX'); return; }
+
+    setStkStatus('sending');
+    try {
+      const photo_url = await uploadSalePhoto().catch(() => null);
+      const items = validSaleLineItems.map(l => ({
+        sku_id: l.sku_id, qty_bales: parseFloat(l.qty_bales) || 0, unit_price: parseFloat(l.unit_price) || 0,
+      }));
+      const res = await api.post('/payments/stk', {
+        channel: 'field_trip', driver_trip_id: activeTrip.id, customer_id: saleForm.customer_id,
+        items, phone,
+        physical_receipt_no: saleForm.physical_receipt_no || undefined,
+        physical_delivery_note_no: saleForm.physical_delivery_note_no || undefined,
+        photo_url: photo_url || undefined,
+      });
+      const p: StkPayment = res.data.data;
+      setStkPayment(p);
+      if (p.status === 'success') { setStkStatus('success'); toast.success('Payment confirmed'); }
+      else if (p.status === 'failed' || p.status === 'cancelled' || p.status === 'timeout') { setStkStatus(p.status as StkStatus); }
+      else { setStkStatus('waiting'); }
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Could not send the payment request');
+      setStkStatus('idle');
+    }
   };
 
   const submitSale = async () => {
@@ -305,17 +419,75 @@ const DriverLogSalePage: React.FC = () => {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Method</label>
-            <select value={saleForm.payment_method} onChange={e => setSaleForm({ ...saleForm, payment_method: e.target.value as any })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
+            <select value={saleForm.payment_method} onChange={e => { setSaleForm({ ...saleForm, payment_method: e.target.value as any }); resetStk(); }} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
               <option value="cash">Cash</option>
               <option value="mpesa">M-Pesa</option>
               <option value="pay_direct">Pay-directly (QR)</option>
               <option value="debt">Debt</option>
             </select>
           </div>
-          {(saleForm.payment_method === 'mpesa' || saleForm.payment_method === 'pay_direct') && (
+          {saleForm.payment_method === 'pay_direct' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{saleForm.payment_method === 'mpesa' ? 'M-Pesa Reference' : 'Payment Reference / QR Transaction ID'}</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Reference / QR Transaction ID</label>
               <input type="text" value={saleForm.mpesa_reference} onChange={e => setSaleForm({ ...saleForm, mpesa_reference: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+            </div>
+          )}
+          {/* Round 6: M-Pesa defaults to a real STK push to the
+              customer's phone -- "I already have the code" falls back to
+              the old manual-reference field for when STK isn't available
+              or they already paid another way. */}
+          {saleForm.payment_method === 'mpesa' && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-md p-3 space-y-3">
+              <div className="flex items-center gap-4 text-sm">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" checked={mpesaMode === 'stk'} onChange={() => { setMpesaMode('stk'); resetStk(); }} />
+                  Send payment request (STK)
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" checked={mpesaMode === 'manual'} onChange={() => { setMpesaMode('manual'); resetStk(); }} />
+                  I already have the M-Pesa code
+                </label>
+              </div>
+
+              {mpesaMode === 'manual' ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">M-Pesa Reference</label>
+                  <input type="text" value={saleForm.mpesa_reference} onChange={e => setSaleForm({ ...saleForm, mpesa_reference: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                </div>
+              ) : stkStatus === 'idle' || stkStatus === 'sending' ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Customer's Phone</label>
+                  <input type="tel" placeholder="07XXXXXXXX" value={stkPhone} onChange={e => setStkPhone(e.target.value)} disabled={stkStatus === 'sending'}
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">A payment prompt is sent straight to this number -- the sale only records once they enter their PIN.</p>
+                </div>
+              ) : stkStatus === 'waiting' ? (
+                <div className="flex items-center gap-3 text-sm text-blue-800 dark:text-blue-300">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Waiting for {stkPhone} to enter their M-Pesa PIN…</span>
+                </div>
+              ) : stkStatus === 'success' ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400 font-medium">
+                    <CheckCircle className="w-5 h-5" /> Payment confirmed -- {stkPayment?.mpesa_receipt}
+                  </div>
+                  {stkPayment?.driver_trip_sale_id && (
+                    <button type="button" onClick={() => downloadReceipt(stkPayment.driver_trip_sale_id!)} className="text-sm text-blue-600 hover:underline">Download receipt</button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-400 font-medium">
+                    <XCircle className="w-5 h-5" />
+                    {stkStatus === 'cancelled' ? 'Customer cancelled the request' : stkStatus === 'timeout' ? 'No response from the customer' : (stkPayment?.result_desc || 'Payment failed')}
+                  </div>
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => setStkStatus('idle')} className="text-sm text-blue-600 hover:underline">Retry</button>
+                    <button type="button" onClick={() => { setMpesaMode('manual'); resetStk(); }} className="text-sm text-blue-600 hover:underline">Enter code manually</button>
+                    <button type="button" onClick={() => { setSaleForm({ ...saleForm, payment_method: 'cash' }); resetStk(); }} className="text-sm text-blue-600 hover:underline">Switch to cash</button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {saleForm.payment_method === 'debt' && (
@@ -409,8 +581,24 @@ const DriverLogSalePage: React.FC = () => {
           </div>
 
           <div className="flex justify-end space-x-3">
-            <Link to="/driver/trips" className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</Link>
-            <button type="submit" disabled={savingSale} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingSale ? 'Saving…' : 'Record Sale'}</button>
+            <Link to="/driver/trips" className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+              {saleForm.payment_method === 'mpesa' && mpesaMode === 'stk' && stkStatus === 'success' ? 'Back to Trip' : 'Cancel'}
+            </Link>
+            {/* Round 6: mpesa+STK's primary action is "Send Payment
+                Request" (initiateStk, not a form submit) while idle, and
+                nothing here once sending/waiting/done -- the status
+                panel above already carries the relevant action in those
+                states (Retry/manual/cash on failure, nothing while
+                waiting, a receipt link on success). */}
+            {saleForm.payment_method === 'mpesa' && mpesaMode === 'stk' ? (
+              (stkStatus === 'idle' || stkStatus === 'sending') && (
+                <button type="button" onClick={initiateStk} disabled={stkStatus === 'sending'} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
+                  {stkStatus === 'sending' ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Sending…</> : <><Smartphone className="w-4 h-4 mr-2" /> Send Payment Request</>}
+                </button>
+              )
+            ) : (
+              <button type="submit" disabled={savingSale} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingSale ? 'Saving…' : 'Record Sale'}</button>
+            )}
           </div>
         </form>
       </div>
