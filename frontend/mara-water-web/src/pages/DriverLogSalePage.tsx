@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { X, Camera } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import MpesaStkDialog, { StkPayment } from '../components/MpesaStkDialog';
 
 // Round 4 Phase 0/4: "New standalone Log a Sale entity, connected to
 // but separate from the trip page" -- a real page (its own route), not
@@ -13,7 +14,7 @@ import { api } from '../services/api';
 
 interface SkuRef { id: string; name: string; code: string; brand: string | null; }
 interface CustomerRef { id: string; name: string; code: string; phone?: string | null; type?: string; }
-type SalePaymentMethod = 'cash' | 'mpesa' | 'debt' | 'pay_direct';
+type SalePaymentMethod = 'cash' | 'mpesa';
 interface TripSaleItem { id: string; sku_id: string; qty_bales: string; }
 interface TripSale { id: string; items?: TripSaleItem[]; }
 interface TripItem { id: string; sku_id: string; sku?: SkuRef; qty_carried_bales: number; }
@@ -23,11 +24,12 @@ interface ActiveTrip {
 }
 
 const EMPTY_SALE_FORM = {
-  customer_id: '', customer_name: '', payment_method: 'cash' as SalePaymentMethod,
-  mpesa_reference: '', debt_signatory: '', debt_expected_repayment_date: '',
+  customer_id: '', customer_name: '', payment_method: 'mpesa' as SalePaymentMethod,
+  mpesa_phone: '',
   physical_receipt_no: '', physical_delivery_note_no: '',
 };
 type SaleLineItem = { sku_id: string; qty_bales: string; unit_price: string };
+const BLANK_LINE: SaleLineItem = { sku_id: '', qty_bales: '', unit_price: '' };
 const CUSTOMER_TYPE_OPTIONS = [
   { value: 'retail', label: 'Retail' },
   { value: 'wholesale', label: 'Distributor' },
@@ -69,9 +71,9 @@ const DriverLogSalePage: React.FC = () => {
   }, [activeTrip?.id]);
 
   const [saleForm, setSaleForm] = useState(EMPTY_SALE_FORM);
-  const [saleLineItems, setSaleLineItems] = useState<SaleLineItem[]>([]);
-  const [showDebtConfirm, setShowDebtConfirm] = useState(false);
+  const [saleLineItems, setSaleLineItems] = useState<SaleLineItem[]>([{ ...BLANK_LINE }]);
   const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
+  const [stkPayment, setStkPayment] = useState<StkPayment | null>(null);
   const [savingSale, setSavingSale] = useState(false);
   // Round 5A Phase 3: optional photo -- proof of delivery, the
   // customer's shop/stock, or a scanned paper receipt. Never required;
@@ -86,7 +88,7 @@ const DriverLogSalePage: React.FC = () => {
   const [newCustomerForm, setNewCustomerForm] = useState(EMPTY_NEW_CUSTOMER);
   const [savingCustomer, setSavingCustomer] = useState(false);
 
-  const addSaleLineItem = () => setSaleLineItems([...saleLineItems, { sku_id: '', qty_bales: '', unit_price: '' }]);
+  const addSaleLineItem = () => setSaleLineItems([...saleLineItems, { ...BLANK_LINE }]);
   const removeSaleLineItem = (i: number) => setSaleLineItems(saleLineItems.filter((_, idx) => idx !== i));
   const updateSaleLineItem = (i: number, field: keyof SaleLineItem, value: string) => {
     setSaleLineItems(saleLineItems.map((row, idx) => {
@@ -118,7 +120,7 @@ const DriverLogSalePage: React.FC = () => {
   }, [customerQuery, saleForm.customer_id]);
 
   const selectCustomer = (c: CustomerRef) => {
-    setSaleForm({ ...saleForm, customer_id: c.id, customer_name: c.name });
+    setSaleForm({ ...saleForm, customer_id: c.id, customer_name: c.name, mpesa_phone: c.phone || saleForm.mpesa_phone });
     setCustomerQuery(c.name);
     setCustomerResults([]);
   };
@@ -175,16 +177,10 @@ const DriverLogSalePage: React.FC = () => {
         return;
       }
     }
-    if (saleForm.payment_method === 'debt') {
-      if (!saleForm.debt_signatory.trim() || !saleForm.debt_expected_repayment_date) {
-        toast.error('Enter who signed for this credit sale and an expected repayment date');
-        return;
-      }
-      setShowDebtConfirm(true);
+    if (saleForm.payment_method === 'mpesa' && !saleForm.mpesa_phone.trim()) {
+      toast.error('Enter the customer phone that should receive the M-Pesa prompt');
       return;
     }
-    // Round 4 Phase 4: "a short prompt payment step for Cash/M-Pesa that
-    // just confirms the amount received before the sale is saved."
     setShowPaymentConfirm(true);
   };
 
@@ -210,23 +206,26 @@ const DriverLogSalePage: React.FC = () => {
         sku_id: l.sku_id, qty_bales: parseFloat(l.qty_bales) || 0, unit_price: parseFloat(l.unit_price) || 0,
       }));
       const photo_url = await uploadSalePhoto().catch(() => null);
-      await api.post(`/fleet/trips/${activeTrip.id}/sales`, {
+      const res = await api.post(`/fleet/trips/${activeTrip.id}/sales`, {
         customer_id: saleForm.customer_id, payment_method: saleForm.payment_method,
-        mpesa_reference: (saleForm.payment_method === 'mpesa' || saleForm.payment_method === 'pay_direct') ? (saleForm.mpesa_reference || undefined) : undefined,
-        debt_signatory: saleForm.payment_method === 'debt' ? saleForm.debt_signatory : undefined,
-        debt_expected_repayment_date: saleForm.payment_method === 'debt' ? saleForm.debt_expected_repayment_date : undefined,
+        stk_phone: saleForm.payment_method === 'mpesa' ? saleForm.mpesa_phone.trim() : undefined,
         physical_receipt_no: saleForm.physical_receipt_no || undefined,
         physical_delivery_note_no: saleForm.physical_delivery_note_no || undefined,
         photo_url: photo_url || undefined,
         items,
       });
-      toast.success('Sale recorded');
+      const payment = res.data?.data?.payment as StkPayment | undefined;
+      setShowPaymentConfirm(false);
+      if (payment) {
+        setStkPayment(payment);
+        return;
+      }
+      toast.success('Cash sale recorded');
       navigate('/driver/trips');
     } catch (error: any) {
       const errors = error.response?.data?.errors;
       const firstError = errors ? Object.values(errors)[0] : null;
       toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to record sale');
-      setShowDebtConfirm(false);
       setShowPaymentConfirm(false);
     } finally {
       setSavingSale(false);
@@ -303,74 +302,70 @@ const DriverLogSalePage: React.FC = () => {
               </>
             )}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Method</label>
-            <select value={saleForm.payment_method} onChange={e => setSaleForm({ ...saleForm, payment_method: e.target.value as any })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
-              <option value="cash">Cash</option>
-              <option value="mpesa">M-Pesa</option>
-              <option value="pay_direct">Pay-directly (QR)</option>
-              <option value="debt">Debt</option>
-            </select>
-          </div>
-          {(saleForm.payment_method === 'mpesa' || saleForm.payment_method === 'pay_direct') && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{saleForm.payment_method === 'mpesa' ? 'M-Pesa Reference' : 'Payment Reference / QR Transaction ID'}</label>
-              <input type="text" value={saleForm.mpesa_reference} onChange={e => setSaleForm({ ...saleForm, mpesa_reference: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+          <div className="rounded-xl border-2 border-green-600 bg-green-50 dark:bg-green-950/30 p-4 space-y-3">
+            <p className="text-base font-semibold text-gray-900 dark:text-gray-100">How is the customer paying?</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button type="button" onClick={() => setSaleForm({ ...saleForm, payment_method: 'mpesa' })} className={`min-h-14 rounded-xl px-4 py-3 text-left text-base font-semibold border-2 ${saleForm.payment_method === 'mpesa' ? 'border-green-700 bg-green-600 text-white' : 'border-gray-300 bg-white text-gray-800 dark:bg-gray-800 dark:text-gray-100'}`}>
+                M-Pesa prompt
+                <span className={`block text-sm font-normal ${saleForm.payment_method === 'mpesa' ? 'text-green-100' : 'text-gray-500'}`}>Sends a PIN request to the customer’s phone</span>
+              </button>
+              <button type="button" onClick={() => setSaleForm({ ...saleForm, payment_method: 'cash' })} className={`min-h-14 rounded-xl px-4 py-3 text-left text-base font-semibold border-2 ${saleForm.payment_method === 'cash' ? 'border-amber-700 bg-amber-500 text-white' : 'border-gray-300 bg-white text-gray-800 dark:bg-gray-800 dark:text-gray-100'}`}>
+                Cash
+                <span className={`block text-sm font-normal ${saleForm.payment_method === 'cash' ? 'text-amber-100' : 'text-gray-500'}`}>Only when the customer has paid cash</span>
+              </button>
             </div>
-          )}
-          {saleForm.payment_method === 'debt' && (
-            <div className="grid grid-cols-2 gap-4 bg-amber-50 dark:bg-amber-900/20 p-3 rounded-md">
+            {saleForm.payment_method === 'mpesa' && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Signed For By</label>
-                <input required type="text" value={saleForm.debt_signatory} onChange={e => setSaleForm({ ...saleForm, debt_signatory: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                <label className="block text-base font-semibold text-gray-900 dark:text-gray-100">Phone for the M-Pesa prompt</label>
+                <input type="tel" inputMode="tel" value={saleForm.mpesa_phone} onChange={e => setSaleForm({ ...saleForm, mpesa_phone: e.target.value })} placeholder="07…" className="mt-2 block w-full border-2 border-green-700 dark:bg-gray-800 dark:text-gray-100 rounded-xl px-4 py-4 text-2xl tracking-wide" />
+                <p className="text-sm text-gray-600 dark:text-gray-300 mt-2">The PIN request goes to this number. The sale is counted only after the customer approves it.</p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Expected Repayment (max 7 days)</label>
-                <input required type="date" value={saleForm.debt_expected_repayment_date} onChange={e => setSaleForm({ ...saleForm, debt_expected_repayment_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
-              </div>
-            </div>
-          )}
-
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              {/* Round 4 Phase 0/4: line items are mandatory, not
-                  optional -- this is the only place a number is
-                  manually typed; the sale total below is always the
-                  computed sum. */}
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Line Items (brand/size, bales, price -- required)</label>
-              <button type="button" onClick={addSaleLineItem} className="text-xs text-blue-600 hover:text-blue-800">+ Add line</button>
-            </div>
-            {saleLineItems.length === 0 && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 mb-1">Add at least one line item -- the sale total is computed from these.</p>
             )}
+          </div>
+
+          <div className="rounded-xl border-2 border-blue-600 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">What was sold</h2>
+              <button type="button" onClick={addSaleLineItem} className="shrink-0 min-h-12 px-4 py-2 rounded-xl bg-blue-600 text-white text-base font-semibold">+ Add item</button>
+            </div>
             {saleLineItems.map((line, i) => {
               const available = line.sku_id ? availableForSku(line.sku_id, i) : null;
               const over = available !== null && parseFloat(line.qty_bales || '0') > available;
               return (
-                <div key={i} className="mb-1">
-                  <div className="grid grid-cols-12 gap-2 items-center">
-                    <select value={line.sku_id} onChange={e => updateSaleLineItem(i, 'sku_id', e.target.value)} className="col-span-6 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm">
-                      <option value="">Item…</option>
-                      {(activeTrip.items || []).filter(it => it.qty_carried_bales > 0).map(it => (
-                        <option key={it.sku_id} value={it.sku_id}>{it.sku?.name}</option>
-                      ))}
-                    </select>
-                    <input type="number" min="0" step="0.01" placeholder="Bales" value={line.qty_bales} onChange={e => updateSaleLineItem(i, 'qty_bales', e.target.value)} className={`col-span-2 border rounded-md px-2 py-1.5 text-sm dark:bg-gray-700 dark:text-gray-100 ${over ? 'border-red-400' : 'border-gray-300 dark:border-gray-600'}`} />
-                    <input type="number" min="0" step="0.01" placeholder="Price" value={line.unit_price} onChange={e => updateSaleLineItem(i, 'unit_price', e.target.value)} className="col-span-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
-                    <button type="button" onClick={() => removeSaleLineItem(i)} className="col-span-1 text-red-600 hover:text-red-800"><X className="w-4 h-4" /></button>
+                <div key={i} className="rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gray-500">Item {i + 1}</span>
+                    {saleLineItems.length > 1 && (
+                      <button type="button" onClick={() => removeSaleLineItem(i)} className="text-red-600 text-sm font-semibold px-2 py-1">Remove</button>
+                    )}
+                  </div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Brand / size</label>
+                  <select value={line.sku_id} onChange={e => updateSaleLineItem(i, 'sku_id', e.target.value)} className="block w-full border-2 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-xl px-3 py-3 text-base">
+                    <option value="">Choose item</option>
+                    {(activeTrip.items || []).filter(it => it.qty_carried_bales > 0).map(it => (
+                      <option key={it.sku_id} value={it.sku_id}>{it.sku?.name}</option>
+                    ))}
+                  </select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Bales</label>
+                      <input type="number" min="0" step="0.01" inputMode="decimal" placeholder="0" value={line.qty_bales} onChange={e => updateSaleLineItem(i, 'qty_bales', e.target.value)} className={`mt-1 block w-full border-2 rounded-xl px-3 py-3 text-xl dark:bg-gray-700 dark:text-gray-100 ${over ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'}`} />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Price each</label>
+                      <input type="number" min="0" step="0.01" inputMode="decimal" placeholder="0" value={line.unit_price} onChange={e => updateSaleLineItem(i, 'unit_price', e.target.value)} className="mt-1 block w-full border-2 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-xl px-3 py-3 text-xl" />
+                    </div>
                   </div>
                   {line.sku_id && (
-                    <p className={`text-xs mt-0.5 ${over ? 'text-red-600' : 'text-gray-400 dark:text-gray-500'}`}>{available} bales available on this trip</p>
+                    <p className={`text-sm font-medium ${over ? 'text-red-600' : 'text-gray-500'}`}>{available} bales still on this trip</p>
                   )}
                 </div>
               );
             })}
-            {validSaleLineItems.length > 0 && (
-              <div className="flex justify-between items-center mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-                <span className="text-sm text-gray-500 dark:text-gray-400">Sale Total (computed)</span>
-                <span className="text-lg font-bold text-gray-900 dark:text-gray-100">KES {saleTotal.toLocaleString()}</span>
-              </div>
-            )}
+            <div className="flex justify-between items-center rounded-xl bg-gray-900 text-white px-4 py-4">
+              <span className="text-base">Total</span>
+              <span className="text-3xl font-bold">KES {saleTotal.toLocaleString()}</span>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -408,10 +403,9 @@ const DriverLogSalePage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex justify-end space-x-3">
-            <Link to="/driver/trips" className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</Link>
-            <button type="submit" disabled={savingSale} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingSale ? 'Saving…' : 'Record Sale'}</button>
-          </div>
+          <button type="submit" disabled={savingSale} className={`w-full min-h-14 rounded-xl text-white text-lg font-bold disabled:opacity-50 ${saleForm.payment_method === 'mpesa' ? 'bg-green-600' : 'bg-amber-600'}`}>
+            {savingSale ? 'Sending…' : saleForm.payment_method === 'mpesa' ? 'Send M-Pesa prompt' : 'Save cash sale'}
+          </button>
         </form>
       </div>
 
@@ -447,41 +441,38 @@ const DriverLogSalePage: React.FC = () => {
         </div>
       )}
 
-      {showDebtConfirm && (
+      {showPaymentConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">This is a credit sale</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Confirm the signatory and repayment date before this goes on the customer's account.</p>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{saleForm.payment_method === 'mpesa' ? 'Send the M-Pesa prompt?' : 'Save this cash sale?'}</h3>
             <dl className="space-y-1 text-sm bg-gray-50 dark:bg-gray-900 rounded-lg p-3 mb-4">
               <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Amount</dt><dd className="font-medium text-gray-900 dark:text-gray-100">KES {saleTotal.toLocaleString()}</dd></div>
-              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Debtor</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.customer_name || '—'}</dd></div>
-              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Signatory</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.debt_signatory}</dd></div>
-              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Repay By</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.debt_expected_repayment_date}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Customer</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.customer_name || '—'}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Payment</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.payment_method === 'mpesa' ? `M-Pesa prompt to ${saleForm.mpesa_phone}` : 'Cash'}</dd></div>
             </dl>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              {saleForm.payment_method === 'mpesa'
+                ? `This sends an M-Pesa prompt for KES ${saleTotal.toLocaleString()} to ${saleForm.mpesa_phone}. It is not a sale until the customer enters the PIN.`
+                : `Save this only because the customer paid KES ${saleTotal.toLocaleString()} in cash.`}
+            </p>
             <div className="flex justify-end space-x-3">
-              <button type="button" onClick={() => setShowDebtConfirm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Go Back</button>
-              <button type="button" onClick={submitSale} disabled={savingSale} className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50">{savingSale ? 'Saving…' : 'Confirm Credit Sale'}</button>
+              <button type="button" onClick={() => setShowPaymentConfirm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Go Back</button>
+              <button type="button" onClick={submitSale} disabled={savingSale} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
+                {savingSale ? 'Sending…' : (saleForm.payment_method === 'mpesa' ? 'Send prompt' : 'Save cash sale')}
+              </button>
             </div>
           </div>
         </div>
       )}
-
-      {showPaymentConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Confirm payment received</h3>
-            <dl className="space-y-1 text-sm bg-gray-50 dark:bg-gray-900 rounded-lg p-3 mb-4">
-              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Amount</dt><dd className="font-medium text-gray-900 dark:text-gray-100">KES {saleTotal.toLocaleString()}</dd></div>
-              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Customer</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.customer_name || '—'}</dd></div>
-              <div className="flex justify-between"><dt className="text-gray-500 dark:text-gray-400">Payment Method</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{saleForm.payment_method === 'mpesa' ? 'M-Pesa' : saleForm.payment_method === 'pay_direct' ? 'Pay-directly (QR)' : 'Cash'}</dd></div>
-            </dl>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Confirm you have received KES {saleTotal.toLocaleString()} before this sale is saved.</p>
-            <div className="flex justify-end space-x-3">
-              <button type="button" onClick={() => setShowPaymentConfirm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Go Back</button>
-              <button type="button" onClick={submitSale} disabled={savingSale} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">{savingSale ? 'Saving…' : 'Confirm & Save Sale'}</button>
-            </div>
-          </div>
-        </div>
+      {stkPayment && (
+        <MpesaStkDialog
+          payment={stkPayment}
+          onFinished={(p) => setStkPayment(p)}
+          onClose={() => {
+            setStkPayment(null);
+            navigate('/driver/trips');
+          }}
+        />
       )}
     </div>
   );

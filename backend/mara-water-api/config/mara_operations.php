@@ -2,9 +2,9 @@
 
 /**
  * Mara Water (Rongo) operations model — salary bands, bottle suppliers,
- * and supply-chain constants used by the Director Operations Overview
- * and related Excel exports. Director pay is tracked separately as an
- * allowance and is NEVER included in operational payroll exports.
+ * and supply-chain constants used by the Operations Overview
+ * and related Excel exports. Operational payroll is staff only —
+ * no director allowance, dividend, or investor share.
  */
 return [
 
@@ -59,8 +59,7 @@ return [
     ],
 
     /**
-     * Monthly salary bands (KES). Director is listed for overview only —
-     * excluded from payroll Excel / Finalis-style exports.
+     * Monthly salary bands (KES) for operational staff only.
      */
     'salary_bands' => [
         [
@@ -102,16 +101,6 @@ return [
             'default_kes' => 12500,
             'include_in_payroll_export' => true,
             'notes' => '6 staff; max 12,500 each; pay tied to production targets',
-        ],
-        [
-            'role_key' => 'director',
-            'title' => 'Director',
-            'headcount_target' => 1,
-            'min_kes' => 60000,
-            'max_kes' => 60000,
-            'default_kes' => 60000,
-            'include_in_payroll_export' => false,
-            'notes' => 'Tracked as allowance later — excluded from payroll Excel',
         ],
     ],
 

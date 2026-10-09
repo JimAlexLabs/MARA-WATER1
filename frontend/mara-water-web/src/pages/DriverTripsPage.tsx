@@ -35,6 +35,7 @@ interface TripItem {
 interface TripSaleItem { id: string; sku_id: string; qty_bales: string; }
 interface TripSale {
   id: string; customer_id: string; customer?: { name: string }; payment_method: string;
+  payment_status?: string | null;
   amount: string; items?: TripSaleItem[]; photo_url?: string | null;
 }
 interface ActiveTrip {
@@ -299,7 +300,9 @@ const DriverTripsPage: React.FC = () => {
     }).catch(() => toast.error(`Failed to download ${kind} sheet`));
   };
 
-  const salesTotal = (activeTrip?.sales || []).reduce((sum, s) => sum + parseFloat(s.amount), 0);
+  const paidSales = (activeTrip?.sales || []).filter(s => !s.payment_status || s.payment_status === 'paid');
+  const waitingSales = (activeTrip?.sales || []).filter(s => s.payment_status && s.payment_status !== 'paid');
+  const salesTotal = paidSales.reduce((sum, s) => sum + parseFloat(s.amount), 0);
 
   return (
     <div className="space-y-6">
@@ -404,21 +407,23 @@ const DriverTripsPage: React.FC = () => {
           {activeTrip.status === 'in_transit' && (
             <>
               <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-medium text-gray-900 dark:text-gray-100">Sales so far: {activeTrip.sales.length} · KES {salesTotal.toLocaleString()}</h4>
-                  {/* Round 4 Phase 0/4: "New standalone Log a Sale
-                      entity, connected to but separate from the trip
-                      page" -- a real page, not a modal. */}
-                  <Link to="/driver/trips/log-sale" className="flex items-center text-sm px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-                    <Plus className="w-4 h-4 mr-1" /> Log a Sale
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
+                  <h4 className="text-xl font-bold text-gray-900 dark:text-gray-100">Paid sales: {paidSales.length} · KES {salesTotal.toLocaleString()}</h4>
+                  <Link to="/driver/trips/log-sale" className="flex items-center justify-center min-h-12 text-base font-semibold px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700">
+                    <Plus className="w-5 h-5 mr-2" /> Log a Sale
                   </Link>
                 </div>
-                {activeTrip.sales.length > 0 && (
+                {waitingSales.length > 0 && (
+                  <div className="mb-2 rounded-lg bg-amber-50 dark:bg-amber-900/30 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+                    {waitingSales.length} payment{waitingSales.length === 1 ? '' : 's'} still waiting for a PIN. {waitingSales.length === 1 ? 'It is' : 'They are'} not counted as sales.
+                  </div>
+                )}
+                {paidSales.length > 0 && (
                   <div className="space-y-1">
-                    {activeTrip.sales.map(s => (
-                      <div key={s.id} className="flex justify-between items-center text-sm py-1 border-b border-gray-100 dark:border-gray-700">
+                    {paidSales.map(s => (
+                      <div key={s.id} className="flex justify-between items-center text-base py-2 border-b border-gray-100 dark:border-gray-700">
                         <span className="text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                          {s.customer?.name || 'Customer'} · {s.payment_method}
+                          {s.customer?.name || 'Customer'} · {s.payment_method === 'mpesa' ? 'M-Pesa' : 'Cash'}
                           {/* Round 5A Phase 3: viewable, not just stored. */}
                           {s.photo_url && (
                             <a href={s.photo_url} target="_blank" rel="noopener noreferrer" title="View attached photo" className="text-gray-400 hover:text-blue-600">

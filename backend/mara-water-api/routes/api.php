@@ -67,6 +67,13 @@ Route::prefix('v1')->group(function () {
     Route::match(['put', 'patch'], '/auth/profile', [AuthController::class, 'updateProfile'])->middleware('auth:sanctum');
     Route::post('/auth/refresh', [AuthController::class, 'refresh'])->middleware('auth:sanctum');
 
+    // Safaricom calls these with no MARA login. The STK callback is matched
+    // by CheckoutRequestID. The gateway webhook is rejected without a valid
+    // HMAC signature.
+    Route::post('/payments/daraja/callback', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'darajaCallback']);
+    Route::post('/payments/daraja/c2b', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'c2b']);
+    Route::post('/payments/webhook', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'webhook']);
+
     // Protected routes
     Route::middleware('auth:sanctum')->group(function () {
         // Dashboard health check -- harmless, no business data, open to
@@ -119,6 +126,20 @@ Route::prefix('v1')->group(function () {
             Route::post('/restart-plan/reset', [\App\Http\Controllers\Api\DirectorRestartPlanController::class, 'reset']);
         });
 
+        Route::middleware('tier:driver,manager,director')->prefix('payments')->group(function () {
+            Route::get('/meta', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'meta']);
+            Route::post('/stk', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'stk'])->middleware('throttle:8,1');
+            Route::get('/{id}/status', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'status']);
+            Route::post('/{id}/recheck', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'recheck']);
+            Route::post('/{id}/cash', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'cash']);
+        });
+
+        Route::middleware('tier:manager,director')->prefix('payments')->group(function () {
+            Route::get('/export', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'export']);
+            Route::get('/', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'index']);
+            Route::post('/{id}/assign', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'assign']);
+        });
+
         // Round 2 Phase 11: a driver's own dashboard -- their own trip
         // history and stats only (DriverTripController enforces the
         // "own trips only" scoping itself once tier=driver).
@@ -133,6 +154,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/driver/sales', [\App\Http\Controllers\Api\DriverSummaryController::class, 'mySales']);
             // Ops brief §2.5: customer base + ops KPIs for driver/sales exec.
             Route::get('/driver/customers', [\App\Http\Controllers\Api\DriverSummaryController::class, 'myCustomers']);
+            Route::get('/driver/customers/{id}', [\App\Http\Controllers\Api\DriverSummaryController::class, 'customerDetail']);
             Route::get('/driver/ops-kpis', [\App\Http\Controllers\Api\DriverSummaryController::class, 'opsKpis']);
         });
 
@@ -303,6 +325,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/orders/customer/{customerId}', [OrderController::class, 'byCustomer']);
             Route::post('/orders/log-sale', [OrderController::class, 'logSale']);
             Route::get('/orders', [OrderController::class, 'index']);
+            Route::get('/field-sales', [OrderController::class, 'fieldSales']);
             Route::post('/orders', [OrderController::class, 'store']);
             Route::get('/orders/{id}', [OrderController::class, 'show']);
             Route::put('/orders/{id}', [OrderController::class, 'update']);

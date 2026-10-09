@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import MpesaStkDialog, { StkPayment } from '../components/MpesaStkDialog';
 
 interface Customer {
   id: string;
@@ -134,6 +135,7 @@ const EMPTY_SALE_FORM = {
   price_list_id: '',
   payment_method: 'cash' as 'cash' | 'mpesa' | 'credit',
   payment_reference: '',
+  stk_phone: '',
   order_date: '',
   notes: '',
   items: [newSaleItem()],
@@ -143,7 +145,7 @@ const EMPTY_SALE_FORM = {
 };
 
 // Kenya-time "today" as YYYY-MM-DD, and the max repayment date (7 days out).
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
 const maxRepaymentDate = (fromDate: string) => {
   const d = new Date((fromDate || todayStr()) + 'T00:00:00');
   d.setDate(d.getDate() + 7);
@@ -175,6 +177,7 @@ const SalesPage: React.FC = () => {
   const [priceLists, setPriceLists] = useState<PriceList[]>([]);
   const [priceListPrices, setPriceListPrices] = useState<Record<string, string>>({});
   const [saleSubmitting, setSaleSubmitting] = useState(false);
+  const [stkPayment, setStkPayment] = useState<StkPayment | null>(null);
 
   // Customer Form State
   const [customerForm, setCustomerForm] = useState(EMPTY_CUSTOMER_FORM);
@@ -223,13 +226,16 @@ const SalesPage: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [customersResponse, ordersResponse] = await Promise.all([
+      const [customersResponse, ordersResponse, fieldResponse] = await Promise.all([
         api.get('/sales/customers'),
-        api.get('/sales/orders')
+        api.get('/sales/orders', { params: { limit: 100 } }),
+        api.get('/sales/field-sales', { params: { limit: 100 } }).catch(() => ({ data: { data: [] } })),
       ]);
 
       setCustomers(customersResponse.data.data);
-      setOrders(ordersResponse.data.data);
+      const outlet = ordersResponse.data.data || [];
+      const field = fieldResponse.data?.data || [];
+      setOrders([...field, ...outlet].sort((a, b) => String(b.order_date || '').localeCompare(String(a.order_date || ''))));
     } catch (error) {
       toast.error('Failed to fetch sales data');
     } finally {
@@ -356,6 +362,8 @@ const SalesPage: React.FC = () => {
         price_list_id: saleForm.price_list_id || null,
         payment_method: saleForm.payment_method,
         payment_reference: saleForm.payment_reference || null,
+        stk_phone: saleForm.payment_method === 'mpesa' && saleForm.stk_phone.trim() ? saleForm.stk_phone.trim() : undefined,
+        stk_channel: 'warehouse',
         order_date: saleForm.order_date || null,
         notes: saleForm.notes || null,
         signatory: saleForm.payment_method === 'credit' ? saleForm.signatory : undefined,
@@ -369,6 +377,13 @@ const SalesPage: React.FC = () => {
         })),
       };
       const res = await api.post('/sales/orders/log-sale', payload);
+      const payment = res.data?.data?.payment as StkPayment | undefined;
+      const stkError = res.data?.data?.stk_error as string | undefined;
+      if (payment) {
+        setStkPayment(payment);
+        if (stkError) toast.error(stkError);
+        return;
+      }
       const orderNo = res.data?.data?.order?.order_no;
       toast.success(`Sale logged${orderNo ? ` (${orderNo})` : ''}`);
       const stockWarnings = res.data?.data?.stock_warnings || [];
@@ -990,6 +1005,19 @@ const SalesPage: React.FC = () => {
                   />
                 </div>
               </div>
+              {saleForm.payment_method === 'mpesa' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Customer phone for M-Pesa prompt</label>
+                  <input
+                    type="tel"
+                    value={saleForm.stk_phone}
+                    onChange={(e) => setSaleForm({ ...saleForm, stk_phone: e.target.value })}
+                    placeholder="07…"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">A phone number sends an STK prompt. The sale stays unpaid until the customer enters their PIN.</p>
+                </div>
+              )}
 
               {saleForm.payment_method === 'credit' && (
                 <div className="grid grid-cols-2 gap-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
@@ -1233,6 +1261,17 @@ const SalesPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+      {stkPayment && (
+        <MpesaStkDialog
+          payment={stkPayment}
+          onFinished={(p) => setStkPayment(p)}
+          onClose={() => {
+            setStkPayment(null);
+            setShowSaleForm(false);
+            fetchData();
+          }}
+        />
       )}
     </div>
   );

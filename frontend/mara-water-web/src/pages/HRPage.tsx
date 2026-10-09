@@ -302,9 +302,9 @@ const HRPage: React.FC = () => {
 
   const periodDates = (): { date_from?: string; date_to?: string } => {
     const now = new Date();
+    const nairobi = now.toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
     if (periodFilter === 'today') {
-      const d = now.toISOString().slice(0, 10);
-      return { date_from: d, date_to: d };
+      return { date_from: nairobi, date_to: nairobi };
     }
     if (periodFilter === 'week') {
       const day = now.getDay(); // 0 = Sunday

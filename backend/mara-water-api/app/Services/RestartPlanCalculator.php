@@ -29,14 +29,8 @@ class RestartPlanCalculator
             'transport_per_trip' => 45000,
             'lorry_materials_cost' => 160429.59,
             'lorry_projected_revenue' => 357545.0,
-            'md_stipend' => 80000,
-            'alt_stipend' => 65000,
-            'starting_capital' => [
-                'jimal' => 200000,
-                'diana' => 100000,
-            ],
-            'company_retain_pct' => 0.25,
-            'jimal_of_distributable_pct' => 0.70,
+            // Single operating-cash figure. No director pay, dividend, or investor split.
+            'operating_cash' => 300000,
             'restocks_per_month' => 3,
             'profit_targets' => [300000, 500000],
             'operating_days_per_month' => 26,
@@ -63,12 +57,39 @@ class RestartPlanCalculator
 
     public function merge(array $overrides = []): array
     {
-        return array_replace_recursive(self::defaults(), $overrides);
+        return $this->operationsOnly(array_replace_recursive(self::defaults(), $overrides));
+    }
+
+    /**
+     * Drop director pay, dividends, and named investor splits.
+     * Legacy named capital is folded into one operating-cash figure.
+     */
+    private function operationsOnly(array $a): array
+    {
+        unset($a['payroll']['director'], $a['payroll']['investor']);
+
+        if (isset($a['starting_capital']) && is_array($a['starting_capital']) && $a['starting_capital'] !== []) {
+            $cash = array_sum(array_map('floatval', $a['starting_capital']));
+        } else {
+            $cash = (float) ($a['operating_cash'] ?? 0);
+        }
+
+        unset(
+            $a['md_stipend'],
+            $a['alt_stipend'],
+            $a['starting_capital'],
+            $a['company_retain_pct'],
+            $a['jimal_of_distributable_pct'],
+        );
+        $a['operating_cash'] = $cash;
+
+        return $a;
     }
 
     public function compute(array $assumptions): array
     {
         $a = $this->merge($assumptions);
+        $a = $this->operationsOnly($a);
 
         $payrollTotal = 0.0;
         $payrollRows = [];
@@ -95,19 +116,14 @@ class RestartPlanCalculator
         }
 
         $fixedMonthly = $payrollTotal + $overheadTotal;
-        $mdStipend = (float) $a['md_stipend'];
-        $altStipend = (float) $a['alt_stipend'];
-        $cashCostBeforeShare = $fixedMonthly + $mdStipend;
 
         $lorryMat = (float) $a['lorry_materials_cost'];
         $lorryRev = (float) $a['lorry_projected_revenue'];
         $transport = (float) $a['transport_per_trip'];
         $firstOutlay = $lorryMat + $transport;
 
-        $jimalCap = (float) ($a['starting_capital']['jimal'] ?? 0);
-        $dianaCap = (float) ($a['starting_capital']['diana'] ?? 0);
-        $totalCap = $jimalCap + $dianaCap;
-        $cashBuffer = $totalCap - $firstOutlay;
+        $operatingCash = (float) ($a['operating_cash'] ?? 0);
+        $cashBuffer = $operatingCash - $firstOutlay;
 
         $grossMargin = $lorryRev - $lorryMat;
         $vat = $grossMargin * 0.16 / 1.16;
@@ -124,8 +140,7 @@ class RestartPlanCalculator
             $v = $gm * 0.16 / 1.16;
             $gp = $gm - $v;
             $tr = $n * $transport;
-            $net80 = $gp - $tr - $fixedMonthly - $mdStipend;
-            $net65 = $gp - $tr - $fixedMonthly - $altStipend;
+            $net = $gp - $tr - $fixedMonthly;
             $scenarioPnls[] = [
                 'restocks' => $n,
                 'revenue' => round($rev, 2),
@@ -135,48 +150,36 @@ class RestartPlanCalculator
                 'gross_after_vat' => round($gp, 2),
                 'transport' => round($tr, 2),
                 'fixed_costs' => round($fixedMonthly, 2),
-                'net_at_md_stipend' => round($net80, 2),
-                'net_at_alt_stipend' => round($net65, 2),
+                'net_profit' => round($net, 2),
             ];
         }
 
         $chosen = $scenarioPnls[$restocks - 1] ?? $scenarioPnls[2];
-        $netProfit = $chosen['net_at_md_stipend'];
-        $retainPct = (float) $a['company_retain_pct'];
-        $jimalPct = (float) $a['jimal_of_distributable_pct'];
-        $dianaPct = max(0, 1 - $jimalPct);
-        $retained = max(0, $netProfit) * $retainPct;
-        $distributable = max(0, $netProfit) * (1 - $retainPct);
-        $jimalShare = $distributable * $jimalPct;
-        $dianaShare = $distributable * $dianaPct;
+        $netProfit = $chosen['net_profit'];
 
         $targets = [];
         $days = max(1, (int) $a['operating_days_per_month']);
         $septDaily = (float) $a['sept_daily_pace'];
         foreach ((array) $a['profit_targets'] as $target) {
             $target = (float) $target;
-            foreach ([['label' => 'md_stipend', 'stipend' => $mdStipend], ['label' => 'alt_stipend', 'stipend' => $altStipend]] as $opt) {
-                $needRev = $contribPerRevenue > 0
-                    ? ($target + $fixedMonthly + $opt['stipend']) / $contribPerRevenue
-                    : 0;
-                $lorries = $lorryRev > 0 ? $needRev / $lorryRev : 0;
-                $daily = $needRev / $days;
-                $targets[] = [
-                    'profit_target' => $target,
-                    'stipend_label' => $opt['label'],
-                    'stipend' => $opt['stipend'],
-                    'required_monthly_revenue' => round($needRev, 2),
-                    'equivalent_lorries' => round($lorries, 3),
-                    'min_restock_orders' => (int) ceil($lorries),
-                    'required_daily_sales' => round($daily, 2),
-                    'vs_sept_daily_pace' => $septDaily > 0 ? round($daily / $septDaily, 3) : null,
-                ];
-            }
+            $needRev = $contribPerRevenue > 0
+                ? ($target + $fixedMonthly) / $contribPerRevenue
+                : 0;
+            $lorries = $lorryRev > 0 ? $needRev / $lorryRev : 0;
+            $daily = $needRev / $days;
+            $targets[] = [
+                'profit_target' => $target,
+                'required_monthly_revenue' => round($needRev, 2),
+                'equivalent_lorries' => round($lorries, 3),
+                'min_restock_orders' => (int) ceil($lorries),
+                'required_daily_sales' => round($daily, 2),
+                'vs_sept_daily_pace' => $septDaily > 0 ? round($daily / $septDaily, 3) : null,
+            ];
         }
 
         // Weekly cash tracker (6 weeks) at Sept weekly pace
         $weeks = [];
-        $running = $totalCap;
+        $running = $operatingCash;
         $septWeek = (float) $a['sept_weekly_pace'];
         $lorryOutlay = -1 * $firstOutlay;
         $cumStock = 0.0;
@@ -210,7 +213,7 @@ class RestartPlanCalculator
 
         $breakevenRestocks = null;
         foreach ($scenarioPnls as $row) {
-            if ($row['net_at_md_stipend'] >= 0) {
+            if ($row['net_profit'] >= 0) {
                 $breakevenRestocks = $row['restocks'];
                 break;
             }
@@ -222,10 +225,9 @@ class RestartPlanCalculator
                 'payroll' => round($payrollTotal, 2),
                 'overheads' => round($overheadTotal, 2),
                 'fixed_monthly' => round($fixedMonthly, 2),
-                'md_stipend' => round($mdStipend, 2),
-                'cash_cost_before_profit_share' => round($cashCostBeforeShare, 2),
+                'monthly_operating_cost' => round($fixedMonthly, 2),
                 'first_outlay' => round($firstOutlay, 2),
-                'starting_capital' => round($totalCap, 2),
+                'operating_cash' => round($operatingCash, 2),
                 'cash_buffer_at_start' => round($cashBuffer, 2),
                 'contrib_per_revenue' => round($contribPerRevenue, 6),
                 'net_per_full_lorry_after_vat_transport' => round($netPerLorry, 2),
@@ -235,17 +237,6 @@ class RestartPlanCalculator
             'restock_scenarios' => $scenarioPnls,
             'chosen_restocks' => $restocks,
             'chosen_pnl' => $chosen,
-            'profit_share' => [
-                'net_company_profit' => round($netProfit, 2),
-                'company_retain_pct' => $retainPct,
-                'company_retained' => round($retained, 2),
-                'distributable' => round($distributable, 2),
-                'jimal_pct' => $jimalPct,
-                'diana_pct' => $dianaPct,
-                'jimal_share' => round($jimalShare, 2),
-                'diana_share' => round($dianaShare, 2),
-                'jimal_total_with_stipend' => round($jimalShare + $mdStipend, 2),
-            ],
             'targets' => $targets,
             'weekly_cash' => $weeks,
             'capacity' => [
@@ -257,7 +248,7 @@ class RestartPlanCalculator
             ],
             'kpis' => [
                 'net_profit_at_chosen_restocks' => round($netProfit, 2),
-                'breakeven_restocks_at_md_stipend' => $breakevenRestocks,
+                'breakeven_restocks' => $breakevenRestocks,
                 'cash_buffer_at_start' => round($cashBuffer, 2),
                 'pace_gap_weekly_full_lorry' => $septWeek > 0 ? round($lorryRev / $septWeek, 3) : null,
             ],

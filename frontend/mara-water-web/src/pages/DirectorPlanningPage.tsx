@@ -12,11 +12,7 @@ type Assumptions = {
   transport_per_trip: number;
   lorry_materials_cost: number;
   lorry_projected_revenue: number;
-  md_stipend: number;
-  alt_stipend: number;
-  starting_capital: { jimal: number; diana: number };
-  company_retain_pct: number;
-  jimal_of_distributable_pct: number;
+  operating_cash: number;
   restocks_per_month: number;
   profit_targets: number[];
   operating_days_per_month: number;
@@ -35,7 +31,6 @@ type Computed = {
   restock_scenarios: any[];
   chosen_restocks: number;
   chosen_pnl: any;
-  profit_share: any;
   targets: any[];
   weekly_cash: any[];
   capacity: any;
@@ -51,7 +46,7 @@ const pct = (n: number | null | undefined) => `${(Number(n || 0) * 100).toFixed(
 const DirectorPlanningPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<'dashboard' | 'costs' | 'restock' | 'capital' | 'share' | 'timeline'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'costs' | 'restock' | 'cash' | 'timeline'>('dashboard');
   const [assumptions, setAssumptions] = useState<Assumptions | null>(null);
   const [computed, setComputed] = useState<Computed | null>(null);
   const [notes, setNotes] = useState('');
@@ -135,13 +130,11 @@ const DirectorPlanningPage: React.FC = () => {
 
   const k = computed.kpis;
   const t = computed.totals;
-  const share = computed.profit_share;
   const tabs = [
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'costs', label: 'Team & costs' },
     { id: 'restock', label: 'Restock what-if' },
-    { id: 'capital', label: 'Capital & cash' },
-    { id: 'share', label: 'Profit share' },
+    { id: 'cash', label: 'Cash' },
     { id: 'timeline', label: 'Timeline' },
   ] as const;
 
@@ -157,8 +150,8 @@ const DirectorPlanningPage: React.FC = () => {
             Director planning — restart foresight
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1 max-w-3xl">
-            Editable Premium-only restart model (from the restart workbook). Change costs, stipend, capital or restocks —
-            see what happens to profit, cash buffer, daily sales target and capacity before you commit cash.
+            Operations what-if for the Premium restart. Change staff costs, overheads, cash on hand, or restocks —
+            see what happens to operating profit, cash buffer, daily sales target, and capacity.
           </p>
           <p className="text-xs text-amber-700 dark:text-amber-300 mt-2 flex items-start gap-1">
             <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
@@ -193,9 +186,9 @@ const DirectorPlanningPage: React.FC = () => {
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {[
-              { label: `Net profit @ ${computed.chosen_restocks} restocks/mo`, value: money(k.net_profit_at_chosen_restocks), hint: `MD stipend ${money(assumptions.md_stipend)}` },
-              { label: 'Cash buffer after first lorry', value: money(k.cash_buffer_at_start), hint: `Capital ${money(t.starting_capital)}` },
-              { label: 'Breakeven restocks (at MD stipend)', value: String(k.breakeven_restocks_at_md_stipend ?? '—'), hint: 'Full lorries / month' },
+              { label: `Operating profit @ ${computed.chosen_restocks} restocks/mo`, value: money(k.net_profit_at_chosen_restocks), hint: 'After staff, overheads, materials, VAT, transport' },
+              { label: 'Cash buffer after first lorry', value: money(k.cash_buffer_at_start), hint: `Cash on hand ${money(t.operating_cash)}` },
+              { label: 'Breakeven restocks', value: String(k.breakeven_restocks ?? '—'), hint: 'Full lorries / month' },
               { label: 'Weekly pace gap vs full lorry', value: k.pace_gap_weekly_full_lorry ? `${k.pace_gap_weekly_full_lorry}×` : '—', hint: 'Need vs Sept proven week' },
             ].map((card) => (
               <div key={card.label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -217,8 +210,7 @@ const DirectorPlanningPage: React.FC = () => {
                     <tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
                       <th className="py-2 pr-3">Restocks</th>
                       <th className="py-2 pr-3">Revenue</th>
-                      <th className="py-2 pr-3">Net @ {money(assumptions.md_stipend)}</th>
-                      <th className="py-2">Net @ {money(assumptions.alt_stipend)}</th>
+                      <th className="py-2">Operating profit</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -226,8 +218,7 @@ const DirectorPlanningPage: React.FC = () => {
                       <tr key={r.restocks} className={`border-b border-gray-100 dark:border-gray-700/60 ${r.restocks === computed.chosen_restocks ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
                         <td className="py-2 pr-3 font-medium">{r.restocks}/mo</td>
                         <td className="py-2 pr-3">{money(r.revenue)}</td>
-                        <td className={`py-2 pr-3 ${r.net_at_md_stipend < 0 ? 'text-red-600' : 'text-emerald-700 dark:text-emerald-400'}`}>{money(r.net_at_md_stipend)}</td>
-                        <td className={`py-2 ${r.net_at_alt_stipend < 0 ? 'text-red-600' : ''}`}>{money(r.net_at_alt_stipend)}</td>
+                        <td className={`py-2 ${r.net_profit < 0 ? 'text-red-600' : 'text-emerald-700 dark:text-emerald-400'}`}>{money(r.net_profit)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -248,7 +239,6 @@ const DirectorPlanningPage: React.FC = () => {
                   <thead>
                     <tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
                       <th className="py-2 pr-3">Goal</th>
-                      <th className="py-2 pr-3">Stipend</th>
                       <th className="py-2 pr-3">Daily sales</th>
                       <th className="py-2 pr-3">vs Sept</th>
                       <th className="py-2">Min lorries</th>
@@ -258,7 +248,6 @@ const DirectorPlanningPage: React.FC = () => {
                     {computed.targets.map((row: any, i: number) => (
                       <tr key={i} className="border-b border-gray-100 dark:border-gray-700/60">
                         <td className="py-2 pr-3">{money(row.profit_target)}</td>
-                        <td className="py-2 pr-3">{money(row.stipend)}</td>
                         <td className="py-2 pr-3 font-medium">{money(row.required_daily_sales)}</td>
                         <td className="py-2 pr-3">{row.vs_sept_daily_pace ? `${row.vs_sept_daily_pace}×` : '—'}</td>
                         <td className="py-2">{row.min_restock_orders}</td>
@@ -297,7 +286,7 @@ const DirectorPlanningPage: React.FC = () => {
           </div>
 
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-3">
-            <h2 className="font-semibold">B. Overheads + stipend + transport</h2>
+            <h2 className="font-semibold">B. Overheads + transport</h2>
             {Object.entries(assumptions.overheads).map(([key, val]) => (
               <label key={key} className="flex items-center justify-between gap-3 text-sm">
                 <span className="capitalize text-gray-600 dark:text-gray-300">{key.replace(/_/g, ' ')}</span>
@@ -306,25 +295,13 @@ const DirectorPlanningPage: React.FC = () => {
               </label>
             ))}
             <label className="flex items-center justify-between gap-3 text-sm pt-2 border-t border-gray-200 dark:border-gray-700">
-              <span>MD stipend (pre profit-share)</span>
-              <input type="number" min={0} value={assumptions.md_stipend}
-                onChange={(e) => setAssumptions({ ...assumptions, md_stipend: Number(e.target.value) })}
-                className="w-36 rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-2 py-1.5 text-sm text-right" />
-            </label>
-            <label className="flex items-center justify-between gap-3 text-sm">
-              <span>Alt stipend (compare)</span>
-              <input type="number" min={0} value={assumptions.alt_stipend}
-                onChange={(e) => setAssumptions({ ...assumptions, alt_stipend: Number(e.target.value) })}
-                className="w-36 rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-2 py-1.5 text-sm text-right" />
-            </label>
-            <label className="flex items-center justify-between gap-3 text-sm">
               <span>Transport / trip (Nairobi→Rongo)</span>
               <input type="number" min={0} value={assumptions.transport_per_trip}
                 onChange={(e) => setAssumptions({ ...assumptions, transport_per_trip: Number(e.target.value) })}
                 className="w-36 rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-2 py-1.5 text-sm text-right" />
             </label>
             <p className="text-sm font-medium pt-2 border-t border-gray-200 dark:border-gray-700">
-              Fixed (payroll+OH): {money(t.fixed_monthly)} · Cash cost before share: {money(t.cash_cost_before_profit_share)}
+              Monthly operating cost (payroll + overheads): {money(t.monthly_operating_cost ?? t.fixed_monthly)}
             </p>
           </div>
         </div>
@@ -359,7 +336,7 @@ const DirectorPlanningPage: React.FC = () => {
                   <th className="py-2 pr-2">Materials</th>
                   <th className="py-2 pr-2">After VAT</th>
                   <th className="py-2 pr-2">Transport</th>
-                  <th className="py-2 pr-2">Net @ MD stipend</th>
+                  <th className="py-2 pr-2">Operating profit</th>
                 </tr>
               </thead>
               <tbody>
@@ -370,7 +347,7 @@ const DirectorPlanningPage: React.FC = () => {
                     <td className="py-2 pr-2">{money(r.materials)}</td>
                     <td className="py-2 pr-2">{money(r.gross_after_vat)}</td>
                     <td className="py-2 pr-2">{money(r.transport)}</td>
-                    <td className={`py-2 pr-2 font-medium ${r.net_at_md_stipend < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{money(r.net_at_md_stipend)}</td>
+                    <td className={`py-2 pr-2 font-medium ${r.net_profit < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{money(r.net_profit)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -384,27 +361,15 @@ const DirectorPlanningPage: React.FC = () => {
         </div>
       )}
 
-      {tab === 'capital' && (
+      {tab === 'cash' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-3">
-            <h2 className="font-semibold">Starting capital</h2>
-            <label className="text-sm block">Jimal
-              <input type="number" value={assumptions.starting_capital.jimal}
-                onChange={(e) => setAssumptions({
-                  ...assumptions,
-                  starting_capital: { ...assumptions.starting_capital, jimal: Number(e.target.value) },
-                })}
+            <h2 className="font-semibold">Cash on hand</h2>
+            <label className="text-sm block">Operating cash available to start
+              <input type="number" min={0} value={assumptions.operating_cash}
+                onChange={(e) => setAssumptions({ ...assumptions, operating_cash: Number(e.target.value) })}
                 className="mt-1 w-full rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-3 py-2 text-sm" />
             </label>
-            <label className="text-sm block">Diana
-              <input type="number" value={assumptions.starting_capital.diana}
-                onChange={(e) => setAssumptions({
-                  ...assumptions,
-                  starting_capital: { ...assumptions.starting_capital, diana: Number(e.target.value) },
-                })}
-                className="mt-1 w-full rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-3 py-2 text-sm" />
-            </label>
-            <p className="text-sm">Total capital: <strong>{money(t.starting_capital)}</strong></p>
             <p className="text-sm">First outlay (materials + transport): <strong>{money(t.first_outlay)}</strong></p>
             <p className={`text-sm font-medium ${t.cash_buffer_at_start < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
               Cash buffer at start: {money(t.cash_buffer_at_start)}
@@ -433,32 +398,6 @@ const DirectorPlanningPage: React.FC = () => {
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-
-      {tab === 'share' && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4 max-w-2xl">
-          <h2 className="font-semibold">Profit sharing (at chosen restock scenario)</h2>
-          <label className="text-sm block">Company retain %
-            <input type="number" min={0} max={1} step={0.01} value={assumptions.company_retain_pct}
-              onChange={(e) => setAssumptions({ ...assumptions, company_retain_pct: Number(e.target.value) })}
-              className="mt-1 w-40 rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-3 py-2 text-sm" />
-          </label>
-          <label className="text-sm block">Jimal % of distributable (Diana = remainder)
-            <input type="number" min={0} max={1} step={0.01} value={assumptions.jimal_of_distributable_pct}
-              onChange={(e) => setAssumptions({ ...assumptions, jimal_of_distributable_pct: Number(e.target.value) })}
-              className="mt-1 w-40 rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-3 py-2 text-sm" />
-          </label>
-          <dl className="grid grid-cols-2 gap-3 text-sm">
-            <div><dt className="text-gray-500">Net company profit</dt><dd className="font-semibold text-lg">{money(share.net_company_profit)}</dd></div>
-            <div><dt className="text-gray-500">Company retained</dt><dd className="font-semibold">{money(share.company_retained)}</dd></div>
-            <div><dt className="text-gray-500">Jimal profit share</dt><dd className="font-semibold">{money(share.jimal_share)}</dd></div>
-            <div><dt className="text-gray-500">Diana profit share</dt><dd className="font-semibold">{money(share.diana_share)}</dd></div>
-            <div className="col-span-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-              <dt className="text-gray-500">Jimal total (stipend + share)</dt>
-              <dd className="font-bold text-xl text-emerald-700 dark:text-emerald-400">{money(share.jimal_total_with_stipend)}</dd>
-            </div>
-          </dl>
         </div>
       )}
 
@@ -492,7 +431,7 @@ const DirectorPlanningPage: React.FC = () => {
               <input value={name} onChange={(e) => setName(e.target.value)}
                 className="mt-1 w-full rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-900 px-3 py-2 text-sm" />
             </label>
-            <label className="text-sm block">Director notes
+            <label className="text-sm block">Notes
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4}
                 className="mt-1 w-full rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-900 px-3 py-2 text-sm" />
             </label>

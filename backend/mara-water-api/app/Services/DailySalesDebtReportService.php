@@ -251,6 +251,9 @@ class DailySalesDebtReportService
             }
             $key = $trip->trip_date->toDateString() . '|' . $trip->location_id;
             $bucket = $out->get($key, ['sales' => 0, 'debt' => 0, 'distributor' => 0]);
+            if (($s->payment_status ?? 'paid') !== 'paid') {
+                continue;
+            }
             $bucket['sales'] += (float) $s->amount;
             if ($s->payment_method === 'debt') {
                 $bucket['debt'] += (float) $s->amount;

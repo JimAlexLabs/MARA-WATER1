@@ -143,7 +143,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       name: 'Planning',
       href: '/operations/planning',
       icon: BarChart3,
-      description: 'Restart what-if: costs, restocks, capital, profit share'
+      description: 'Restart what-if: costs, restocks, cash, capacity'
     },
     {
       name: 'Analytics',
@@ -186,6 +186,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       href: '/finance', 
       icon: BarChart3,
       description: 'Invoices, payments, and reconciliation'
+    },
+    {
+      name: 'M-Pesa',
+      href: '/payments',
+      icon: BarChart3,
+      description: 'STK prompts, receipts, and unmatched paybill payments'
     },
     { 
       name: 'Fleet', 

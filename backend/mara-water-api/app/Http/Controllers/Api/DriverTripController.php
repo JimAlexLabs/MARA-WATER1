@@ -325,7 +325,8 @@ class DriverTripController extends Controller
 
         $validator = Validator::make($request->all(), [
             'customer_id' => 'required|exists:customers,id',
-            'payment_method' => 'required|in:cash,mpesa,debt,pay_direct',
+            'payment_method' => 'required|in:cash,mpesa',
+            'stk_phone' => 'required_if:payment_method,mpesa|nullable|string|max:20',
             // Dual-purpose: M-Pesa code for 'mpesa', QR/reference note for
             // 'pay_direct' -- see DriverTripSale model docblock.
             'mpesa_reference' => 'nullable|string|max:100',
@@ -354,11 +355,21 @@ class DriverTripController extends Controller
             return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
+        if ($request->payment_method === 'mpesa' && $request->filled('stk_phone')) {
+            try {
+                \App\Services\MpesaStkService::normalizePhone($request->stk_phone);
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+            }
+        }
+
         // Round 4 Phase 4: block selling more of a brand/size than
         // remains available on this trip (dispatched minus already sold),
         // so a driver can only sell what's actually been dispatched and
         // stays accountable for it.
-        $alreadySoldBySku = \App\Models\DriverTripSaleItem::whereHas('sale', fn ($q) => $q->where('driver_trip_id', $trip->id)->whereNull('deleted_at'))
+        $alreadySoldBySku = \App\Models\DriverTripSaleItem::whereHas('sale', fn ($q) => $q->where('driver_trip_id', $trip->id)->whereNull('deleted_at')->where(function ($q) {
+            $q->where('payment_status', 'paid')->orWhere('payment_status', 'awaiting_payment')->orWhereNull('payment_status');
+        }))
             ->selectRaw('sku_id, SUM(qty_bales) as sold')
             ->groupBy('sku_id')
             ->pluck('sold', 'sku_id');
@@ -420,6 +431,7 @@ class DriverTripController extends Controller
             $sale = $trip->sales()->create([
                 'customer_id' => $request->customer_id,
                 'payment_method' => $request->payment_method,
+                'payment_status' => ($request->payment_method === 'mpesa' && $request->filled('stk_phone')) ? 'awaiting_payment' : 'paid',
                 'amount' => $amount,
                 'mpesa_reference' => $request->mpesa_reference,
                 'debt_signatory' => $request->payment_method === 'debt' ? $request->debt_signatory : null,
@@ -444,12 +456,37 @@ class DriverTripController extends Controller
             return $sale;
         });
 
+        $payment = null;
+        if ($request->payment_method === 'mpesa') {
+            try {
+                $payment = app(\App\Services\MpesaStkService::class)->startForTripSale($sale, $request->stk_phone, $request->user());
+            } catch (\Throwable $e) {
+                $sale->items()->delete();
+                $sale->delete();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The M-Pesa prompt was not sent, so this sale was not saved. '.$e->getMessage(),
+                ], 422);
+            }
+            if (! $payment || $payment->status === 'failed') {
+                $sale->items()->delete();
+                $sale->delete();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The M-Pesa prompt was not sent, so this sale was not saved.',
+                ], 422);
+            }
+        }
+
         return response()->json([
             'success' => true,
-            'message' => 'Sale recorded',
+            'message' => $payment ? 'Payment request sent. It counts as a sale only after the customer enters the PIN.' : 'Sale recorded',
             'data' => [
                 'sale' => $sale->load(['customer', 'debt', 'items.sku']),
                 'trip' => $trip->fresh(self::WITH),
+                'payment' => $payment,
             ],
         ], 201);
     }

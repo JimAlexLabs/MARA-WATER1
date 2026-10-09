@@ -15,6 +15,7 @@ interface IssueRow {
   messages?: IssueMessageRow[]; messages_count?: number;
   latest_message?: IssueMessageRow | null; created_at: string;
 }
+const QUICK_ISSUES = ['Fuel', 'Vehicle', 'Stock short', 'Delivery', 'Customer complaint'];
 const ISSUE_STATUS_STYLE: Record<string, string> = {
   open: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
   acknowledged: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
@@ -96,13 +97,20 @@ const DriverIssuesPage: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <div className="flex justify-between items-center mb-4">
+        <div className="mb-4 space-y-3">
           <div>
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Report an Issue</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Something wrong with a vehicle, a delivery, stock, or anything else -- your Manager/Director will see it and can reply here.</p>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Report a problem</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Tap the kind of problem. Your Manager or Director sees it and can reply here.</p>
           </div>
-          <button onClick={() => setShowIssueForm(true)} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-            <Plus className="h-4 w-4 mr-1" /> New Issue
+          <div className="grid grid-cols-2 gap-2">
+            {QUICK_ISSUES.map(label => (
+              <button key={label} type="button" onClick={() => { setIssueSubject(label); setShowIssueForm(true); }} className="min-h-14 rounded-xl border-2 border-gray-300 dark:border-gray-600 px-3 py-3 text-base font-semibold text-left text-gray-900 dark:text-gray-100">
+                {label}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => { setIssueSubject(''); setShowIssueForm(true); }} className="flex w-full items-center justify-center min-h-12 px-4 py-3 bg-blue-600 text-white rounded-xl text-base font-semibold">
+            <Plus className="h-5 w-5 mr-1" /> Other problem
           </button>
         </div>
 
@@ -113,10 +121,10 @@ const DriverIssuesPage: React.FC = () => {
         ) : (
           <div className="space-y-2">
             {issues.map(issue => (
-              <button key={issue.id} onClick={() => openThread(issue.id)} className="w-full text-left flex items-center justify-between p-3 rounded-md border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
+              <button key={issue.id} onClick={() => openThread(issue.id)} className="w-full text-left flex items-center justify-between p-4 min-h-16 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{issue.subject}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{issue.latest_message?.body ?? ''}</p>
+                  <p className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">{issue.subject}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{issue.latest_message?.body ?? ''}</p>
                 </div>
                 <span className={`ml-3 shrink-0 inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${ISSUE_STATUS_STYLE[issue.status]}`}>{issue.status}</span>
               </button>
@@ -144,7 +152,7 @@ const DriverIssuesPage: React.FC = () => {
               <div>
                 <label className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
                   <Paperclip className="h-4 w-4 mr-1" /> {issuePhoto ? issuePhoto.name : 'Attach a photo (optional)'}
-                  <input type="file" accept="image/*" className="hidden" onChange={e => setIssuePhoto(e.target.files?.[0] ?? null)} />
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => setIssuePhoto(e.target.files?.[0] ?? null)} />
                 </label>
               </div>
               <div className="flex justify-end space-x-3 pt-2">

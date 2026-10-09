@@ -1,17 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Clock, LogIn, LogOut } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
-// Round 4 Phase 9: its own sidebar page -- "Check In / Check Out" --
-// pulled out of the Dashboard so it isn't buried, and explicitly NOT
-// one generic control for whoever's logged in: the shared Driver/Sales/
-// Field-Work dashboard needs three independent check-in/checkout
-// controls, one per person actually on the trip, each with their own
-// time-in/time-out. Names are driven only by who the Director has
-// assigned to the Driver, Sales, and Field Work roles in HR -- never
-// freely typed here.
+// Daily check-in for the field phone. The logged-in person is the
+// primary action. Teammates stay below, grouped by role, so Driver and
+// Sales Executive are never mixed into one anonymous control.
 
 interface Summary {
   today: { clocked_in: boolean; clocked_out: boolean; clock_in_time: string | null; clock_out_time: string | null };
@@ -21,10 +16,18 @@ interface FieldTeamMember {
   id: string; full_name: string; role_code: string | null; role_name: string | null;
   clocked_in: boolean; clocked_out: boolean; clock_in_time: string | null; clock_out_time: string | null;
 }
-const ROLE_SECTION_LABEL: Record<string, string> = {
-  DRV: 'Driver Check-In / Check-Out',
-  SALES: 'Sales Executive Check-In / Check-Out',
-  FIELDWORK: 'Field Work / Marketing Check-In / Check-Out',
+
+const ROLE_ORDER = ['DRV', 'SALES', 'FIELDWORK'] as const;
+const ROLE_LABEL: Record<string, string> = {
+  DRV: 'Drivers',
+  SALES: 'Sales',
+  FIELDWORK: 'Field work',
+};
+
+const statusLine = (m: { clocked_in: boolean; clocked_out: boolean; clock_in_time: string | null; clock_out_time: string | null }) => {
+  if (m.clocked_out) return `Done · in ${m.clock_in_time} · out ${m.clock_out_time}`;
+  if (m.clocked_in) return `In since ${m.clock_in_time}`;
+  return 'Not in yet';
 };
 
 const DriverAttendancePage: React.FC = () => {
@@ -32,71 +35,61 @@ const DriverAttendancePage: React.FC = () => {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [clockLoading, setClockLoading] = useState(false);
+  const [fieldTeam, setFieldTeam] = useState<FieldTeamMember[]>([]);
+  const [teamActionLoading, setTeamActionLoading] = useState<string | null>(null);
 
   const fetchSummary = useCallback(() => {
     api.get('/driver/summary').then(res => setSummary(res.data.data)).catch(() => toast.error('Failed to load your attendance')).finally(() => setLoading(false));
   }, []);
-  useEffect(() => { fetchSummary(); }, [fetchSummary]);
-
-  const [fieldTeam, setFieldTeam] = useState<FieldTeamMember[]>([]);
-  const [teamActionLoading, setTeamActionLoading] = useState<string | null>(null);
   const fetchFieldTeam = useCallback(() => {
     api.get('/hr/field-team').then(res => setFieldTeam(res.data.data)).catch(() => {});
   }, []);
-  useEffect(() => { fetchFieldTeam(); }, [fetchFieldTeam]);
+  useEffect(() => { fetchSummary(); fetchFieldTeam(); }, [fetchSummary, fetchFieldTeam]);
 
-  const handleClockIn = async () => {
-    setClockLoading(true);
-    try {
-      await api.post('/hr/attendance/clock-in', { user_id: user?.id });
-      toast.success('Clocked in');
-      fetchSummary();
-      fetchFieldTeam();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to clock in');
-    } finally {
-      setClockLoading(false);
-    }
-  };
+  const meToday = useMemo(() => {
+    const fromTeam = fieldTeam.find(m => m.id === user?.id);
+    if (fromTeam) return fromTeam;
+    return {
+      id: user?.id || '',
+      full_name: [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'You',
+      role_code: null,
+      role_name: null,
+      clocked_in: !!summary?.today.clocked_in,
+      clocked_out: !!summary?.today.clocked_out,
+      clock_in_time: summary?.today.clock_in_time ?? null,
+      clock_out_time: summary?.today.clock_out_time ?? null,
+    };
+  }, [fieldTeam, summary, user]);
 
-  const handleClockOut = async () => {
-    setClockLoading(true);
-    try {
-      const res = await api.post('/hr/attendance/clock-out', { user_id: user?.id });
-      toast.success(`Clocked out -- ${res.data.data?.total_hours ?? ''}h worked`);
-      fetchSummary();
-      fetchFieldTeam();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to clock out');
-    } finally {
-      setClockLoading(false);
-    }
-  };
+  const teammates = fieldTeam.filter(m => m.id !== user?.id);
+  const rolesPresent = ROLE_ORDER.filter(code => teammates.some(m => m.role_code === code));
 
-  const teamClockIn = async (memberId: string) => {
-    setTeamActionLoading(memberId);
+  const clockIn = async (memberId: string, isSelf: boolean) => {
+    if (isSelf) setClockLoading(true); else setTeamActionLoading(memberId);
     try {
       await api.post('/hr/attendance/clock-in', { user_id: memberId });
       toast.success('Checked in');
       fetchFieldTeam();
-      if (memberId === user?.id) fetchSummary();
+      if (isSelf || memberId === user?.id) fetchSummary();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to check in');
     } finally {
+      setClockLoading(false);
       setTeamActionLoading(null);
     }
   };
 
-  const teamClockOut = async (memberId: string) => {
-    setTeamActionLoading(memberId);
+  const clockOut = async (memberId: string, isSelf: boolean) => {
+    if (isSelf) setClockLoading(true); else setTeamActionLoading(memberId);
     try {
       const res = await api.post('/hr/attendance/clock-out', { user_id: memberId });
-      toast.success(`Checked out -- ${res.data.data?.total_hours ?? ''}h worked`);
+      toast.success(`Checked out · ${res.data.data?.total_hours ?? ''}h`);
       fetchFieldTeam();
-      if (memberId === user?.id) fetchSummary();
+      if (isSelf || memberId === user?.id) fetchSummary();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to check out');
     } finally {
+      setClockLoading(false);
       setTeamActionLoading(null);
     }
   };
@@ -109,83 +102,84 @@ const DriverAttendancePage: React.FC = () => {
     );
   }
 
+  const selfBusy = clockLoading || teamActionLoading === meToday.id;
+  const selfDone = meToday.clocked_out;
+  const selfIn = meToday.clocked_in && !meToday.clocked_out;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Check In / Check Out</h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Separate records for Driver and Sales Executive (and Field Work). Timestamps are system-generated and feed Manager + Director attendance.
-        </p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Check in</h1>
+        <p className="text-gray-600 dark:text-gray-400">One tap for you. Then check in anyone else on the trip.</p>
       </div>
 
-      {/* Your own quick clock in/out */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center">
-            <Clock className="w-8 h-8 text-blue-600 mr-3" />
-            <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Your attendance today</p>
-              <p className="text-gray-900 dark:text-gray-100 font-medium">
-                {summary?.today.clocked_in ? `Checked in at ${summary.today.clock_in_time}` : 'Not checked in yet'}
-                {summary?.today.clocked_out ? ` · Checked out at ${summary.today.clock_out_time}` : ''}
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={handleClockIn} disabled={clockLoading || !!summary?.today.clocked_in}
-              className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
-              <LogIn className="w-4 h-4 mr-2" /> Check In
-            </button>
-            <button onClick={handleClockOut} disabled={clockLoading || !summary?.today.clocked_in || !!summary?.today.clocked_out}
-              className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50">
-              <LogOut className="w-4 h-4 mr-2" /> Check Out
-            </button>
+      <div className={`rounded-2xl p-5 shadow ${selfDone ? 'bg-gray-100 dark:bg-gray-800' : selfIn ? 'bg-green-50 dark:bg-green-950/40 border-2 border-green-600' : 'bg-white dark:bg-gray-800 border-2 border-blue-600'}`}>
+        <div className="flex items-center gap-3 mb-4">
+          <Clock className={`w-8 h-8 ${selfIn ? 'text-green-600' : 'text-blue-600'}`} />
+          <div>
+            <p className="text-sm text-gray-500 dark:text-gray-400">You</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{meToday.full_name}</p>
+            <p className="text-base font-medium text-gray-700 dark:text-gray-300">{statusLine(meToday)}</p>
           </div>
         </div>
+        {!selfDone && !selfIn && (
+          <button type="button" onClick={() => clockIn(meToday.id, true)} disabled={selfBusy || !meToday.id}
+            className="w-full min-h-16 rounded-2xl bg-green-600 text-white text-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+            <LogIn className="w-6 h-6" /> Check in now
+          </button>
+        )}
+        {selfIn && (
+          <button type="button" onClick={() => clockOut(meToday.id, true)} disabled={selfBusy}
+            className="w-full min-h-16 rounded-2xl bg-gray-800 text-white text-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+            <LogOut className="w-6 h-6" /> Check out
+          </button>
+        )}
+        {selfDone && (
+          <p className="text-center text-base font-semibold text-gray-600 dark:text-gray-300 py-2">Finished for today</p>
+        )}
       </div>
 
-      {/* Distinct role sections — never one shared ambiguous control */}
-      {fieldTeam.length > 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">Role check-in stations</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Each role has its own labeled station. Driver and Sales Executive are never mixed into one "clock-in teammate" control.
-          </p>
-          <div className="space-y-4">
-            {(['DRV', 'SALES', 'FIELDWORK'] as const).filter(code => fieldTeam.some(m => m.role_code === code)).map(code => (
-              <div key={code}>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{ROLE_SECTION_LABEL[code]}</h4>
-                <div className="space-y-2">
-                  {fieldTeam.filter(m => m.role_code === code).map(m => (
-                    <div key={m.id} className="flex items-center justify-between flex-wrap gap-2 bg-gray-50 dark:bg-gray-900 rounded-lg px-4 py-3">
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-gray-100">{m.full_name}{m.id === user?.id ? ' (you)' : ''}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {m.clocked_in ? `Checked in at ${m.clock_in_time}` : 'Not checked in yet'}
-                          {m.clocked_out ? ` · Checked out at ${m.clock_out_time}` : ''}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => teamClockIn(m.id)} disabled={teamActionLoading === m.id || m.clocked_in}
-                          className="flex items-center text-sm px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
-                          <LogIn className="w-3.5 h-3.5 mr-1" /> Check In
-                        </button>
-                        <button onClick={() => teamClockOut(m.id)} disabled={teamActionLoading === m.id || !m.clocked_in || m.clocked_out}
-                          className="flex items-center text-sm px-3 py-1.5 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50">
-                          <LogOut className="w-3.5 h-3.5 mr-1" /> Check Out
-                        </button>
-                      </div>
+      {teammates.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Rest of the team</h2>
+          {rolesPresent.map(code => (
+            <div key={code} className="space-y-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">{ROLE_LABEL[code]}</h3>
+              {teammates.filter(m => m.role_code === code).map(m => {
+                const busy = teamActionLoading === m.id;
+                const done = m.clocked_out;
+                const inn = m.clocked_in && !m.clocked_out;
+                return (
+                  <div key={m.id} className="rounded-2xl bg-white dark:bg-gray-800 shadow p-4">
+                    <div className="mb-3">
+                      <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{m.full_name}</p>
+                      <p className="text-sm text-gray-500">{statusLine(m)}</p>
                     </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+                    {!done && !inn && (
+                      <button type="button" onClick={() => clockIn(m.id, false)} disabled={busy}
+                        className="w-full min-h-12 rounded-xl bg-green-600 text-white text-base font-semibold disabled:opacity-50">
+                        Check in
+                      </button>
+                    )}
+                    {inn && (
+                      <button type="button" onClick={() => clockOut(m.id, false)} disabled={busy}
+                        className="w-full min-h-12 rounded-xl bg-gray-700 text-white text-base font-semibold disabled:opacity-50">
+                        Check out
+                      </button>
+                    )}
+                    {done && (
+                      <p className="text-sm font-medium text-gray-500 text-center">Done</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </div>
-      ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <p className="text-sm text-gray-500 dark:text-gray-400">No Driver, Sales Executive, or Field Work team members are assigned yet — your Director assigns these roles under Users.</p>
-        </div>
+      )}
+
+      {fieldTeam.length === 0 && (
+        <p className="text-sm text-gray-500 dark:text-gray-400">No teammates listed yet. Your Director assigns Driver, Sales, and Field Work under Users.</p>
       )}
     </div>
   );

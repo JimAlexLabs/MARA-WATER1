@@ -30,6 +30,7 @@ const InventoryPage = lazy(() => import('./pages/InventoryPage'));
 const SalesPage = lazy(() => import('./pages/SalesPage'));
 const CustomerDetailPage = lazy(() => import('./pages/CustomerDetailPage'));
 const FinancePage = lazy(() => import('./pages/FinancePage'));
+const MpesaPaymentsPage = lazy(() => import('./pages/MpesaPaymentsPage'));
 const FleetPage = lazy(() => import('./pages/FleetPage'));
 const HRPage = lazy(() => import('./pages/HRPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
@@ -288,6 +289,13 @@ function App() {
               <ProtectedRoute tiers={['manager', 'director']}>
                 <Layout>
                   <FinancePage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/payments" element={
+              <ProtectedRoute tiers={['manager', 'director']}>
+                <Layout>
+                  <MpesaPaymentsPage />
                 </Layout>
               </ProtectedRoute>
             } />

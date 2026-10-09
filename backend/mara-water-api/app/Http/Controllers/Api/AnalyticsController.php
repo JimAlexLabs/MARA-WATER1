@@ -90,6 +90,7 @@ class AnalyticsController extends Controller
         $tripsTrend = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
             ->whereNull('driver_trip_sales.deleted_at')
             ->whereNull('driver_trips.deleted_at')
+            ->counted()
             ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
             ->selectRaw("{$tripExpr} as period, SUM(driver_trip_sales.amount) as revenue")
             ->groupBy('period')->pluck('revenue', 'period');
@@ -152,6 +153,7 @@ class AnalyticsController extends Controller
         // directly now instead of joining out to a route name lookup.
         $byRoute = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
             ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
+            ->counted()
             ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
             ->selectRaw('driver_trips.route, SUM(driver_trip_sales.amount) as revenue')
             ->groupBy('driver_trips.route')
@@ -181,13 +183,14 @@ class AnalyticsController extends Controller
         // Draft orders (Order::store(), never reaches the frontend today --
         // see Phase 8's report) have no payment_method yet; excluded, since
         // nothing has actually been "sold" until logSale() commits one.
-        $orderPayments = Order::whereBetween('order_date', [$dateFrom, $dateTo])
-            ->whereNull('deleted_at')->whereNotNull('payment_method')
+        $orderPayments = Order::completedSale()->whereBetween('order_date', [$dateFrom, $dateTo])
+            ->whereNull('deleted_at')
             ->selectRaw('payment_method, SUM(total_amount) as amount')
             ->groupBy('payment_method')->pluck('amount', 'payment_method');
 
         $tripPayments = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
             ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
+            ->counted()
             ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
             ->selectRaw('payment_method, SUM(amount) as amount')
             ->groupBy('payment_method')->pluck('amount', 'payment_method');

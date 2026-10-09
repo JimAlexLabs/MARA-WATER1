@@ -39,6 +39,7 @@ class SalesRevenueService
     {
         return (float) DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
             ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
+            ->counted()
             ->whereBetween('driver_trips.trip_date', [$from, $to])
             ->sum('driver_trip_sales.amount');
     }
@@ -62,6 +63,7 @@ class SalesRevenueService
 
         $trips = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
             ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
+            ->counted()
             ->whereBetween('driver_trips.trip_date', [$from, $to])
             ->selectRaw('driver_trips.trip_date as date, SUM(driver_trip_sales.amount) as revenue')
             ->groupBy('date')->get()->keyBy('date');

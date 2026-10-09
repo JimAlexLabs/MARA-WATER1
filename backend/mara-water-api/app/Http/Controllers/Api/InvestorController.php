@@ -101,6 +101,9 @@ class InvestorController extends Controller
             ->groupBy('payment_method')->pluck('amount', 'payment_method');
         $tripPayments = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
             ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
+            ->where(function ($q) {
+                $q->whereNull('driver_trip_sales.payment_status')->orWhere('driver_trip_sales.payment_status', 'paid');
+            })
             ->whereBetween('driver_trips.trip_date', [$monthStart, $today])
             ->selectRaw('payment_method, SUM(amount) as amount')
             ->groupBy('payment_method')->pluck('amount', 'payment_method');

@@ -99,6 +99,9 @@ class DriverSummaryController extends Controller
                 ->join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
                 ->where('driver_trips.driver_id', $userId)
                 ->where('driver_trips.trip_date', '>=', $since)
+                ->where(function ($q) {
+                    $q->where('driver_trip_sales.payment_status', 'paid')->orWhereNull('driver_trip_sales.payment_status');
+                })
                 ->sum('driver_trip_sales.amount');
 
             $bales = (int) DriverTripItem::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_items.driver_trip_id')
@@ -202,8 +205,11 @@ class DriverSummaryController extends Controller
     {
         $userId = Auth::id();
 
-        $query = DriverTripSale::with(['customer', 'trip', 'debt'])
+        $query = DriverTripSale::with(['customer', 'trip', 'debt', 'items.sku'])
             ->whereNull('deleted_at')
+            ->where(function ($q) {
+                $q->where('payment_status', 'paid')->orWhereNull('payment_status');
+            })
             ->whereHas('trip', fn ($q) => $q->where('driver_id', $userId));
 
         if ($request->boolean('debt_only')) {
@@ -215,9 +221,19 @@ class DriverSummaryController extends Controller
         $items = collect($sales->items())->map(fn ($s) => [
             'id' => $s->id,
             'trip_date' => optional($s->trip)->trip_date,
-            'customer' => $s->customer ? ['id' => $s->customer->id, 'name' => $s->customer->name] : null,
+            'customer' => $s->customer ? [
+                'id' => $s->customer->id,
+                'name' => $s->customer->name,
+                'phone' => $s->customer->phone,
+                'type' => $s->customer->type,
+            ] : null,
             'payment_method' => $s->payment_method,
             'amount' => (float) $s->amount,
+            'items' => $s->items->map(fn ($line) => [
+                'sku_name' => $line->sku->name ?? 'Item',
+                'qty_bales' => (float) $line->qty_bales,
+                'unit_price' => (float) $line->unit_price,
+            ])->values(),
             'physical_receipt_no' => $s->physical_receipt_no,
             'debt' => $s->debt ? [
                 'balance' => (float) $s->debt->balance,
@@ -282,6 +298,60 @@ class DriverSummaryController extends Controller
     }
 
     /**
+     * A driver can open a customer they sold to or registered. The history
+     * is only that driver's own paid sales, so a supply problem can be
+     * traced to the phone, shop type, and the items that went out.
+     */
+    public function customerDetail(string $id)
+    {
+        $userId = Auth::id();
+        $customer = Customer::find($id);
+        if (! $customer) {
+            return response()->json(['success' => false, 'message' => 'Customer not found'], 404);
+        }
+
+        $sales = DriverTripSale::with(['trip', 'items.sku'])
+            ->where('customer_id', $customer->id)
+            ->whereNull('deleted_at')
+            ->where(function ($q) {
+                $q->where('payment_status', 'paid')->orWhereNull('payment_status');
+            })
+            ->whereHas('trip', fn ($q) => $q->where('driver_id', $userId))
+            ->orderByDesc('created_at')
+            ->limit(40)
+            ->get();
+
+        if ($sales->isEmpty() && $customer->created_by !== $userId) {
+            return response()->json(['success' => false, 'message' => 'Customer not found'], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $customer->id,
+                'name' => $customer->name,
+                'phone' => $customer->phone,
+                'type' => $customer->type,
+                'contact_person' => $customer->contact_person,
+                'address' => $customer->address,
+                'payment_terms' => $customer->payment_terms,
+                'notes' => $customer->notes,
+                'purchases' => $sales->map(fn ($s) => [
+                    'id' => $s->id,
+                    'trip_date' => optional($s->trip)->trip_date,
+                    'payment_method' => $s->payment_method,
+                    'amount' => (float) $s->amount,
+                    'items' => $s->items->map(fn ($line) => [
+                        'sku_name' => $line->sku->name ?? 'Item',
+                        'qty_bales' => (float) $line->qty_bales,
+                        'unit_price' => (float) $line->unit_price,
+                    ])->values(),
+                ])->values(),
+            ],
+        ]);
+    }
+
+    /**
      * Ops brief §2.5: operational KPIs — km, sell-through, fuel, repairs,
      * flagged discrepancies / open issues for this driver.
      */
@@ -302,6 +372,9 @@ class DriverSummaryController extends Controller
             ->where('driver_trips.driver_id', $userId)
             ->where('driver_trips.trip_date', '>=', $monthStart)
             ->whereNull('driver_trip_sales.deleted_at')
+            ->where(function ($q) {
+                $q->where('driver_trip_sales.payment_status', 'paid')->orWhereNull('driver_trip_sales.payment_status');
+            })
             ->sum('driver_trip_sale_items.qty_bales');
         $returned = max(0, $dispatched - $sold);
         $sellThrough = $dispatched > 0 ? round(($sold / $dispatched) * 100, 1) : null;
@@ -317,6 +390,9 @@ class DriverSummaryController extends Controller
             $activeSold = (int) DriverTripSaleItem::join('driver_trip_sales', 'driver_trip_sales.id', '=', 'driver_trip_sale_items.driver_trip_sale_id')
                 ->where('driver_trip_sales.driver_trip_id', $activeTrip->id)
                 ->whereNull('driver_trip_sales.deleted_at')
+                ->where(function ($q) {
+                    $q->where('driver_trip_sales.payment_status', 'paid')->orWhereNull('driver_trip_sales.payment_status');
+                })
                 ->sum('driver_trip_sale_items.qty_bales');
         }
 

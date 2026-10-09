@@ -105,12 +105,15 @@ class DriverTrip extends Model
 
     public function getTotalCollectedAttribute(): float
     {
-        return round((float) $this->sales->sum('amount'), 2);
+        return round((float) $this->sales->filter(fn ($s) => ($s->payment_status ?? 'paid') === 'paid')->sum('amount'), 2);
     }
 
     private function collectedByMethod(string $method): float
     {
-        return round((float) $this->sales->where('payment_method', $method)->sum('amount'), 2);
+        return round((float) $this->sales
+            ->where('payment_method', $method)
+            ->filter(fn ($s) => ($s->payment_status ?? 'paid') === 'paid')
+            ->sum('amount'), 2);
     }
 
     public function getCashCollectedAttribute(): float
@@ -152,7 +155,9 @@ class DriverTrip extends Model
     public function getReconciliationAttribute(): array
     {
         $saleIds = $this->sales->pluck('id');
+        $paidIds = $this->sales->filter(fn ($s) => ($s->payment_status ?? 'paid') === 'paid')->pluck('id');
         $lineItems = \App\Models\DriverTripSaleItem::whereIn('driver_trip_sale_id', $saleIds)->get();
+        $paidLineItems = $lineItems->whereIn('driver_trip_sale_id', $paidIds->all());
         $soldBySku = $lineItems->groupBy('sku_id')->map(fn ($rows) => (float) $rows->sum('qty_bales'));
 
         $unitsSold = 0;
@@ -174,7 +179,7 @@ class DriverTrip extends Model
             }
         }
 
-        $expectedRevenue = round((float) $lineItems->sum('line_total'), 2);
+        $expectedRevenue = round((float) $paidLineItems->sum('line_total'), 2);
         $variance = round($this->total_collected - $expectedRevenue, 2);
 
         return [

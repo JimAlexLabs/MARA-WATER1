@@ -24,6 +24,8 @@ class Order extends Model
         'price_list_id',
         'total_amount',
         'payment_method',
+        'payment_status',
+        'stock_posted',
         'payment_reference',
         'created_by',
         'updated_by',
@@ -33,6 +35,7 @@ class Order extends Model
         'order_date' => 'date',
         'requested_date' => 'date',
         'total_amount' => 'decimal:2',
+        'stock_posted' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -86,6 +89,9 @@ class Order extends Model
      */
     public function scopeCompletedSale($query)
     {
-        return $query->whereNotNull('payment_method');
+        return $query->whereNotNull('payment_method')
+            ->where(function ($q) {
+                $q->whereNull('payment_status')->orWhere('payment_status', 'paid');
+            });
     }
 }

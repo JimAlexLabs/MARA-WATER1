@@ -72,6 +72,50 @@ class OrderController extends Controller
     }
 
     /**
+     * Paid field-trip sales, in the same shape as an order row, so Manager
+     * and Director sales lists include what drivers recorded on the road.
+     */
+    public function fieldSales(Request $request)
+    {
+        $sales = \App\Models\DriverTripSale::with(['customer', 'trip.driver', 'items.sku'])
+            ->counted()
+            ->whereNull('deleted_at')
+            ->whereHas('trip', fn ($q) => $q->whereNull('deleted_at'))
+            ->orderByDesc('created_at')
+            ->limit((int) $request->get('limit', 100))
+            ->get()
+            ->map(function ($sale) {
+                $driver = $sale->trip?->driver;
+                return [
+                    'id' => $sale->id,
+                    'order_no' => 'Field',
+                    'order_date' => optional($sale->trip)->trip_date,
+                    'status' => 'delivered',
+                    'source' => 'field',
+                    'total_amount' => (string) $sale->amount,
+                    'payment_method' => $sale->payment_method === 'debt' ? 'credit' : $sale->payment_method,
+                    'payment_reference' => $sale->mpesa_reference,
+                    'customer' => $sale->customer ? [
+                        'id' => $sale->customer->id,
+                        'name' => $sale->customer->name,
+                        'code' => $sale->customer->code,
+                    ] : null,
+                    'warehouse' => ['name' => $sale->trip?->route ?: 'Field trip'],
+                    'sales_officer' => [
+                        'first_name' => $driver->first_name ?? 'Driver',
+                        'last_name' => $driver->last_name ?? '',
+                    ],
+                    'items' => $sale->items->map(fn ($line) => [
+                        'sku_name' => $line->sku->name ?? 'Item',
+                        'qty' => (float) $line->qty_bales,
+                    ])->values(),
+                ];
+            });
+
+        return response()->json(['success' => true, 'data' => $sales]);
+    }
+
+    /**
      * Store a newly created order
      */
     public function store(Request $request)
@@ -271,9 +315,19 @@ class OrderController extends Controller
                 ], 422);
             }
 
+            if ($request->payment_method === 'mpesa' && $request->filled('stk_phone')) {
+                try {
+                    \App\Services\MpesaStkService::normalizePhone($request->stk_phone);
+                } catch (\InvalidArgumentException $e) {
+                    return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+                }
+            }
+
             DB::beginTransaction();
 
             $orderDate = $request->order_date ?? now()->toDateString();
+
+            $deferStock = $request->payment_method === 'mpesa' && $request->filled('stk_phone');
 
             $order = Order::create([
                 'order_no' => $this->generateOrderNumber(),
@@ -282,10 +336,12 @@ class OrderController extends Controller
                 'location_id' => $request->location_id,
                 'sales_officer_id' => Auth::id(),
                 'price_list_id' => $priceList?->id,
-                'status' => 'delivered',
+                'status' => $deferStock ? 'awaiting_payment' : 'delivered',
                 'order_date' => $orderDate,
                 'requested_date' => $orderDate,
                 'payment_method' => $request->payment_method,
+                'payment_status' => $deferStock ? 'awaiting_payment' : 'paid',
+                'stock_posted' => ! $deferStock,
                 'payment_reference' => $request->payment_reference,
                 'created_by' => Auth::id(),
                 'updated_by' => Auth::id(),
@@ -315,6 +371,10 @@ class OrderController extends Controller
                 ]);
 
                 $totalAmount += $orderItem->line_total;
+
+                if ($deferStock) {
+                    continue;
+                }
 
                 // Returns feed straight back into inventory as a stock-in
                 // movement against the outlet the sale was logged at.
@@ -349,6 +409,12 @@ class OrderController extends Controller
             }
 
             $order->update(['total_amount' => $totalAmount]);
+
+            if ($deferStock && (int) round($totalAmount) < 1) {
+                DB::rollBack();
+
+                return response()->json(['success' => false, 'message' => 'Amount must be at least KES 1 for M-Pesa.'], 422);
+            }
 
             $invoice = null;
             if ($request->payment_method === 'credit') {
@@ -414,6 +480,22 @@ class OrderController extends Controller
 
             DB::commit();
 
+            $payment = null;
+            $stkError = null;
+            if ($deferStock) {
+                try {
+                    $payment = app(\App\Services\MpesaStkService::class)->startForOrder(
+                        $order->fresh(),
+                        $request->stk_phone,
+                        $request->user(),
+                        $request->input('stk_channel', 'warehouse')
+                    );
+                } catch (\Throwable $e) {
+                    $stkError = $e->getMessage();
+                    $payment = \App\Models\MpesaPayment::where('order_id', $order->id)->latest()->first();
+                }
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Sale logged successfully',
@@ -421,6 +503,8 @@ class OrderController extends Controller
                     'order' => $order,
                     'invoice' => $invoice,
                     'stock_warnings' => $stockWarnings,
+                    'payment' => $payment,
+                    'stk_error' => $stkError,
                 ]
             ], 201);
 

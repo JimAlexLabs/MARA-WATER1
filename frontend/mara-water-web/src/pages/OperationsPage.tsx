@@ -29,8 +29,6 @@ type Overview = {
   payroll: {
     target_monthly_operational_kes: number;
     actual_monthly_operational_kes: number;
-    director_allowance_kes: number;
-    director_excluded_from_payroll_export: boolean;
     headcount_operational: number;
     by_role: Record<string, { count: number; total_salary: number; avg_salary: number }>;
   };
@@ -328,8 +326,7 @@ const OperationsPage: React.FC = () => {
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">1. People &amp; salary bands</h2>
         </div>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          Director {money(data.payroll.director_allowance_kes)}/mo is shown for planning only — excluded from Finalis-style payroll Excel (comes later as allowance).
-          Enter staff &amp; salaries under Users / HR, then download payroll from an HR run.
+          Operational staff only. Enter salaries under Users / HR, then download payroll from an HR run.
         </p>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -343,7 +340,7 @@ const OperationsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {data.salary_bands.map((b) => (
+              {data.salary_bands.filter((b) => b.role_key !== 'director' && b.role_key !== 'investor').map((b) => (
                 <tr key={b.role_key} className="border-b border-gray-100 dark:border-gray-700/50">
                   <td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">{b.title}</td>
                   <td className="py-2 pr-4">{b.headcount_target}</td>
@@ -501,7 +498,7 @@ const OperationsPage: React.FC = () => {
           ))}
         </div>
         <p className="text-xs text-gray-500">
-          Payroll (Finalis layout, Director excluded): create/open a run on HR → Payroll, then use Payroll / Payslips / Bank Transfer downloads.
+          Payroll: create/open a run on HR → Payroll, then use Payroll / Payslips / Bank Transfer downloads.
           Production export uses the same month selectors above.
         </p>
       </section>

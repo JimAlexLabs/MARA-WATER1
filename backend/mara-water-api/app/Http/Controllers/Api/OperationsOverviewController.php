@@ -56,13 +56,13 @@ class OperationsOverviewController extends Controller
             ((float) $b['default_kes']) * ((int) $b['headcount_target'])
         );
 
-        // Live staff with salaries (exclude director tier from operational payroll totals)
+        // Live staff salaries — operational roles only (no director or investor pay).
         $staff = User::with('role:id,name,code,access_tier')
             ->where('status', 'active')
             ->whereNotNull('salary')
             ->get();
 
-        $operationalStaff = $staff->filter(fn ($u) => optional($u->role)->access_tier !== 'director');
+        $operationalStaff = $staff->filter(fn ($u) => ! in_array(optional($u->role)->access_tier, ['director', 'investor'], true));
         $actualMonthlyPayroll = round((float) $operationalStaff->sum('salary'), 2);
 
         $staffByRole = $operationalStaff->groupBy(fn ($u) => optional($u->role)->name ?: 'Unassigned')
@@ -156,12 +156,12 @@ class OperationsOverviewController extends Controller
             'bottle_suppliers' => $cfg['bottle_suppliers'] ?? [],
             'bottle_transport_cost_kes' => (float) ($cfg['bottle_transport_cost_kes'] ?? 45000),
             'other_inputs' => $cfg['other_inputs'] ?? [],
-            'salary_bands' => $salaryBands->values(),
+            'salary_bands' => $salaryBands
+                ->reject(fn ($b) => in_array($b['role_key'] ?? '', ['director', 'investor'], true))
+                ->values(),
             'payroll' => [
                 'target_monthly_operational_kes' => round($targetMonthlyPayroll, 2),
                 'actual_monthly_operational_kes' => $actualMonthlyPayroll,
-                'director_allowance_kes' => (float) ($salaryBands->firstWhere('role_key', 'director')['default_kes'] ?? 60000),
-                'director_excluded_from_payroll_export' => true,
                 'headcount_operational' => $operationalStaff->count(),
                 'by_role' => $staffByRole,
             ],
@@ -193,7 +193,7 @@ class OperationsOverviewController extends Controller
             'default_conversions' => $cfg['default_conversions'] ?? [],
             'automation_ideas' => $this->automationIdeas(),
             'exports' => [
-                ['key' => 'payroll', 'label' => 'Payroll (Finalis-style, no Director)', 'path' => '/hr/payroll/runs/{id}/payroll-export', 'needs' => 'payroll_run_id'],
+                ['key' => 'payroll', 'label' => 'Payroll (Finalis-style)', 'path' => '/hr/payroll/runs/{id}/payroll-export', 'needs' => 'payroll_run_id'],
                 ['key' => 'inventory_control', 'label' => 'Inventory Control Sheet', 'path' => '/operations/exports/inventory-control'],
                 ['key' => 'raw_materials', 'label' => 'Raw Materials Usage', 'path' => '/operations/exports/raw-materials'],
                 ['key' => 'production', 'label' => 'Production Data', 'path' => '/reports/production-export'],
