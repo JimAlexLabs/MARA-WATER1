@@ -45,6 +45,8 @@ use App\Http\Controllers\Api\EquipmentController;
 use App\Http\Controllers\Api\OperationsOverviewController;
 use App\Http\Controllers\Api\CompetitorPriceController;
 use App\Http\Controllers\Api\VehicleRepairController;
+use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\ReceiptController;
 
 /*
 |--------------------------------------------------------------------------
@@ -67,9 +69,7 @@ Route::prefix('v1')->group(function () {
     Route::match(['put', 'patch'], '/auth/profile', [AuthController::class, 'updateProfile'])->middleware('auth:sanctum');
     Route::post('/auth/refresh', [AuthController::class, 'refresh'])->middleware('auth:sanctum');
 
-    // Safaricom calls these with no MARA login. The STK callback is matched
-    // by CheckoutRequestID. The gateway webhook is rejected without a valid
-    // HMAC signature.
+    // Safaricom / AfriGig callbacks — no MARA login. Signature / CheckoutRequestID verified in controller.
     Route::post('/payments/daraja/callback', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'darajaCallback']);
     Route::post('/payments/daraja/c2b', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'c2b']);
     Route::post('/payments/webhook', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'webhook']);
@@ -374,6 +374,8 @@ Route::prefix('v1')->group(function () {
             // matches in registration order and the stricter group is
             // registered first.
             Route::get('/prices/current', [PriceListController::class, 'currentPrice']);
+            // Driver-accessible receipt for their own trip sale.
+            Route::get('/receipts/driver-trip-sale/{id}', [ReceiptController::class, 'driverTripSale']);
         });
 
         Route::middleware('tier:manager,director')->prefix('sales')->group(function () {
@@ -381,6 +383,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/customers/{id}/purchase-history', [CustomerController::class, 'purchaseHistory']);
             Route::put('/customers/{id}', [CustomerController::class, 'update']);
             Route::delete('/customers/{id}', [CustomerController::class, 'destroy']);
+            // Round 5A Phase 5: the counter/warehouse-sale (Order)
+            // equivalent of the driver-accessible receipt route above.
+            Route::get('/receipts/order/{id}', [ReceiptController::class, 'order']);
         });
 
         // Finance routes -- Manager/Director operational access (Petty
