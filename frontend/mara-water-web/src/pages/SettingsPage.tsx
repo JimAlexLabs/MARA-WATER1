@@ -19,7 +19,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 import { useAuth } from '../contexts/AuthContext';
+import {
+  DEFAULT_MANAGER_LOCKS,
+  MANAGER_LOCK_LABELS,
+  mergeManagerLocks,
+  type ManagerLockKey,
+} from '../utils/managerLocks';
 
 const DEFAULT_SETTINGS = {
   company_name: 'MARA-WATER Ltd',
@@ -34,6 +41,8 @@ const DEFAULT_SETTINGS = {
   email_notifications: true,
   sms_notifications: false,
   session_timeout: 30,
+  manager_ui_locks: DEFAULT_MANAGER_LOCKS as Record<ManagerLockKey, boolean>,
+  driver_allow_cash: true,
 };
 
 const SettingsPage: React.FC = () => {
@@ -54,7 +63,11 @@ const SettingsPage: React.FC = () => {
     api.get('/settings')
       .then((res) => {
         const saved = res.data?.data || {};
-        setSettings((prev) => ({ ...prev, ...saved }));
+        setSettings((prev) => ({
+          ...prev,
+          ...saved,
+          manager_ui_locks: mergeManagerLocks(saved.manager_ui_locks),
+        }));
       })
       .catch(() => {
         // No settings saved yet -- keep defaults.
@@ -72,6 +85,7 @@ const SettingsPage: React.FC = () => {
       await api.put('/settings', settings);
       toast.success('Settings saved successfully');
     } catch (error: any) {
+      // Backend may not accept manager_ui_locks yet — keep UI values anyway.
       toast.error(error.response?.data?.message || 'Failed to save settings');
     } finally {
       setSaving(false);
@@ -265,31 +279,42 @@ const SettingsPage: React.FC = () => {
     { id: 'notifications', name: 'Notifications', icon: Bell },
     { id: 'appearance', name: 'Appearance', icon: Globe },
     { id: 'security', name: 'Security', icon: Shield },
-    ...(isAdmin ? [{ id: 'danger', name: 'Danger Zone', icon: AlertTriangle }] : []),
+    ...(isAdmin ? [
+      { id: 'manager_locks', name: 'Manager locks', icon: Lock },
+      { id: 'danger', name: 'Danger Zone', icon: AlertTriangle },
+    ] : []),
   ];
 
+  const locks = mergeManagerLocks((settings as any).manager_ui_locks);
+  const toggleLock = (key: ManagerLockKey) => {
+    const next = { ...locks, [key]: !locks[key] };
+    handleSettingChange('manager_ui_locks', next);
+    if (key === 'driver_cash_payment') {
+      handleSettingChange('driver_allow_cash', !next.driver_cash_payment);
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <PageShell>
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">System Settings</h1>
-          <p className="text-gray-600 dark:text-gray-400">Configure system preferences and options</p>
-        </div>
-        {activeTab !== 'profile' && activeTab !== 'security' && activeTab !== 'danger' && (
-          <div className="flex space-x-3">
-            <button
+      <PageHero
+        eyebrow="System"
+        title="Settings"
+        description="Company settings and danger zone."
+        tone="ink"
+        actions={
+          activeTab !== 'profile' && activeTab !== 'security' && activeTab !== 'danger' ? (
+            <HeroButton
               onClick={handleSaveSettings}
               disabled={saving || !isAdmin}
-              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              title={isAdmin ? '' : 'Only an administrator can change system settings'}
+              variant="solid"
             >
               <Save className="w-4 h-4 mr-2" />
               {saving ? 'Saving…' : 'Save Settings'}
-            </button>
-          </div>
-        )}
-      </div>
+            </HeroButton>
+          ) : undefined
+        }
+      />
 
       {!isAdmin && activeTab !== 'profile' && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
@@ -298,7 +323,7 @@ const SettingsPage: React.FC = () => {
       )}
 
       {/* Settings Tabs */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+      <div className="mara-panel">
         <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex space-x-8 px-6">
             {tabs.map((tab) => {
@@ -590,6 +615,40 @@ const SettingsPage: React.FC = () => {
                 </div>
               )}
 
+              {activeTab === 'manager_locks' && isAdmin && (
+                <div className="space-y-4">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Manager dashboard locks</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Locked features stay hidden for managers until you unlock them here. Managers see “Contact Admin” on anything locked.
+                    Includes cash (manager + driver), petty cash, payables, and Admin-approved edit windows (sales ≤7 days, inventory, production).
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {(Object.keys(DEFAULT_MANAGER_LOCKS) as ManagerLockKey[]).map((key) => (
+                      <label
+                        key={key}
+                        className="flex items-start gap-3 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40"
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={!!locks[key]}
+                          onChange={() => toggleLock(key)}
+                        />
+                        <span>
+                          <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                            {MANAGER_LOCK_LABELS[key]}
+                          </span>
+                          <span className="block text-xs text-gray-500 mt-0.5">
+                            {locks[key] ? 'Locked for manager' : 'Visible to manager'}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500">Remember to click Save Settings after toggling.</p>
+                </div>
+              )}
+
               {/* Security */}
               {activeTab === 'security' && (
                 <div className="space-y-4">
@@ -828,7 +887,7 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

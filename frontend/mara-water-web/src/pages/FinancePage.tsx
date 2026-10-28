@@ -18,6 +18,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero, HeroButton, TabPills } from '../components/PageShell';
+import { usePermissions } from '../contexts/AuthContext';
+import {
+  DEFAULT_MANAGER_LOCKS,
+  isLocked,
+  mergeManagerLocks,
+  type ManagerLockKey,
+} from '../utils/managerLocks';
 
 interface Invoice {
   id: string;
@@ -127,11 +135,25 @@ const FinancePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchParams] = useSearchParams();
+  const { isDirector, accessTier } = usePermissions();
+  const director = isDirector() || accessTier() === 'director';
+  const canEditFinance = director; // managers: view-only on visible tabs
+  const [managerLocks, setManagerLocks] = useState(DEFAULT_MANAGER_LOCKS);
 
   useEffect(() => {
     const q = searchParams.get('q');
     if (q) setSearchTerm(q);
   }, [searchParams]);
+
+  useEffect(() => {
+    api.get('/settings')
+      .then((res) => {
+        const locks = mergeManagerLocks(res.data?.data?.manager_ui_locks);
+        setManagerLocks(locks);
+      })
+      .catch(() => {});
+  }, []);
+
   const [filterStatus, setFilterStatus] = useState('all');
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
   const [invoiceForm, setInvoiceForm] = useState({
@@ -142,7 +164,49 @@ const FinancePage: React.FC = () => {
     tax_amount: '',
     notes: ''
   });
-  const [activeTab, setActiveTab] = useState<'invoices' | 'pettycash' | 'debtors' | 'costing'>('invoices');
+  type FinanceTab = 'invoices' | 'pettycash' | 'debtors' | 'payables' | 'costing';
+  const FINANCE_TAB_LOCK: Record<FinanceTab, ManagerLockKey> = {
+    invoices: 'finance_invoices',
+    pettycash: 'finance_pettycash',
+    debtors: 'finance_debtors',
+    payables: 'finance_payables',
+    costing: 'finance_costing',
+  };
+  const allFinanceTabs: { key: FinanceTab; label: string }[] = [
+    { key: 'invoices', label: 'Invoices' },
+    { key: 'pettycash', label: 'Petty cash' },
+    { key: 'debtors', label: 'Receivables' },
+    { key: 'payables', label: 'Payables' },
+    { key: 'costing', label: 'Costing & P&L' },
+  ];
+  const visibleFinanceTabs = director
+    ? allFinanceTabs
+    : allFinanceTabs.filter((t) => !isLocked(managerLocks, FINANCE_TAB_LOCK[t.key]));
+  const [activeTab, setActiveTab] = useState<FinanceTab>('invoices');
+
+  useEffect(() => {
+    const visible = director
+      ? allFinanceTabs
+      : allFinanceTabs.filter((t) => !isLocked(managerLocks, FINANCE_TAB_LOCK[t.key]));
+    if (visible.length === 0) return;
+    if (!visible.some((t) => t.key === activeTab)) {
+      setActiveTab(visible[0].key);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managerLocks, director, activeTab]);
+  const [payablesSummary, setPayablesSummary] = useState<{
+    totals: { billed: number; paid: number; balance: number };
+    by_supplier: Array<{ supplier_name: string; supplier_code?: string; billed: number; paid: number; balance: number }>;
+    entries: Array<{
+      id: string; supplier_name: string; entry_date: string; details: string;
+      reference_no?: string; category?: string; status?: string; debit: string | number; credit: string | number;
+    }>;
+  } | null>(null);
+  const [showPayableForm, setShowPayableForm] = useState(false);
+  const [payableForm, setPayableForm] = useState({
+    supplier_name: '', entry_date: new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }),
+    details: '', reference_no: '', category: 'materials', direction: 'credit' as 'credit' | 'debit', amount: '',
+  });
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
 
@@ -192,9 +256,50 @@ const FinancePage: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'pettycash') fetchPettyCash();
+    if (activeTab === 'payables') fetchPayables();
     if (activeTab === 'costing') fetchCosting();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  const fetchPayables = async () => {
+    try {
+      const res = await api.get('/finance/payables');
+      setPayablesSummary(res.data.data);
+    } catch {
+      toast.error('Failed to load payables');
+    }
+  };
+
+  const handlePayableSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = Number(payableForm.amount);
+    if (!amount || amount <= 0) {
+      toast.error('Enter an amount');
+      return;
+    }
+    try {
+      await api.post('/finance/payables', {
+        supplier_name: payableForm.supplier_name,
+        entry_date: payableForm.entry_date,
+        details: payableForm.details,
+        reference_no: payableForm.reference_no || undefined,
+        category: payableForm.category,
+        credit: payableForm.direction === 'credit' ? amount : 0,
+        debit: payableForm.direction === 'debit' ? amount : 0,
+        status: payableForm.direction === 'debit' ? 'paid' : 'open',
+      });
+      toast.success(payableForm.direction === 'credit' ? 'Payable bill recorded' : 'Supplier payment recorded');
+      setShowPayableForm(false);
+      setPayableForm({
+        supplier_name: '', entry_date: new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }),
+        details: '', reference_no: '', category: 'materials', direction: 'credit', amount: '',
+      });
+      fetchPayables();
+      fetchData();
+    } catch {
+      toast.error('Failed to save payable');
+    }
+  };
 
   useEffect(() => {
     if (!debtorCustomerId) return;
@@ -433,97 +538,61 @@ const FinancePage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Finance Management</h1>
-          <p className="text-gray-600 dark:text-gray-400">Invoices, petty cash, debtors ledger, and costing</p>
-        </div>
-        <div className="flex space-x-3">
-          {activeTab === 'invoices' && (
-            <button
-              onClick={() => setShowInvoiceForm(true)}
-              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              New Invoice
-            </button>
-          )}
-          {activeTab === 'pettycash' && (
-            <>
-              <button
-                onClick={() => { fetchAccounts(); setShowAccountsManager(true); }}
-                className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
-                <BookOpen className="w-4 h-4 mr-2" />
-                Manage Accounts
-              </button>
-              <button
-                onClick={() => setShowPettyCashForm(true)}
-                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                New Entry
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+    <PageShell>
+      <PageHero
+        eyebrow="Money in · money out"
+        title="Finance"
+        description="Invoices, petty cash, receivables, payables, and costing — same figures for manager and director."
+        tone="forest"
+        actions={canEditFinance ? (
+          <>
+            {activeTab === 'invoices' && (
+              <HeroButton variant="solid" onClick={() => setShowInvoiceForm(true)}>
+                <Plus className="w-4 h-4 mr-2" /> New invoice
+              </HeroButton>
+            )}
+            {activeTab === 'payables' && (
+              <HeroButton variant="solid" onClick={() => setShowPayableForm(true)}>
+                <Plus className="w-4 h-4 mr-2" /> Record bill / payment
+              </HeroButton>
+            )}
+            {activeTab === 'pettycash' && (
+              <>
+                <HeroButton onClick={() => { fetchAccounts(); setShowAccountsManager(true); }}>
+                  <BookOpen className="w-4 h-4 mr-2" /> Accounts
+                </HeroButton>
+                <HeroButton variant="solid" onClick={() => setShowPettyCashForm(true)}>
+                  <Plus className="w-4 h-4 mr-2" /> New entry
+                </HeroButton>
+              </>
+            )}
+          </>
+        ) : undefined}
+        stats={ledgerSummary ? [
+          { label: 'Revenue', value: `KES ${Number(ledgerSummary.revenue || 0).toLocaleString()}` },
+          { label: 'Invoiced / paid', value: `${Number(ledgerSummary.invoices?.invoiced_total || 0).toLocaleString()} / ${Number(ledgerSummary.invoices?.paid_total || 0).toLocaleString()}` },
+          { label: 'Petty net', value: `KES ${Number(ledgerSummary.petty_cash?.net || 0).toLocaleString()}` },
+          { label: 'Receivables', value: `KES ${Number(ledgerSummary.debtors?.open_balance || 0).toLocaleString()}` },
+          { label: 'Payables', value: `KES ${Number(ledgerSummary.payables?.open_balance || 0).toLocaleString()}` },
+        ] : undefined}
+      />
 
-      {ledgerSummary && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          <div>
-            <p className="text-gray-500 dark:text-gray-400">Shared revenue (Manager = Director)</p>
-            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">KES {Number(ledgerSummary.revenue || 0).toLocaleString()}</p>
-          </div>
-          <div>
-            <p className="text-gray-500 dark:text-gray-400">Invoiced / paid</p>
-            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {Number(ledgerSummary.invoices?.invoiced_total || 0).toLocaleString()} / {Number(ledgerSummary.invoices?.paid_total || 0).toLocaleString()}
-            </p>
-          </div>
-          <div>
-            <p className="text-gray-500 dark:text-gray-400">Petty cash net</p>
-            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">KES {Number(ledgerSummary.petty_cash?.net || 0).toLocaleString()}</p>
-          </div>
-          <div>
-            <p className="text-gray-500 dark:text-gray-400">Open debtors</p>
-            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">KES {Number(ledgerSummary.debtors?.open_balance || 0).toLocaleString()}</p>
-          </div>
+      {visibleFinanceTabs.length > 0 ? (
+        <TabPills
+          active={activeTab}
+          onChange={(key) => setActiveTab(key as FinanceTab)}
+          tabs={visibleFinanceTabs}
+        />
+      ) : (
+        <div className="mara-panel p-4 text-sm text-gray-600 dark:text-gray-400">
+          Contact Admin for any feature that is locked.
         </div>
       )}
-
-      {/* Tabs */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-        <div className="border-b border-gray-200 dark:border-gray-700">
-          <nav className="flex space-x-8 px-6">
-            {[
-              { key: 'invoices', label: 'Invoices' },
-              { key: 'pettycash', label: 'Petty Cash' },
-              { key: 'debtors', label: 'Debtors Ledger' },
-              { key: 'costing', label: 'Costing & P&L' },
-            ].map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key as typeof activeTab)}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === tab.key
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </div>
 
       {/* Stats Cards */}
       {activeTab === 'invoices' && (
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <DollarSign className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
@@ -534,7 +603,7 @@ const FinancePage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <CheckCircle className="w-8 h-8 text-green-600" />
             <div className="ml-4">
@@ -545,7 +614,7 @@ const FinancePage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <AlertTriangle className="w-8 h-8 text-red-600" />
             <div className="ml-4">
@@ -556,7 +625,7 @@ const FinancePage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <TrendingUp className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
@@ -572,7 +641,7 @@ const FinancePage: React.FC = () => {
 
       {/* Invoices Table */}
       {activeTab === 'invoices' && (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+      <div className="mara-panel">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Invoices</h3>
         </div>
@@ -678,12 +747,16 @@ const FinancePage: React.FC = () => {
                         <button className="text-blue-600 hover:text-blue-900">
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button className="text-green-600 hover:text-green-900">
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button className="text-red-600 hover:text-red-900">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {canEditFinance && (
+                          <>
+                            <button className="text-green-600 hover:text-green-900">
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button className="text-red-600 hover:text-red-900">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -801,17 +874,17 @@ const FinancePage: React.FC = () => {
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="mara-stat">
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Opening Balance</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">KES {pettyCashOpening.toLocaleString()}</p>
             </div>
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="mara-stat">
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Closing Balance</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">KES {pettyCashClosing.toLocaleString()}</p>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+          <div className="mara-panel overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
@@ -841,9 +914,11 @@ const FinancePage: React.FC = () => {
                     <td className="px-4 py-3 text-sm text-red-600 text-right">{Number(entry.amount_out) > 0 ? Number(entry.amount_out).toLocaleString() : ''}</td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100 text-right">{entry.running_balance.toLocaleString()}</td>
                     <td className="px-4 py-3 text-sm">
-                      <button onClick={() => handleDeletePettyCash(entry.id)} className="text-red-600 hover:text-red-900">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {canEditFinance && (
+                        <button onClick={() => handleDeletePettyCash(entry.id)} className="text-red-600 hover:text-red-900">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1019,6 +1094,123 @@ const FinancePage: React.FC = () => {
         </div>
       )}
 
+      {/* Payables / Creditors Tab */}
+      {activeTab === 'payables' && payablesSummary && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-lg shadow">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Billed to us</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">KES {Number(payablesSummary.totals.billed).toLocaleString()}</p>
+            </div>
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-lg shadow">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Paid out</p>
+              <p className="text-2xl font-bold text-green-700">KES {Number(payablesSummary.totals.paid).toLocaleString()}</p>
+            </div>
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-lg shadow">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Still owed (payables)</p>
+              <p className="text-2xl font-bold text-red-600">KES {Number(payablesSummary.totals.balance).toLocaleString()}</p>
+            </div>
+          </div>
+
+          <div className="mara-panel overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Billed</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Paid</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {payablesSummary.by_supplier.map((s) => (
+                  <tr key={s.supplier_name}>
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">{s.supplier_name}</td>
+                    <td className="px-4 py-3 text-sm text-right">{Number(s.billed).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-sm text-right text-green-700">{Number(s.paid).toLocaleString()}</td>
+                    <td className={`px-4 py-3 text-sm text-right font-medium ${Number(s.balance) > 0 ? 'text-red-600' : ''}`}>{Number(s.balance).toLocaleString()}</td>
+                  </tr>
+                ))}
+                {payablesSummary.by_supplier.length === 0 && (
+                  <tr><td colSpan={4} className="px-4 py-6 text-sm text-gray-400 text-center">No supplier bills yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mara-panel overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ref</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Bill</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Paid</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {payablesSummary.entries.map((e) => (
+                  <tr key={e.id}>
+                    <td className="px-4 py-3 text-sm whitespace-nowrap">{String(e.entry_date).slice(0, 10)}</td>
+                    <td className="px-4 py-3 text-sm">{e.supplier_name}</td>
+                    <td className="px-4 py-3 text-sm">{e.details}</td>
+                    <td className="px-4 py-3 text-sm">{e.reference_no || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-right">{Number(e.credit) > 0 ? Number(e.credit).toLocaleString() : '—'}</td>
+                    <td className="px-4 py-3 text-sm text-right text-green-700">{Number(e.debit) > 0 ? Number(e.debit).toLocaleString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {showPayableForm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Record bill or payment</h3>
+                  <button onClick={() => setShowPayableForm(false)} className="text-gray-400"><X className="w-5 h-5" /></button>
+                </div>
+                <form onSubmit={handlePayableSubmit} className="space-y-3">
+                  <input required placeholder="Supplier name" value={payableForm.supplier_name}
+                    onChange={(e) => setPayableForm({ ...payableForm, supplier_name: e.target.value })}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  <input required type="date" value={payableForm.entry_date}
+                    onChange={(e) => setPayableForm({ ...payableForm, entry_date: e.target.value })}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  <input required placeholder="Details" value={payableForm.details}
+                    onChange={(e) => setPayableForm({ ...payableForm, details: e.target.value })}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  <input placeholder="Invoice / SO reference" value={payableForm.reference_no}
+                    onChange={(e) => setPayableForm({ ...payableForm, reference_no: e.target.value })}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  <select value={payableForm.category} onChange={(e) => setPayableForm({ ...payableForm, category: e.target.value })}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
+                    <option value="materials">Materials</option>
+                    <option value="transport">Transport</option>
+                    <option value="maintenance">Service / maintenance</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <select value={payableForm.direction} onChange={(e) => setPayableForm({ ...payableForm, direction: e.target.value as 'credit' | 'debit' })}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
+                    <option value="credit">Bill we owe (payable up)</option>
+                    <option value="debit">Payment we made (payable down)</option>
+                  </select>
+                  <input required type="number" min="0.01" step="0.01" placeholder="Amount KES" value={payableForm.amount}
+                    onChange={(e) => setPayableForm({ ...payableForm, amount: e.target.value })}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button type="button" onClick={() => setShowPayableForm(false)} className="px-4 py-2 border rounded-md">Cancel</button>
+                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md">Save</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Debtors Ledger Tab */}
       {activeTab === 'debtors' && (
         <div className="space-y-6">
@@ -1029,7 +1221,7 @@ const FinancePage: React.FC = () => {
               <Download className="w-4 h-4 mr-2" /> Export Full Ledger
             </button>
           </div>
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+          <div className="mara-stat">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Customer</label>
             <select value={debtorCustomerId} onChange={(e) => setDebtorCustomerId(e.target.value)}
               className="mt-1 block w-full max-w-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -1043,19 +1235,21 @@ const FinancePage: React.FC = () => {
           {debtorCustomerId && (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow flex items-center justify-between">
+                <div className="mara-stat flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Outstanding Balance</p>
                     <p className={`text-2xl font-bold ${debtorBalance > 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>KES {debtorBalance.toLocaleString()}</p>
                     <Link to={`/customers/${debtorCustomerId}`} className="text-xs text-blue-600 hover:text-blue-800 hover:underline">View customer profile</Link>
                   </div>
-                  <div className="flex space-x-2">
-                    <button onClick={() => setShowManualLedgerForm(true)} className="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-sm hover:bg-gray-50 dark:hover:bg-gray-700">Manual Entry</button>
-                    <button onClick={() => setShowPaymentForm(true)} disabled={openDebts.length === 0}
-                      className="px-3 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 disabled:opacity-50">Record Payment</button>
-                  </div>
+                  {canEditFinance && (
+                    <div className="flex space-x-2">
+                      <button onClick={() => setShowManualLedgerForm(true)} className="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-sm hover:bg-gray-50 dark:hover:bg-gray-700">Manual Entry</button>
+                      <button onClick={() => setShowPaymentForm(true)} disabled={openDebts.length === 0}
+                        className="px-3 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 disabled:opacity-50">Record Payment</button>
+                    </div>
+                  )}
                 </div>
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <div className="mara-stat">
                   <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Open Invoices</p>
                   {openDebts.length === 0 ? (
                     <p className="text-sm text-gray-400 dark:text-gray-500">No outstanding invoices</p>
@@ -1072,7 +1266,7 @@ const FinancePage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+              <div className="mara-panel overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                   <thead className="bg-gray-50 dark:bg-gray-900">
                     <tr>
@@ -1230,7 +1424,7 @@ const FinancePage: React.FC = () => {
       {/* Costing & P&L Tab */}
       {activeTab === 'costing' && (
         <div className="space-y-6">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow flex flex-wrap items-end gap-4">
+          <div className="mara-stat flex flex-wrap items-end gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">From</label>
               <input type="date" value={plDateFrom} onChange={(e) => setPlDateFrom(e.target.value)}
@@ -1267,7 +1461,7 @@ const FinancePage: React.FC = () => {
             </div>
           )}
 
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+          <div className="mara-panel overflow-x-auto">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Per-Bottle Material Cost</h3>
             </div>
@@ -1296,7 +1490,7 @@ const FinancePage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

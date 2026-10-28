@@ -62,6 +62,7 @@ class MaterialBatchController extends Controller
             // stays as bags for ledger compatibility. Bales are computed.
             'bags_received' => 'nullable|numeric|min:0.001',
             'qty_received' => 'required_without:bags_received|nullable|numeric|min:0.001',
+            'package_unit' => 'nullable|string|max:20',
             'bottles_per_bag' => 'nullable|numeric|min:0.001',
             'bottles_per_bale' => 'nullable|numeric|min:0.001',
             'warehouse_id' => 'required|exists:warehouses,id',
@@ -99,8 +100,13 @@ class MaterialBatchController extends Controller
                     : $material->code . '-' . $request->purchase_date . '-' . strtoupper(Str::random(4));
 
                 $bags = (float) ($request->bags_received ?? $request->qty_received);
+                $packageUnit = strtolower((string) ($request->package_unit
+                    ?? $material->uom
+                    ?? 'bag'));
+                $isPieceStock = in_array($packageUnit, ['pcs', 'pc', 'piece', 'pieces', 'ea', 'each'], true);
+
                 $bottlesPerBag = (float) ($request->bottles_per_bag
-                    ?? config('mara_operations.default_conversions.bottles_per_bag', 24));
+                    ?? ($isPieceStock ? 1 : config('mara_operations.default_conversions.bottles_per_bag', 24)));
                 $bottlesPerBale = (float) ($request->bottles_per_bale
                     ?? config('mara_operations.bottles_per_bale', 24));
                 // Hard rule: never typed — always derived.
@@ -154,7 +160,7 @@ class MaterialBatchController extends Controller
                     'bottles_per_bale' => $bottlesPerBale,
                     'bales_expected' => $balesExpected,
                     'qty_remaining' => $bags,
-                    'package_unit' => 'bag',
+                    'package_unit' => $isPieceStock ? 'pcs' : 'bag',
                     'warehouse_id' => $request->warehouse_id,
                     'received_by' => Auth::id(),
                     'notes' => $request->notes,
@@ -167,13 +173,14 @@ class MaterialBatchController extends Controller
 
                 if ($qualityStatus === 'passed') {
                     $inventory = new InventoryController();
+                    $stockUom = $isPieceStock ? ($material->uom ?: 'PCS') : 'bag';
                     $inventory->recordMove([
                         'move_type' => 'grn',
                         'item_type' => 'material',
                         'material_id' => $material->id,
                         'warehouse_to_id' => $request->warehouse_id,
                         'qty' => $bags,
-                        'uom' => 'bag',
+                        'uom' => $stockUom,
                         'unit_cost' => $request->unit_cost,
                         'ref_entity' => 'material_batch',
                         'ref_id' => $batch->id,

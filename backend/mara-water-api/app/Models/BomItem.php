@@ -8,9 +8,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
 /**
- * Bill of Materials line: how much of one raw material a single unit of
- * a SKU consumes. Production logging (PackagingRunController) reads
- * these to auto-deduct raw materials per unit produced.
+ * Bill of Materials line: how much of one raw material one finished bale
+ * of a SKU consumes. Production logging (PackagingRunController) multiplies
+ * qty_per_unit × bales produced (good_qty) to auto-deduct packaging.
  */
 class BomItem extends Model
 {

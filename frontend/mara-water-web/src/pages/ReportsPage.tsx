@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 
 interface DashboardStats {
   total_revenue: number;
@@ -212,34 +213,35 @@ const ReportsPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <PageShell>
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics & Reports</h1>
-          <p className="text-gray-600 dark:text-gray-400">Comprehensive business insights and performance metrics</p>
-        </div>
-        <div className="flex space-x-3">
-          <select
-            value={dateRange}
-            onChange={(e) => setDateRange(e.target.value)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="90">Last 90 days</option>
-            <option value="365">Last year</option>
-          </select>
-          <button className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-            <Download className="w-4 h-4 mr-2" />
-            Export Report
-          </button>
-        </div>
-      </div>
+      <PageHero
+        eyebrow="Analytics · exports"
+        title="Reports"
+        description="Live figures and downloadable operational reports."
+        actions={
+          <>
+            <select
+              value={dateRange}
+              onChange={(e) => setDateRange(e.target.value)}
+              className="rounded-xl border border-white/25 bg-white/15 text-white px-3 py-2.5 text-sm backdrop-blur-sm"
+            >
+              <option value="7" className="text-slate-900">Last 7 days</option>
+              <option value="30" className="text-slate-900">Last 30 days</option>
+              <option value="90" className="text-slate-900">Last 90 days</option>
+              <option value="365" className="text-slate-900">Last year</option>
+            </select>
+            <HeroButton variant="solid">
+              <Download className="w-4 h-4 mr-2" />
+              Export Report
+            </HeroButton>
+          </>
+        }
+      />
 
       {/* Key Metrics — Round 5B Phase 7 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <DollarSign className="w-8 h-8 text-green-600" />
             <div className="ml-4">
@@ -250,7 +252,7 @@ const ReportsPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <Package className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
@@ -262,7 +264,7 @@ const ReportsPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <TrendingUp className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
@@ -274,7 +276,7 @@ const ReportsPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <BarChart3 className="w-8 h-8 text-amber-600" />
             <div className="ml-4">
@@ -286,7 +288,7 @@ const ReportsPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Finance (shared ledger)</p>
           <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">
             KES {(analytics?.metrics.finance?.revenue ?? 0).toLocaleString()}
@@ -295,17 +297,17 @@ const ReportsPage: React.FC = () => {
             Petty net KES {(analytics?.metrics.finance?.petty_cash?.net ?? 0).toLocaleString()} · Open debtors KES {(analytics?.metrics.finance?.debtors?.open_balance ?? 0).toLocaleString()}
           </p>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Inventory rate</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{analytics?.metrics.inventory_rate ?? dashboardStats?.inventory_turnover ?? 0}</p>
           <p className="text-xs text-gray-500">Issued ÷ on-hand (30-day scaled)</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Productivity</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{analytics?.metrics.productivity.units_per_active_staff ?? dashboardStats?.employee_productivity ?? 0}</p>
           <p className="text-xs text-gray-500">Units per active staff · {analytics?.metrics.productivity.active_staff ?? 0} staff</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-blue-200 dark:border-blue-800">
+        <div className="mara-stat border border-blue-200 dark:border-blue-800">
           <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Revenue / tax forecast</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
             KES {(analytics?.forecast.expected_revenue ?? 0).toLocaleString()}
@@ -318,7 +320,7 @@ const ReportsPage: React.FC = () => {
       </div>
 
       {/* Round 5B Phase 3: stored stock reconciliation reports */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <div className="mara-panel p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Stock reconciliation exports</h2>
@@ -368,7 +370,7 @@ const ReportsPage: React.FC = () => {
       </div>
       {/* Performance Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Production Efficiency</h3>
           <div className="flex items-center justify-between">
             <div className="text-3xl font-bold text-blue-600">
@@ -405,7 +407,7 @@ const ReportsPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Water Quality Score</h3>
           <div className="flex items-center justify-between">
             <div className="text-3xl font-bold text-green-600">
@@ -445,7 +447,7 @@ const ReportsPage: React.FC = () => {
 
       {/* Additional Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Inventory Turnover</h3>
           <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -466,7 +468,7 @@ const ReportsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Employee Productivity</h3>
           <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -489,7 +491,7 @@ const ReportsPage: React.FC = () => {
       </div>
 
       {/* Quick Actions */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+      <div className="mara-stat">
         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Quick Reports</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <button onClick={toggleSalesReport} className="flex items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -521,7 +523,7 @@ const ReportsPage: React.FC = () => {
       {/* Sales Report -- replaces the 31-tabs-per-month-per-outlet Excel
           pattern with a live report, grouped by outlet and by product. */}
       {showSalesReport && (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Sales Report — last {dateRange} days</h3>
             <button onClick={() => setShowSalesReport(false)} className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">Hide</button>
@@ -602,7 +604,7 @@ const ReportsPage: React.FC = () => {
           usage (opening/received/used/closing), read straight from the
           movement ledger instead of a manually re-entered table. */}
       {showProductionReport && (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Production Report — last {dateRange} days</h3>
             <div className="flex items-center space-x-3">
@@ -735,7 +737,7 @@ const ReportsPage: React.FC = () => {
           )}
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

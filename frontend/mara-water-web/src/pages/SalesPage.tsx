@@ -18,6 +18,17 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { usePermissions } from '../contexts/AuthContext';
+import { PageShell, PageHero, HeroButton } from '../components/PageShell';
+import {
+  CONTACT_ADMIN_MSG,
+  DEFAULT_MANAGER_LOCKS,
+  isLocked,
+  isWithinPastWeek,
+  mergeManagerLocks,
+  pickMainWarehouse,
+  type ManagerLockKey,
+} from '../utils/managerLocks';
 import MpesaStkDialog, { StkPayment } from '../components/MpesaStkDialog';
 
 interface Customer {
@@ -51,9 +62,7 @@ const CUSTOMER_TYPE_LABELS: Record<string, string> = {
 };
 
 const EMPTY_CUSTOMER_FORM = {
-  code: '', name: '', contact_person: '', type: 'retail', phone: '', email: '',
-  address: '', route_id: '', price_tier: 'standard', preferred_products: '',
-  typical_order_size: '', payment_terms: '', notes: '', status: 'active',
+  name: '', type: 'retail', phone: '', address: '', price_tier: 'standard', notes: '', status: 'active',
 };
 
 interface Sku {
@@ -98,19 +107,20 @@ interface Order {
   id: string;
   order_no: string;
   customer: Customer | null;
-  status: 'draft' | 'confirmed' | 'dispatched' | 'delivered' | 'partially_returned' | 'cancelled';
+  status: 'draft' | 'confirmed' | 'dispatched' | 'delivered' | 'partially_returned' | 'cancelled' | 'awaiting_payment';
   order_date: string;
+  source?: 'outlet' | 'field';
   // Laravel serializes decimal-cast columns as JSON strings, not numbers.
   total_amount: string;
   payment_method?: 'cash' | 'mpesa' | 'credit' | null;
   payment_reference?: string | null;
   warehouse?: Warehouse | null;
-  items?: OrderItemRow[];
+  items?: OrderItemRow[] | { sku_name?: string; qty?: number }[];
   invoice?: { invoice_no: string; due_date: string } | null;
-  sales_officer: {
+  sales_officer?: {
     first_name: string;
     last_name: string;
-  };
+  } | null;
 }
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
@@ -139,9 +149,11 @@ const EMPTY_SALE_FORM = {
   order_date: '',
   notes: '',
   items: [newSaleItem()],
-  // Round 2 Phase 6: required only when payment_method is 'credit'.
   signatory: '',
   expected_repayment_date: '',
+  sale_channel: 'walk_in' as 'walk_in' | 'field' | 'outlet',
+  buyer_name: '',
+  buyer_phone: '',
 };
 
 // Kenya-time "today" as YYYY-MM-DD, and the max repayment date (7 days out).
@@ -153,9 +165,28 @@ const maxRepaymentDate = (fromDate: string) => {
 };
 
 const SalesPage: React.FC = () => {
+  const { isDirector, isManagerTier, accessTier } = usePermissions();
+  const director = isDirector() || accessTier() === 'director';
+  const [managerLocks, setManagerLocks] = useState(DEFAULT_MANAGER_LOCKS);
+  const cashLocked = !director && isLocked(managerLocks, 'manager_cash_payment');
+  const canManagerEditSale = (order: Order) =>
+    !director
+    && !isLocked(managerLocks, 'manager_edit_sales_7d')
+    && isWithinPastWeek(order.order_date);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null);
+  const [editingSale, setEditingSale] = useState(false);
+  const [editForm, setEditForm] = useState({
+    payment_method: 'cash' as 'cash' | 'mpesa' | 'credit',
+    payment_reference: '',
+    order_date: '',
+    customer_id: '',
+    amount: '',
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchParams] = useSearchParams();
 
@@ -186,9 +217,25 @@ const SalesPage: React.FC = () => {
   const [saleForm, setSaleForm] = useState(EMPTY_SALE_FORM);
 
   useEffect(() => {
+    api.get('/settings')
+      .then((res) => {
+        const locks = mergeManagerLocks(res.data?.data?.manager_ui_locks as Partial<Record<ManagerLockKey, boolean>>);
+        setManagerLocks(locks);
+        if (!director && isLocked(locks, 'manager_cash_payment')) {
+          setSaleForm((f) => (f.payment_method === 'cash' ? { ...f, payment_method: 'mpesa' } : f));
+        }
+      })
+      .catch(() => {});
     fetchData();
     api.get('/fleet/routes').then(res => setRoutes(res.data.data)).catch(() => {});
-    api.get('/inventory/warehouses').then(res => setWarehouses(res.data.data)).catch(() => {});
+    api.get('/inventory/warehouses').then(res => {
+      const list: Warehouse[] = res.data.data || [];
+      setWarehouses(list);
+      const main = pickMainWarehouse(list);
+      if (main) {
+        setSaleForm(f => (f.warehouse_id ? f : { ...f, warehouse_id: main.id }));
+      }
+    }).catch(() => {});
     api.get('/fleet/skus').then(res => setSkus(res.data.data)).catch(() => {});
     api.get('/sales/price-lists').then(res => {
       const lists: PriceList[] = res.data.data;
@@ -234,12 +281,14 @@ const SalesPage: React.FC = () => {
 
       setCustomers(customersResponse.data.data);
       const outlet = ordersResponse.data.data || [];
-      const field = fieldResponse.data?.data || [];
-      setOrders([...field, ...outlet].sort((a, b) => String(b.order_date || '').localeCompare(String(a.order_date || ''))));
+      const field = (fieldResponse.data?.data || []).map((row: Order) => ({ ...row, source: 'field' as const }));
+      const outletTagged = outlet.map((row: Order) => ({ ...row, source: row.source || 'outlet' as const }));
+      setOrders([...field, ...outletTagged].sort((a, b) => String(b.order_date || '').localeCompare(String(a.order_date || ''))));
     } catch (error) {
       toast.error('Failed to fetch sales data');
     } finally {
       setLoading(false);
+      setInitialLoaded(true);
     }
   };
 
@@ -252,23 +301,30 @@ const SalesPage: React.FC = () => {
   const openEditCustomer = (c: Customer) => {
     setEditingCustomerId(c.id);
     setCustomerForm({
-      code: c.code, name: c.name, contact_person: c.contact_person || '', type: c.type,
-      phone: c.phone || '', email: c.email || '', address: c.address || '',
-      route_id: c.route?.id || '', price_tier: c.price_tier || 'standard',
-      preferred_products: c.preferred_products || '', typical_order_size: c.typical_order_size || '',
-      payment_terms: c.payment_terms || '', notes: c.notes || '', status: c.status || 'active',
+      name: c.name, type: c.type, phone: c.phone || '', address: c.address || '',
+      price_tier: director ? (c.price_tier || 'standard') : 'standard',
+      notes: c.notes || '', status: c.status || 'active',
     });
     setShowCustomerForm(true);
   };
 
   const handleCustomerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const payload = {
+      name: customerForm.name,
+      type: customerForm.type,
+      phone: customerForm.phone,
+      address: customerForm.address || null,
+      price_tier: director ? customerForm.price_tier : 'standard',
+      notes: customerForm.notes || null,
+      status: customerForm.status,
+    };
     try {
       if (editingCustomerId) {
-        await api.put(`/sales/customers/${editingCustomerId}`, customerForm);
+        await api.put(`/sales/customers/${editingCustomerId}`, payload);
         toast.success('Customer updated successfully');
       } else {
-        await api.post('/sales/customers', customerForm);
+        await api.post('/sales/customers', payload);
         toast.success('Customer created successfully');
       }
       setShowCustomerForm(false);
@@ -293,7 +349,13 @@ const SalesPage: React.FC = () => {
 
   const openLogSale = () => {
     const defaultList = priceLists.find(l => l.is_default) || priceLists[0];
-    setSaleForm({ ...EMPTY_SALE_FORM, price_list_id: defaultList?.id || '', items: [newSaleItem()] });
+    const main = pickMainWarehouse(warehouses);
+    setSaleForm({
+      ...EMPTY_SALE_FORM,
+      warehouse_id: main?.id || '',
+      price_list_id: defaultList?.id || '',
+      items: [newSaleItem()],
+    });
     setShowCreditConfirm(false);
     setShowSaleForm(true);
   };
@@ -335,16 +397,16 @@ const SalesPage: React.FC = () => {
   const handleSaleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (saleForm.payment_method === 'credit') {
-      if (!saleForm.customer_id) {
-        toast.error('Select a customer for a credit sale');
+      if (!director) {
+        toast.error('Only a Director can log a credit sale');
+        return;
+      }
+      if (!saleForm.customer_id && !saleForm.buyer_name.trim()) {
+        toast.error('Select a customer or enter the buyer name for credit');
         return;
       }
       if (!saleForm.signatory.trim()) {
         toast.error('Enter who is signing for this credit sale');
-        return;
-      }
-      if (!saleForm.expected_repayment_date) {
-        toast.error('Enter an expected repayment date');
         return;
       }
       setShowCreditConfirm(true);
@@ -353,27 +415,105 @@ const SalesPage: React.FC = () => {
     submitSale();
   };
 
+  const openEditSale = (order: Order) => {
+    setViewingOrder(order);
+    setEditForm({
+      payment_method: (order.payment_method || 'cash') as 'cash' | 'mpesa' | 'credit',
+      payment_reference: order.payment_reference || '',
+      order_date: order.order_date ? String(order.order_date).slice(0, 10) : '',
+      customer_id: order.customer?.id || '',
+      amount: String(order.total_amount ?? ''),
+    });
+    setEditingSale(true);
+  };
+
+  const saveEditSale = async () => {
+    if (!viewingOrder || !director) return;
+    setSavingEdit(true);
+    try {
+      if (viewingOrder.source === 'field') {
+        await api.put(`/sales/field-sales/${viewingOrder.id}`, {
+          payment_method: editForm.payment_method === 'credit' ? 'debt' : editForm.payment_method,
+          payment_reference: editForm.payment_reference || null,
+          customer_id: editForm.customer_id || null,
+          amount: editForm.amount !== '' ? Number(editForm.amount) : undefined,
+        });
+      } else {
+        await api.put(`/sales/orders/${viewingOrder.id}`, {
+          payment_method: editForm.payment_method,
+          payment_reference: editForm.payment_reference || null,
+          order_date: editForm.order_date || null,
+          customer_id: editForm.customer_id || null,
+        });
+      }
+      toast.success('Sale updated');
+      setEditingSale(false);
+      setViewingOrder(null);
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to update sale');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const deleteSale = async (order: Order) => {
+    if (!director) {
+      toast.error('Only a Director can delete a posted sale');
+      return;
+    }
+    const label = order.source === 'field'
+      ? `field sale for ${order.customer?.name || 'walk-in'} (KES ${Number(order.total_amount).toLocaleString()})`
+      : `sale ${order.order_no}`;
+    if (!window.confirm(`Delete ${label}? Use this for test entries. This cannot be undone from the list.`)) return;
+    setDeletingSaleId(order.id);
+    try {
+      if (order.source === 'field') {
+        await api.delete(`/sales/field-sales/${order.id}`);
+      } else {
+        await api.delete(`/sales/orders/${order.id}`);
+      }
+      toast.success('Sale deleted');
+      if (viewingOrder?.id === order.id) {
+        setViewingOrder(null);
+        setEditingSale(false);
+      }
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to delete sale');
+    } finally {
+      setDeletingSaleId(null);
+    }
+  };
+
   const submitSale = async () => {
     setSaleSubmitting(true);
     try {
+      const channel = isManagerTier() && !director ? 'walk_in' : saleForm.sale_channel;
+      const phone = (saleForm.stk_phone || saleForm.buyer_phone || '').trim();
       const payload = {
         warehouse_id: saleForm.warehouse_id,
         customer_id: saleForm.customer_id || null,
         price_list_id: saleForm.price_list_id || null,
         payment_method: saleForm.payment_method,
-        payment_reference: saleForm.payment_reference || null,
-        stk_phone: saleForm.payment_method === 'mpesa' && saleForm.stk_phone.trim() ? saleForm.stk_phone.trim() : undefined,
+        payment_reference: null,
+        stk_phone: saleForm.payment_method === 'mpesa' ? (phone || undefined) : undefined,
         stk_channel: 'warehouse',
-        order_date: saleForm.order_date || null,
+        order_date: saleForm.order_date || todayStr(),
         notes: saleForm.notes || null,
+        sale_channel: channel,
+        buyer_name: saleForm.buyer_name.trim() || undefined,
+        buyer_phone: phone || undefined,
         signatory: saleForm.payment_method === 'credit' ? saleForm.signatory : undefined,
-        expected_repayment_date: saleForm.payment_method === 'credit' ? saleForm.expected_repayment_date : undefined,
+        expected_repayment_date: saleForm.payment_method === 'credit' && saleForm.expected_repayment_date
+          ? saleForm.expected_repayment_date
+          : undefined,
         items: saleForm.items.map(i => ({
           sku_id: i.sku_id,
           qty: i.qty,
           qty_returned: i.qty_returned || 0,
           unit_price: i.unit_price ? parseFloat(i.unit_price) : undefined,
-          override_reason: i.override_reason || undefined,
+          override_reason: director ? (i.override_reason || undefined) : undefined,
         })),
       };
       const res = await api.post('/sales/orders/log-sale', payload);
@@ -385,16 +525,28 @@ const SalesPage: React.FC = () => {
         return;
       }
       const orderNo = res.data?.data?.order?.order_no;
-      toast.success(`Sale logged${orderNo ? ` (${orderNo})` : ''}`);
+      const catchUp = Boolean(res.data?.data?.catch_up);
+      toast.success(
+        catchUp
+          ? `Catch-up sale logged${orderNo ? ` (${orderNo})` : ''}`
+          : `Sale logged${orderNo ? ` (${orderNo})` : ''}`
+      );
       const stockWarnings = res.data?.data?.stock_warnings || [];
-      stockWarnings.forEach((w: { message: string }) => toast.error(w.message, { duration: 8000 }));
+      if (!catchUp) {
+        stockWarnings.forEach((w: { message: string }) => toast.error(w.message, { duration: 8000 }));
+      }
       setShowCreditConfirm(false);
       setShowSaleForm(false);
       fetchData();
     } catch (error: any) {
       const errors = error.response?.data?.errors;
       const firstError = errors ? Object.values(errors)[0] : null;
-      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to log sale');
+      toast.error(
+        (Array.isArray(firstError) ? firstError[0] : firstError)
+        || error.response?.data?.error
+        || error.response?.data?.message
+        || 'Failed to log sale'
+      );
       setShowCreditConfirm(false);
     } finally {
       setSaleSubmitting(false);
@@ -435,7 +587,7 @@ const SalesPage: React.FC = () => {
     }
   };
 
-  if (loading) {
+  if (loading && !initialLoaded) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -444,34 +596,22 @@ const SalesPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Sales Management</h1>
-          <p className="text-gray-600 dark:text-gray-400">Manage customers and orders</p>
-        </div>
-        <div className="flex space-x-3">
-          <button
-            onClick={openNewCustomer}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Customer
-          </button>
-          <button
-            onClick={openLogSale}
-            className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Log a Sale
-          </button>
-        </div>
-      </div>
+    <PageShell>
+      <PageHero
+        eyebrow="Customers · orders · field sales"
+        title="Sales"
+        description="Manage customers and orders. Field sales from drivers appear here too."
+        actions={(
+          <>
+            <HeroButton onClick={openNewCustomer}><Plus className="w-4 h-4 mr-2" /> New customer</HeroButton>
+            <HeroButton variant="solid" onClick={openLogSale}><Plus className="w-4 h-4 mr-2" /> Log a sale</HeroButton>
+          </>
+        )}
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <ShoppingCart className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
@@ -480,7 +620,7 @@ const SalesPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <DollarSign className="w-8 h-8 text-green-600" />
             <div className="ml-4">
@@ -491,7 +631,7 @@ const SalesPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <Users className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
@@ -500,7 +640,7 @@ const SalesPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <TrendingUp className="w-8 h-8 text-orange-600" />
             <div className="ml-4">
@@ -514,7 +654,7 @@ const SalesPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+      <div className="mara-panel">
         <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex space-x-8 px-6">
             <button
@@ -652,13 +792,34 @@ const SalesPage: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                        {order.sales_officer.first_name} {order.sales_officer.last_name}
+                        {order.sales_officer
+                          ? `${order.sales_officer.first_name} ${order.sales_officer.last_name}`
+                          : '—'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center space-x-2">
-                          <button onClick={() => setViewingOrder(order)} className="text-blue-600 hover:text-blue-900">
+                          <button onClick={() => { setEditingSale(false); setViewingOrder(order); }} className="text-blue-600 hover:text-blue-900" title="View">
                             <Eye className="w-4 h-4" />
                           </button>
+                          {(director || canManagerEditSale(order)) && (
+                            <button
+                              onClick={() => openEditSale(order)}
+                              className="text-amber-600 hover:text-amber-800"
+                              title={director ? 'Alter sale (director)' : 'Alter sale (Admin-approved, ≤7 days)'}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                          )}
+                          {director && (
+                            <button
+                              onClick={() => deleteSale(order)}
+                              disabled={deletingSaleId === order.id}
+                              className="text-red-600 hover:text-red-900 disabled:opacity-40"
+                              title="Delete sale (director)"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -748,180 +909,75 @@ const SalesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Customer Form Modal */}
+      {/* Customer Form Modal — short: name, type, phone, location */}
       {showCustomerForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{editingCustomerId ? 'Edit Customer' : 'New Customer'}</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">{editingCustomerId ? 'Edit Customer' : 'New Customer'}</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Name, type, phone and location. Price stays standard unless a Director changes it.</p>
             <form onSubmit={handleCustomerSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Organization / Shop / Customer name</label>
+                <input
+                  required
+                  type="text"
+                  value={customerForm.name}
+                  onChange={(e) => setCustomerForm({...customerForm, name: e.target.value})}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
+                />
+              </div>
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Customer Code</label>
-                  <input
-                    required
-                    type="text"
-                    value={customerForm.code}
-                    onChange={(e) => setCustomerForm({...customerForm, code: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
                   <select
                     value={customerForm.type}
                     onChange={(e) => setCustomerForm({...customerForm, type: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                   >
                     {Object.entries(CUSTOMER_TYPE_LABELS).map(([value, label]) => (
                       <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Organization / Shop Name</label>
-                <input
-                  required
-                  type="text"
-                  value={customerForm.name}
-                  onChange={(e) => setCustomerForm({...customerForm, name: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact Person</label>
-                <input
-                  type="text"
-                  value={customerForm.contact_person}
-                  onChange={(e) => setCustomerForm({...customerForm, contact_person: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
                   <input
+                    required
                     type="tel"
                     value={customerForm.phone}
                     onChange={(e) => setCustomerForm({...customerForm, phone: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
-                  <input
-                    type="email"
-                    value={customerForm.email}
-                    onChange={(e) => setCustomerForm({...customerForm, email: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Delivery Address</label>
-                <textarea
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Location</label>
+                <input
+                  type="text"
                   value={customerForm.address}
                   onChange={(e) => setCustomerForm({...customerForm, address: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={2}
+                  placeholder="Area / shop location"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              {director && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Route / Zone</label>
-                  <select
-                    value={customerForm.route_id}
-                    onChange={(e) => setCustomerForm({...customerForm, route_id: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">No route</option>
-                    {routes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Price Tier</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Price tier (Director only)</label>
                   <select
                     value={customerForm.price_tier}
                     onChange={(e) => setCustomerForm({...customerForm, price_tier: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                   >
                     <option value="standard">Standard</option>
                     <option value="premium">Premium</option>
                     <option value="wholesale">Wholesale</option>
                   </select>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Preferred Products</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Premium 1L, 5L"
-                    value={customerForm.preferred_products}
-                    onChange={(e) => setCustomerForm({...customerForm, preferred_products: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Typical Order Size</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 50 crates/week"
-                    value={customerForm.typical_order_size}
-                    onChange={(e) => setCustomerForm({...customerForm, typical_order_size: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Terms</label>
-                  <select
-                    value={customerForm.payment_terms}
-                    onChange={(e) => setCustomerForm({...customerForm, payment_terms: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Not set</option>
-                    <option value="cash">Cash</option>
-                    <option value="mpesa">M-Pesa</option>
-                    <option value="credit">Credit / Debtor Account</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-                  <select
-                    value={customerForm.status}
-                    onChange={(e) => setCustomerForm({...customerForm, status: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
-                <textarea
-                  value={customerForm.notes}
-                  onChange={(e) => setCustomerForm({...customerForm, notes: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={2}
-                  placeholder="Interaction history, preferences, anything worth remembering..."
-                />
-              </div>
+              )}
               <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCustomerForm(false)}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                >
-                  {editingCustomerId ? 'Save Changes' : 'Create Customer'}
+                <button type="button" onClick={() => setShowCustomerForm(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                  {editingCustomerId ? 'Save' : 'Add customer'}
                 </button>
               </div>
             </form>
@@ -943,105 +999,136 @@ const SalesPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Outlet / Branch</label>
-                  <select
-                    required
-                    value={saleForm.warehouse_id}
-                    onChange={(e) => setSaleForm({...saleForm, warehouse_id: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Select outlet</option>
-                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
-                  </select>
+                  <input
+                    readOnly
+                    value={warehouses.find(w => w.id === saleForm.warehouse_id)?.name
+                      || pickMainWarehouse(warehouses)?.name
+                      || 'Main warehouse'}
+                    className="mt-1 block w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-800 rounded-md px-3 py-2 bg-gray-50 text-gray-700 dark:text-gray-300 cursor-not-allowed"
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Sale date{director ? ' (catch-up OK)' : ''}
+                  </label>
                   <input
                     type="date"
-                    value={saleForm.order_date}
+                    value={saleForm.order_date || todayStr()}
+                    max={todayStr()}
+                    min={director ? undefined : todayStr()}
                     onChange={(e) => setSaleForm({...saleForm, order_date: e.target.value})}
-                    placeholder="Today"
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                  {director && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Pick a past date to log sales from days without the app — no stock discrepancy popups.
+                    </p>
+                  )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Method</label>
                   <select
                     value={saleForm.payment_method}
                     onChange={(e) => setSaleForm({...saleForm, payment_method: e.target.value as any})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                   >
-                    <option value="cash">Cash</option>
+                    {!cashLocked && <option value="cash">Cash</option>}
                     <option value="mpesa">M-Pesa</option>
-                    <option value="credit">Credit (to customer account)</option>
+                    {director && <option value="credit">Credit (Director only)</option>}
                   </select>
+                  {cashLocked && (
+                    <p className="text-xs text-amber-700 mt-1">{CONTACT_ADMIN_MSG}</p>
+                  )}
                 </div>
+                {director ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Sale type</label>
+                    <select
+                      value={saleForm.sale_channel}
+                      onChange={(e) => setSaleForm({...saleForm, sale_channel: e.target.value as any})}
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
+                    >
+                      <option value="walk_in">Walk-in</option>
+                      <option value="field">Field</option>
+                      <option value="outlet">Outlet / counter</option>
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Sale type</label>
+                    <input readOnly value="Walk-in" className="mt-1 block w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 rounded-md px-3 py-2 text-gray-600" />
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Customer {saleForm.payment_method === 'credit' ? '(required)' : '(optional)'}
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Existing customer (optional)</label>
                   <select
-                    required={saleForm.payment_method === 'credit'}
                     value={saleForm.customer_id}
                     onChange={(e) => setSaleForm({...saleForm, customer_id: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                   >
-                    <option value="">{saleForm.payment_method === 'credit' ? 'Select customer' : 'Walk-in / none'}</option>
+                    <option value="">New / not listed</option>
                     {customers.map(customer => (
                       <option key={customer.id} value={customer.id}>{customer.name} ({customer.code})</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference / Receipt No.</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Buyer name (saved to customers)</label>
                   <input
                     type="text"
-                    value={saleForm.payment_reference}
-                    onChange={(e) => setSaleForm({...saleForm, payment_reference: e.target.value})}
-                    placeholder="e.g. M-Pesa code"
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={saleForm.buyer_name}
+                    onChange={(e) => setSaleForm({...saleForm, buyer_name: e.target.value})}
+                    placeholder="Person / shop name"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                   />
                 </div>
               </div>
-              {saleForm.payment_method === 'mpesa' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Customer phone for M-Pesa prompt</label>
-                  <input
-                    type="tel"
-                    value={saleForm.stk_phone}
-                    onChange={(e) => setSaleForm({ ...saleForm, stk_phone: e.target.value })}
-                    placeholder="07…"
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">A phone number sends an STK prompt. The sale stays unpaid until the customer enters their PIN.</p>
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {saleForm.payment_method === 'mpesa' ? 'Phone for M-Pesa prompt' : 'Buyer phone'}
+                </label>
+                <input
+                  type="tel"
+                  value={saleForm.stk_phone || saleForm.buyer_phone}
+                  onChange={(e) => {
+                    const phone = e.target.value;
+                    setSaleForm({ ...saleForm, stk_phone: phone, buyer_phone: phone });
+                  }}
+                  placeholder="07…"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
+                />
+                {saleForm.payment_method === 'mpesa' && (
+                  <p className="text-xs text-gray-500 mt-1">STK prompt is sent automatically — same number is saved as buyer phone.</p>
+                )}
+              </div>
 
-              {saleForm.payment_method === 'credit' && (
+              {saleForm.payment_method === 'credit' && director && (
                 <div className="grid grid-cols-2 gap-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Signatory (who's accountable for this)</label>
+                    <label className="block text-sm font-medium text-gray-700">Signatory</label>
                     <input
                       required
                       type="text"
                       value={saleForm.signatory}
                       onChange={(e) => setSaleForm({...saleForm, signatory: e.target.value})}
-                      placeholder="Name of person receiving the goods on credit"
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Who is accountable"
+                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Expected Repayment Date (max 7 days)</label>
+                    <label className="block text-sm font-medium text-gray-700">Repayment date (optional — leave blank for indefinite)</label>
                     <input
-                      required
                       type="date"
                       value={saleForm.expected_repayment_date}
                       min={saleForm.order_date || todayStr()}
-                      max={maxRepaymentDate(saleForm.order_date)}
                       onChange={(e) => setSaleForm({...saleForm, expected_repayment_date: e.target.value})}
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
                     />
                   </div>
                 </div>
@@ -1109,9 +1196,11 @@ const SalesPage: React.FC = () => {
                           <input
                             type="number" min={0} step="0.01"
                             value={item.unit_price}
-                            onChange={(e) => updateSaleItem(item.id, { unit_price: e.target.value })}
+                            onChange={(e) => director && updateSaleItem(item.id, { unit_price: e.target.value })}
+                            disabled={!director}
+                            readOnly={!director}
                             placeholder={listPrice || '0.00'}
-                            className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
                           />
                         </div>
                         <div className="col-span-1 text-sm text-gray-700 dark:text-gray-300 pt-2">
@@ -1123,7 +1212,7 @@ const SalesPage: React.FC = () => {
                           </button>
                         </div>
                       </div>
-                      {overridden && (
+                      {director && overridden && (
                         <input
                           type="text" required
                           value={item.override_reason}
@@ -1214,50 +1303,155 @@ const SalesPage: React.FC = () => {
         </div>
       )}
 
-      {/* Order Detail Modal */}
+      {/* Order Detail / Director alter modal */}
       {viewingOrder && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">{viewingOrder.order_no}</h3>
-              <button onClick={() => setViewingOrder(null)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+                {editingSale ? 'Alter sale' : viewingOrder.order_no}
+              </h3>
+              <button onClick={() => { setViewingOrder(null); setEditingSale(false); }} className="text-gray-400 dark:text-gray-500 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="space-y-1 text-sm text-gray-700 dark:text-gray-300 mb-4">
-              <p><span className="text-gray-500 dark:text-gray-400">Outlet:</span> {viewingOrder.warehouse?.name || '—'}</p>
-              <p><span className="text-gray-500 dark:text-gray-400">Customer:</span> {viewingOrder.customer?.name || 'Walk-in'}</p>
-              <p><span className="text-gray-500 dark:text-gray-400">Payment:</span> {viewingOrder.payment_method ? (PAYMENT_METHOD_LABELS[viewingOrder.payment_method] || viewingOrder.payment_method) : '—'}
-                {viewingOrder.payment_reference ? ` (${viewingOrder.payment_reference})` : ''}</p>
-              <p><span className="text-gray-500 dark:text-gray-400">Date:</span> {new Date(viewingOrder.order_date).toLocaleDateString()}</p>
-              {viewingOrder.invoice && (
-                <p><span className="text-gray-500 dark:text-gray-400">Invoice:</span> {viewingOrder.invoice.invoice_no} (due {new Date(viewingOrder.invoice.due_date).toLocaleDateString()})</p>
-              )}
-            </div>
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase">
-                  <th className="pb-2">Product</th>
-                  <th className="pb-2">Dispatched</th>
-                  <th className="pb-2">Returned</th>
-                  <th className="pb-2">Unit Price</th>
-                  <th className="pb-2 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                {(viewingOrder.items || []).map(item => (
-                  <tr key={item.id}>
-                    <td className="py-1.5">{item.sku?.name}</td>
-                    <td className="py-1.5">{item.qty}</td>
-                    <td className="py-1.5">{item.qty_returned}</td>
-                    <td className="py-1.5">{Number(item.unit_price).toLocaleString()}</td>
-                    <td className="py-1.5 text-right">{Number(item.line_total).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="flex justify-end mt-4 pt-3 border-t border-gray-200 dark:border-gray-700 text-lg font-semibold text-gray-900 dark:text-gray-100">
-              Total: KES {Number(viewingOrder.total_amount).toLocaleString()}
+            {editingSale && director ? (
+              <div className="space-y-3 text-sm mb-4">
+                <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 rounded px-3 py-2">
+                  Director correction for test or mis-keyed entries. Wrong products: delete this sale and log again.
+                </p>
+                <div>
+                  <label className="block text-gray-600 dark:text-gray-400 mb-1">Customer</label>
+                  <select
+                    value={editForm.customer_id}
+                    onChange={(e) => setEditForm(f => ({ ...f, customer_id: e.target.value }))}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-3 py-2"
+                  >
+                    <option value="">Walk-in / none</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-gray-600 dark:text-gray-400 mb-1">Payment</label>
+                  <select
+                    value={editForm.payment_method}
+                    onChange={(e) => setEditForm(f => ({ ...f, payment_method: e.target.value as 'cash' | 'mpesa' | 'credit' }))}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-3 py-2"
+                  >
+                    {(director || !cashLocked) && <option value="cash">Cash</option>}
+                    <option value="mpesa">M-Pesa</option>
+                    {director && <option value="credit">Credit</option>}
+                  </select>
+                  {cashLocked && !director && (
+                    <p className="text-xs text-amber-700 mt-1">{CONTACT_ADMIN_MSG}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-gray-600 dark:text-gray-400 mb-1">Reference</label>
+                  <input
+                    type="text"
+                    value={editForm.payment_reference}
+                    onChange={(e) => setEditForm(f => ({ ...f, payment_reference: e.target.value }))}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-3 py-2"
+                    placeholder="M-Pesa code / receipt"
+                  />
+                </div>
+                {viewingOrder.source !== 'field' && (
+                  <div>
+                    <label className="block text-gray-600 dark:text-gray-400 mb-1">Date</label>
+                    <input
+                      type="date"
+                      value={editForm.order_date}
+                      onChange={(e) => setEditForm(f => ({ ...f, order_date: e.target.value }))}
+                      className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-3 py-2"
+                    />
+                  </div>
+                )}
+                {viewingOrder.source === 'field' && (
+                  <div>
+                    <label className="block text-gray-600 dark:text-gray-400 mb-1">Amount (KES)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editForm.amount}
+                      onChange={(e) => setEditForm(f => ({ ...f, amount: e.target.value }))}
+                      className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-3 py-2"
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1 text-sm text-gray-700 dark:text-gray-300 mb-4">
+                  <p><span className="text-gray-500 dark:text-gray-400">Outlet:</span> {viewingOrder.warehouse?.name || '—'}</p>
+                  <p><span className="text-gray-500 dark:text-gray-400">Customer:</span> {viewingOrder.customer?.name || 'Walk-in'}</p>
+                  <p><span className="text-gray-500 dark:text-gray-400">Payment:</span> {viewingOrder.payment_method ? (PAYMENT_METHOD_LABELS[viewingOrder.payment_method] || viewingOrder.payment_method) : '—'}
+                    {viewingOrder.payment_reference ? ` (${viewingOrder.payment_reference})` : ''}</p>
+                  <p><span className="text-gray-500 dark:text-gray-400">Date:</span> {new Date(viewingOrder.order_date).toLocaleDateString()}</p>
+                  {viewingOrder.invoice && (
+                    <p><span className="text-gray-500 dark:text-gray-400">Invoice:</span> {viewingOrder.invoice.invoice_no} (due {new Date(viewingOrder.invoice.due_date).toLocaleDateString()})</p>
+                  )}
+                </div>
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase">
+                      <th className="pb-2">Product</th>
+                      <th className="pb-2">Dispatched</th>
+                      <th className="pb-2">Returned</th>
+                      <th className="pb-2">Unit Price</th>
+                      <th className="pb-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {(viewingOrder.items || []).map((item: any) => (
+                      <tr key={item.id || item.sku_name}>
+                        <td className="py-1.5">{item.sku?.name || item.sku_name}</td>
+                        <td className="py-1.5">{item.qty}</td>
+                        <td className="py-1.5">{item.qty_returned ?? '—'}</td>
+                        <td className="py-1.5">{item.unit_price != null ? Number(item.unit_price).toLocaleString() : '—'}</td>
+                        <td className="py-1.5 text-right">{item.line_total != null ? Number(item.line_total).toLocaleString() : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="flex justify-end mt-4 pt-3 border-t border-gray-200 dark:border-gray-700 text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  Total: KES {Number(viewingOrder.total_amount).toLocaleString()}
+                </div>
+              </>
+            )}
+            <div className="flex justify-between items-center mt-5 pt-3 border-t border-gray-200 dark:border-gray-700">
+              {director ? (
+                <button
+                  type="button"
+                  onClick={() => deleteSale(viewingOrder)}
+                  disabled={deletingSaleId === viewingOrder.id}
+                  className="px-3 py-2 text-sm text-red-700 border border-red-300 rounded-md hover:bg-red-50 disabled:opacity-40"
+                >
+                  Delete sale
+                </button>
+              ) : <span />}
+              <div className="flex gap-2">
+                {editingSale ? (
+                  <>
+                    <button type="button" onClick={() => setEditingSale(false)} className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md">Cancel</button>
+                    <button type="button" onClick={saveEditSale} disabled={savingEdit} className="px-3 py-2 text-sm bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50">
+                      {savingEdit ? 'Saving…' : 'Save changes'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {director && (
+                      <button type="button" onClick={() => openEditSale(viewingOrder)} className="px-3 py-2 text-sm border border-amber-300 text-amber-800 rounded-md hover:bg-amber-50">
+                        Alter
+                      </button>
+                    )}
+                    <button type="button" onClick={() => { setViewingOrder(null); setEditingSale(false); }} className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md">Close</button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1273,7 +1467,7 @@ const SalesPage: React.FC = () => {
           }}
         />
       )}
-    </div>
+    </PageShell>
   );
 };
 

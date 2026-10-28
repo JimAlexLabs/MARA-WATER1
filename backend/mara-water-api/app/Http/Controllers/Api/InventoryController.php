@@ -143,6 +143,12 @@ class InventoryController extends Controller
     public function createStockMove(Request $request)
     {
         try {
+            foreach (['material_id', 'sku_id', 'batch_id', 'warehouse_from_id', 'warehouse_to_id', 'unit_cost', 'ref_entity', 'ref_id'] as $key) {
+                if ($request->input($key) === '') {
+                    $request->merge([$key => null]);
+                }
+            }
+
             $validator = Validator::make($request->all(), [
                 'move_type' => 'required|in:grn,issue,produce,adjust,transfer,return',
                 'item_type' => 'required|in:material,sku',
@@ -178,6 +184,13 @@ class InventoryController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'SKU ID is required when item type is sku'
+                ], 422);
+            }
+
+            if (in_array($request->move_type, ['grn', 'produce', 'return'], true) && !$request->warehouse_to_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Choose the warehouse that received this stock. Without it, the quantity is not added.',
                 ], 422);
             }
 
@@ -921,6 +934,22 @@ class InventoryController extends Controller
         }
 
         $stockItem = $stockItem->first();
+
+        if (!$stockItem) {
+            $trashed = StockItem::onlyTrashed()
+                ->where('item_type', $itemType)
+                ->where('warehouse_id', $warehouseId);
+            if ($itemType === 'material') {
+                $trashed->where('material_id', $materialId);
+            } else {
+                $trashed->where('sku_id', $skuId)->where('batch_id', $batchId);
+            }
+            $trashed = $trashed->first();
+            if ($trashed) {
+                $trashed->restore();
+                $stockItem = $trashed;
+            }
+        }
 
         if ($stockItem) {
             // Update existing stock item

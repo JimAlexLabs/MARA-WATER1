@@ -99,9 +99,15 @@ class DashboardController extends Controller
             $todaysSales = $revenue->combinedRevenueBetween($today, $today);
             $todaysOrdersCount = Order::completedSale()->whereDate('order_date', $today)->count();
 
+            // good_qty is bales; convert via bottles-per-bale by size.
             $todaysProductionLiters = PackagingRun::join('skus', 'skus.id', '=', 'packaging_runs.sku_id')
                 ->whereDate('packaging_runs.run_end', $today)
-                ->sum(DB::raw('packaging_runs.good_qty * skus.size_liters'));
+                ->sum(DB::raw('packaging_runs.good_qty * skus.size_liters * CASE
+                    WHEN skus.size_liters BETWEEN 0.49 AND 0.51 THEN 24
+                    WHEN skus.size_liters BETWEEN 0.99 AND 1.01 THEN 12
+                    WHEN skus.size_liters BETWEEN 1.49 AND 1.51 THEN 12
+                    WHEN skus.size_liters BETWEEN 4.9 AND 5.1 THEN 4
+                    ELSE 1 END'));
 
             $qaToday = WaterTest::whereDate('recorded_at', $today);
             $qaTodayTotal = (clone $qaToday)->count();
@@ -129,7 +135,12 @@ class DashboardController extends Controller
             $productionTrend = PackagingRun::join('skus', 'skus.id', '=', 'packaging_runs.sku_id')
                 ->whereNotNull('packaging_runs.run_end')
                 ->where('packaging_runs.run_end', '>=', $weekStart)
-                ->selectRaw('DATE(packaging_runs.run_end) as date, SUM(packaging_runs.good_qty * skus.size_liters) as liters')
+                ->selectRaw('DATE(packaging_runs.run_end) as date, SUM(packaging_runs.good_qty * skus.size_liters * CASE
+                    WHEN skus.size_liters BETWEEN 0.49 AND 0.51 THEN 24
+                    WHEN skus.size_liters BETWEEN 0.99 AND 1.01 THEN 12
+                    WHEN skus.size_liters BETWEEN 1.49 AND 1.51 THEN 12
+                    WHEN skus.size_liters BETWEEN 4.9 AND 5.1 THEN 4
+                    ELSE 1 END) as liters')
                 ->groupBy('date')->orderBy('date')->get();
 
             $fuelTrend = FuelLog::where('date', '>=', $weekStart->toDateString())

@@ -46,6 +46,7 @@ class BackupService
         'album_items', 'tasks', 'task_comments', 'notifications', 'slas',
         'driver_trips', 'driver_trip_items', 'petty_cash_entries',
         'debtor_ledger_entries',
+        'supplier_ledger_entries',
         // Round 5B
         'material_batches', 'material_batch_consumptions', 'stock_reconciliation_reports',
         // Post–Phase 11 tables that were silently skipped by backups/resets
@@ -77,7 +78,7 @@ class BackupService
         ],
         'finance' => [
             'invoices', 'invoice_items', 'receipts', 'petty_cash_entries',
-            'debtor_ledger_entries', 'debts', 'expenses', 'bank_statements',
+            'debtor_ledger_entries', 'supplier_ledger_entries', 'debts', 'expenses', 'bank_statements',
             'bank_lines', 'reconciliations', 'recon_items',
             'staff_loans', 'payroll_runs', 'payslips',
         ],

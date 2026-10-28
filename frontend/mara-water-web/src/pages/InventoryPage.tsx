@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { 
   Plus, 
   Search, 
@@ -18,10 +18,15 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero, HeroButton } from '../components/PageShell';
+import { usePermissions } from '../contexts/AuthContext';
 
 interface StockItem {
   id?: string;
   item_type: 'material' | 'sku';
+  material_id?: string | null;
+  sku_id?: string | null;
+  warehouse_id?: string | null;
   material?: {
     name?: string;
     code?: string;
@@ -45,6 +50,7 @@ interface RefItem {
   id: string;
   code: string;
   name: string;
+  uom?: string;
 }
 
 interface RefWarehouse {
@@ -79,6 +85,7 @@ interface StockMove {
   qty?: string;
   uom?: string;
   unit_cost?: string;
+  ref_id?: string;
   moved_by?: {
     first_name?: string;
     last_name?: string;
@@ -92,6 +99,23 @@ const InventoryPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchParams] = useSearchParams();
+  const { isDirector, accessTier } = usePermissions();
+  const director = isDirector() || accessTier() === 'director';
+  const [canAlterInventory, setCanAlterInventory] = useState(director);
+
+  useEffect(() => {
+    if (director) {
+      setCanAlterInventory(true);
+      return;
+    }
+    api.get('/settings')
+      .then((res) => {
+        const locks = res.data?.data?.manager_ui_locks || {};
+        // Unlock manager_edit_inventory = Admin approved alters
+        setCanAlterInventory(locks.manager_edit_inventory === false);
+      })
+      .catch(() => setCanAlterInventory(false));
+  }, [director]);
 
   useEffect(() => {
     const q = searchParams.get('q');
@@ -114,36 +138,49 @@ const InventoryPage: React.FC = () => {
   });
   const [stockCard, setStockCard] = useState<StockCardData | null>(null);
   const [stockCardLoading, setStockCardLoading] = useState(false);
+  const [prodAlerts, setProdAlerts] = useState<Array<{
+    level: string; size: string; code: string; message: string; bales_left: number;
+    stock?: { labels: number; bailing: number | null; bottles: number; caps: number; seals: number };
+  }>>([]);
+  const [prodBalesLeft, setProdBalesLeft] = useState<number | null>(null);
 
-  // Stock Move Form State
-  const [stockMoveForm, setStockMoveForm] = useState({
-    move_type: 'grn',
+  // One warehouse for the whole plant — arrivals and corrections post there.
+  const [stockForm, setStockForm] = useState({
+    purpose: 'arrival' as 'arrival' | 'correct_add' | 'correct_set',
     item_type: 'material',
     material_id: '',
     sku_id: '',
-    warehouse_from_id: '',
-    warehouse_to_id: '',
+    warehouse_id: '',
     qty: '',
-    uom: 'pcs',
     unit_cost: '',
-    ref_entity: '',
-    ref_id: '',
     notes: ''
   });
 
   useEffect(() => {
     fetchData();
-    api.get('/production/materials').then(res => setMaterials(res.data.data)).catch(() => {});
+    api.get('/production/materials', { params: { limit: 200 } }).then(res => setMaterials(res.data.data || [])).catch(() => {});
     api.get('/fleet/skus').then(res => setSkus(res.data.data)).catch(() => {});
-    api.get('/inventory/warehouses').then(res => setWarehouses(res.data.data)).catch(() => {});
+    api.get('/production/capacity').then((res) => {
+      setProdAlerts(res.data.alerts || []);
+      setProdBalesLeft(res.data.summary?.total_bales_possible ?? null);
+    }).catch(() => {});
+    api.get('/inventory/warehouses').then(res => {
+      const rows = res.data.data || [];
+      setWarehouses(rows);
+      const onlyId = rows[0]?.id || '';
+      if (onlyId) {
+        setStockForm((form) => form.warehouse_id ? form : { ...form, warehouse_id: onlyId });
+        setStockCardForm((form) => form.warehouse_id ? form : { ...form, warehouse_id: onlyId });
+      }
+    }).catch(() => {});
   }, []);
 
   const fetchData = async () => {
     try {
       setLoading(true);
       const [stockResponse, movesResponse] = await Promise.all([
-        api.get('/inventory/stock-items'),
-        api.get('/inventory/stock-moves')
+        api.get('/inventory/stock-items', { params: { limit: 500 } }),
+        api.get('/inventory/stock-moves', { params: { limit: 200 } })
       ]);
       
       setStockItems(stockResponse.data.data);
@@ -157,9 +194,14 @@ const InventoryPage: React.FC = () => {
 
   const fetchStockCard = async (e: React.FormEvent) => {
     e.preventDefault();
+    const warehouseId = stockCardForm.warehouse_id || warehouses[0]?.id;
+    if (!warehouseId) {
+      toast.error('Main warehouse is not set up yet');
+      return;
+    }
     setStockCardLoading(true);
     try {
-      const res = await api.get('/inventory/stock-card', { params: stockCardForm });
+      const res = await api.get('/inventory/stock-card', { params: { ...stockCardForm, warehouse_id: warehouseId } });
       setStockCard(res.data.data);
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to fetch stock card');
@@ -169,29 +211,172 @@ const InventoryPage: React.FC = () => {
     }
   };
 
-  const handleStockMoveSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const openStockForm = (purpose: 'arrival' | 'correct_add' | 'correct_set') => {
+    setStockForm((form) => ({
+      ...form,
+      purpose,
+      material_id: '',
+      sku_id: '',
+      qty: '',
+      unit_cost: '',
+      notes: '',
+      item_type: purpose === 'arrival' ? 'material' : form.item_type,
+      warehouse_id: form.warehouse_id || warehouses[0]?.id || '',
+    }));
+    setShowStockMoveForm(true);
+  };
+
+  /** Row Edit / eye: open correction with this item pre-filled (set counted qty). */
+  const openAlterItem = (item: StockItem, purpose: 'correct_set' | 'correct_add' = 'correct_set') => {
+    const warehouseId = item.warehouse_id || warehouses[0]?.id || '';
+    const currentQty = parseFloat(item.qty || '0');
+    setStockForm({
+      purpose,
+      item_type: item.item_type,
+      material_id: item.item_type === 'material' ? (item.material_id || '') : '',
+      sku_id: item.item_type === 'sku' ? (item.sku_id || '') : '',
+      warehouse_id: warehouseId,
+      qty: purpose === 'correct_set' ? String(currentQty) : '',
+      unit_cost: '',
+      notes: '',
+    });
+    setShowStockMoveForm(true);
+  };
+
+  const zeroOutItem = async (item: StockItem) => {
+    const name = item.material?.name || item.sku?.name || 'this item';
+    const currentQty = parseFloat(item.qty || '0');
+    if (currentQty <= 0) {
+      toast.success('Already at zero');
+      return;
+    }
+    if (!window.confirm(`Set ${name} to 0 on hand? Current: ${currentQty.toLocaleString()}. Use this for test / wrong entries.`)) {
+      return;
+    }
+    const warehouseId = item.warehouse_id || warehouses[0]?.id || '';
+    if (!warehouseId) {
+      toast.error('No warehouse is set up yet');
+      return;
+    }
+    const uom = item.item_type === 'material' ? (item.material?.uom || 'pcs') : 'BALE';
     try {
-      await api.post('/inventory/stock-moves', stockMoveForm);
-      toast.success('Stock move created successfully');
-      setShowStockMoveForm(false);
-      setStockMoveForm({
-        move_type: 'grn',
-        item_type: 'material',
-        material_id: '',
-        sku_id: '',
-        warehouse_from_id: '',
-        warehouse_to_id: '',
-        qty: '',
-        uom: 'pcs',
-        unit_cost: '',
-        ref_entity: '',
-        ref_id: '',
-        notes: ''
+      await api.post('/inventory/stock-moves', {
+        move_type: 'adjust',
+        item_type: item.item_type,
+        warehouse_from_id: warehouseId,
+        qty: currentQty,
+        uom,
+        ref_entity: 'stock_correction',
+        ref_id: 'Zeroed from inventory row',
+        ...(item.item_type === 'material'
+          ? { material_id: item.material_id }
+          : { sku_id: item.sku_id }),
       });
+      toast.success(`${name} set to 0`);
       fetchData();
-    } catch (error) {
-      toast.error('Failed to create stock move');
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || error.response?.data?.error || 'Failed to zero stock');
+    }
+  };
+
+  const handleStockFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const warehouseId = stockForm.warehouse_id || warehouses[0]?.id || '';
+    const itemId = stockForm.item_type === 'material' ? stockForm.material_id : stockForm.sku_id;
+    const qty = parseFloat(stockForm.qty);
+    if (!itemId) {
+      toast.error('Choose the item (labels, bailing paper, bottles, or a finished product)');
+      return;
+    }
+    if (!warehouseId) {
+      toast.error('No warehouse is set up yet. Ask a director to seed the main store.');
+      return;
+    }
+    if (!Number.isFinite(qty) || qty < 0 || (stockForm.purpose !== 'correct_set' && qty <= 0)) {
+      toast.error(stockForm.purpose === 'correct_set' ? 'Enter the counted quantity on hand (0 or more)' : 'Enter a quantity greater than zero');
+      return;
+    }
+    if (stockForm.purpose !== 'arrival' && !stockForm.notes.trim()) {
+      toast.error('Add a short reason for the correction (what was found or what changed)');
+      return;
+    }
+
+    const material = materials.find(m => m.id === stockForm.material_id);
+    const uom = stockForm.item_type === 'material' ? (material?.uom || 'pcs') : 'BALE';
+    const onHand = stockItems
+      .filter(item => item.item_type === stockForm.item_type && item.warehouse_id === warehouseId && (stockForm.item_type === 'material' ? item.material_id === itemId : item.sku_id === itemId))
+      .reduce((sum, item) => sum + parseFloat(item.qty || '0'), 0);
+
+    let payload: Record<string, string | number>;
+    if (stockForm.purpose === 'correct_set') {
+      const delta = Math.round((qty - onHand) * 1000) / 1000;
+      if (Math.abs(delta) < 0.001) {
+        toast.success('That quantity is already on hand');
+        return;
+      }
+      payload = {
+        move_type: 'adjust',
+        item_type: stockForm.item_type,
+        qty: Math.abs(delta),
+        uom,
+        ref_entity: 'stock_correction',
+        ref_id: stockForm.notes.trim().slice(0, 100),
+        ...(delta > 0 ? { warehouse_to_id: warehouseId } : { warehouse_from_id: warehouseId }),
+        ...(stockForm.item_type === 'material' ? { material_id: itemId } : { sku_id: itemId }),
+      };
+    } else if (stockForm.purpose === 'correct_add') {
+      payload = {
+        move_type: 'adjust',
+        item_type: stockForm.item_type,
+        warehouse_to_id: warehouseId,
+        qty,
+        uom,
+        ref_entity: 'stock_correction',
+        ref_id: stockForm.notes.trim().slice(0, 100),
+        ...(stockForm.item_type === 'material' ? { material_id: itemId } : { sku_id: itemId }),
+      };
+    } else {
+      payload = {
+        move_type: 'grn',
+        item_type: stockForm.item_type,
+        warehouse_to_id: warehouseId,
+        qty,
+        uom,
+        ref_entity: 'stock_arrival',
+        ref_id: (stockForm.notes.trim() || 'arrival').slice(0, 100),
+        ...(stockForm.unit_cost !== '' ? { unit_cost: stockForm.unit_cost } : {}),
+        ...(stockForm.item_type === 'material' ? { material_id: itemId } : { sku_id: itemId }),
+      };
+    }
+
+    try {
+      await api.post('/inventory/stock-moves', payload);
+      toast.success(
+        stockForm.purpose === 'arrival'
+          ? 'Arrival recorded into stock'
+          : stockForm.purpose === 'correct_add'
+          ? 'Found stock added'
+          : 'Counted stock corrected'
+      );
+      setShowStockMoveForm(false);
+      setStockForm(form => ({ ...form, material_id: '', sku_id: '', qty: '', unit_cost: '', notes: '' }));
+      fetchData();
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || error.response?.data?.error || 'Failed to update stock');
+    }
+  };
+
+  const activityLabel = (type?: string) => {
+    switch (type) {
+      case 'grn': return 'Arrival';
+      case 'adjust': return 'Correction';
+      case 'issue': return 'Used / issued';
+      case 'produce': return 'Produced';
+      case 'return': return 'Returned';
+      case 'transfer': return 'Transfer';
+      default: return type || 'Update';
     }
   };
 
@@ -240,7 +425,7 @@ const InventoryPage: React.FC = () => {
     return <TrendingUp className="w-4 h-4" />;
   };
 
-  if (loading) {
+  if (loading && stockItems.length === 0 && stockMoves.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -249,27 +434,74 @@ const InventoryPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Inventory — Stock Arrivals</h1>
-          <p className="text-gray-600 dark:text-gray-400">Single warehouse. Goods received in bags; bales expected are computed automatically.</p>
+    <PageShell>
+      <PageHero
+        eyebrow="Main store · one warehouse"
+        title="Inventory"
+        description="Record arrivals when labels, bailing papers, seals or bottles come in. Correct the count when missing stock is found."
+        actions={(
+          <>
+            {director && (
+              <HeroButton variant="solid" onClick={() => openStockForm('arrival')}>
+                <Plus className="w-4 h-4 mr-2" /> Stock arrival
+              </HeroButton>
+            )}
+            {(director || canAlterInventory) && (
+              <HeroButton onClick={() => openStockForm('correct_add')}>
+                Correct stock
+              </HeroButton>
+            )}
+            {!director && !canAlterInventory && (
+              <span className="text-xs text-amber-800 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-100 px-3 py-2 rounded-full">
+                Stock alters locked — Contact Admin
+              </span>
+            )}
+          </>
+        )}
+      />
+
+      {(prodAlerts.length > 0 || prodBalesLeft != null) && (
+        <div className="mara-panel p-4 border-l-4 border-amber-500 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              Production left from current packaging stock
+              {prodBalesLeft != null && (
+                <span className="font-normal text-gray-600 dark:text-gray-400">
+                  — {Number(prodBalesLeft).toLocaleString()} bales possible across sizes
+                </span>
+              )}
+            </div>
+            <Link to="/production?tab=capacity" className="text-sm text-blue-600 hover:underline">
+              Open capacity table
+            </Link>
+          </div>
+          {prodAlerts.slice(0, 4).map((a) => (
+            <div
+              key={`${a.size}-${a.code}`}
+              className={`text-sm rounded-md px-3 py-2 ${
+                a.level === 'critical'
+                  ? 'bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-200'
+                  : 'bg-amber-50 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100'
+              }`}
+            >
+              {a.message}
+              {a.stock && (
+                <span className="block text-xs mt-0.5 opacity-80">
+                  Stock left: labels {Number(a.stock.labels).toLocaleString()}
+                  {a.stock.bailing != null ? ` · bailing ${Number(a.stock.bailing).toLocaleString()}` : ''}
+                  {' · '}bottles {Number(a.stock.bottles).toLocaleString()}
+                  {a.bales_left > 0 ? ` · ${a.bales_left} bales until depleted` : ''}
+                </span>
+              )}
+            </div>
+          ))}
         </div>
-        <div className="flex space-x-3">
-          <button
-            onClick={() => setShowStockMoveForm(true)}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Stock Arrival (Goods Received)
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <Package className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
@@ -278,7 +510,7 @@ const InventoryPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <Warehouse className="w-8 h-8 text-green-600" />
             <div className="ml-4">
@@ -289,7 +521,7 @@ const InventoryPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <AlertTriangle className="w-8 h-8 text-red-600" />
             <div className="ml-4">
@@ -300,11 +532,11 @@ const InventoryPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <ArrowUpDown className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Goods Received</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Arrivals</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stockMoves.filter(m => (m.move_type || '') === 'grn').length}</p>
             </div>
           </div>
@@ -312,7 +544,7 @@ const InventoryPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+      <div className="mara-panel">
         <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex space-x-8 px-6">
             <button
@@ -333,7 +565,7 @@ const InventoryPage: React.FC = () => {
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
               }`}
             >
-              Stock Arrivals ({stockMoves.filter(m => (m.move_type || '') === 'grn').length})
+              Arrivals & corrections ({stockMoves.filter(m => ['grn', 'adjust'].includes(m.move_type || '')).length})
             </button>
             <button
               onClick={() => setActiveTab('stockcard')}
@@ -355,7 +587,7 @@ const InventoryPage: React.FC = () => {
                 opening, in, out, returns, closing. The backend endpoint
                 (InventoryController::stockCard()) existed but was never
                 actually reachable from the UI. */}
-            <form onSubmit={fetchStockCard} className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-6 items-end">
+            <form onSubmit={fetchStockCard} className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6 items-end">
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Item Type</label>
                 <select value={stockCardForm.item_type} onChange={(e) => setStockCardForm({ ...stockCardForm, item_type: e.target.value, item_id: '' })}
@@ -370,14 +602,6 @@ const InventoryPage: React.FC = () => {
                   className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-2 text-sm">
                   <option value="">Select item</option>
                   {(stockCardForm.item_type === 'sku' ? skus : materials).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Warehouse</label>
-                <select required value={stockCardForm.warehouse_id} onChange={(e) => setStockCardForm({ ...stockCardForm, warehouse_id: e.target.value })}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-2 text-sm">
-                  <option value="">Select warehouse</option>
-                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -405,9 +629,10 @@ const InventoryPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  if (!stockCardForm.warehouse_id) { toast.error('Select a warehouse first'); return; }
+                  const warehouseId = stockCardForm.warehouse_id || warehouses[0]?.id;
+                  if (!warehouseId) { toast.error('Main warehouse is not set up yet'); return; }
                   api.get('/inventory/stock-reconciliation-export', {
-                    params: { warehouse_id: stockCardForm.warehouse_id, date_from: stockCardForm.date_from, date_to: stockCardForm.date_to },
+                    params: { warehouse_id: warehouseId, date_from: stockCardForm.date_from, date_to: stockCardForm.date_to },
                     responseType: 'blob',
                   }).then((res) => {
                     const url = window.URL.createObjectURL(new Blob([res.data]));
@@ -421,7 +646,7 @@ const InventoryPage: React.FC = () => {
                   }).catch(() => toast.error('Failed to export stock reconciliation'));
                 }}
                 className="flex items-center text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
-                <Download className="w-4 h-4 mr-2" /> Export Stock Reconciliation (selected warehouse/dates)
+                <Download className="w-4 h-4 mr-2" /> Export stock reconciliation
               </button>
             </div>
 
@@ -560,13 +785,28 @@ const InventoryPage: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center space-x-2">
-                          <button className="text-blue-600 hover:text-blue-900">
+                          <button
+                            type="button"
+                            title="View / alter quantity"
+                            onClick={() => openAlterItem(item, 'correct_set')}
+                            className="text-blue-600 hover:text-blue-900"
+                          >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button className="text-green-600 hover:text-green-900">
+                          <button
+                            type="button"
+                            title="Alter stock (set counted qty)"
+                            onClick={() => openAlterItem(item, 'correct_set')}
+                            className="text-green-600 hover:text-green-900"
+                          >
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button className="text-red-600 hover:text-red-900">
+                          <button
+                            type="button"
+                            title="Set stock to zero"
+                            onClick={() => zeroOutItem(item)}
+                            className="text-red-600 hover:text-red-900"
+                          >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
@@ -578,62 +818,36 @@ const InventoryPage: React.FC = () => {
             </div>
           )}
 
-          {/* Stock Moves Table */}
           {activeTab === 'moves' && (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-900">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Move Details
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Item
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      From/To
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Quantity
-                    </th>
-                                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Cost (KES)
-                  </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Actions
-                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">When</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Item</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Quantity</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Cost (KES)</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Note</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredStockMoves.map((move) => (
                     <tr key={move.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                            {(move.move_type || 'unknown').toUpperCase()}
-                          </div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {move.created_at ? new Date(move.created_at).toLocaleDateString() : 'N/A'}
-                          </div>
-                          <div className="text-xs text-gray-400 dark:text-gray-500">
-                            By: {move.moved_by?.first_name || 'Unknown'} {move.moved_by?.last_name || ''}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                            {move.material?.name || move.sku?.name || 'Unknown Item'}
-                          </div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {move.item_type}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-gray-100">
-                          <div>From: {move.warehouse_from?.name || 'N/A'}</div>
-                          <div>To: {move.warehouse_to?.name || 'N/A'}</div>
+                          {move.created_at ? new Date(move.created_at).toLocaleString() : '—'}
+                        </div>
+                        <div className="text-xs text-gray-400 dark:text-gray-500">
+                          {move.moved_by?.first_name || 'Unknown'} {move.moved_by?.last_name || ''}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          {move.material?.name || move.sku?.name || 'Unknown item'}
+                        </div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                          {move.item_type === 'material' ? 'Material' : 'Finished product'}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -643,13 +857,18 @@ const InventoryPage: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-gray-100">
-                          KES {parseFloat(move.unit_cost || '0').toFixed(2)}
+                          {move.unit_cost != null && move.unit_cost !== '' ? `KES ${parseFloat(move.unit_cost).toFixed(2)}` : '—'}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${getMoveTypeColor(move.move_type || 'unknown')}`}>
-                          {move.move_type || 'unknown'}
+                          {activityLabel(move.move_type)}
                         </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-600 dark:text-gray-300 max-w-xs truncate">
+                          {move.ref_id || '—'}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -661,108 +880,116 @@ const InventoryPage: React.FC = () => {
         )}
       </div>
 
-      {/* Stock Move Form Modal */}
-      {showStockMoveForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      {showStockMoveForm && !(stockForm.purpose === 'arrival' && !director) && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Stock Arrival — Goods Received</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+              {stockForm.purpose === 'arrival' ? 'Stock arrival' : 'Alter / correct stock'}
+            </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              Arrival type is fixed to Goods Received (single warehouse). Prefer recording bag consignments via Production → Receive Stock or Operations conversions for Fine Line / Blue Plus rates.
+              {stockForm.purpose === 'arrival'
+                ? 'Use this when labels, bailing papers, seals, bottles or other packaging arrive. Quantity is added to the main store.'
+                : 'Change the quantity on hand for test entries or floor counts. Set counted quantity replaces the current figure; add found stock increases it.'}
             </p>
-            <form onSubmit={handleStockMoveSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            {stockForm.purpose === 'correct_set' && (stockForm.material_id || stockForm.sku_id) && (
+              <p className="text-xs text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-900/30 rounded px-3 py-2 mb-3">
+                System on hand now:{' '}
+                {stockItems
+                  .filter((i) =>
+                    i.item_type === stockForm.item_type
+                    && (stockForm.item_type === 'material'
+                      ? i.material_id === stockForm.material_id
+                      : i.sku_id === stockForm.sku_id)
+                  )
+                  .reduce((s, i) => s + parseFloat(i.qty || '0'), 0)
+                  .toLocaleString()}
+                . Enter the new counted figure below and a reason, then save.
+              </p>
+            )}
+            <form onSubmit={handleStockFormSubmit} className="space-y-4">
+              {stockForm.purpose !== 'arrival' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Arrival Type</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Correction type</label>
                   <select
-                    value="grn"
-                    disabled
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 rounded-md px-3 py-2 bg-gray-50 cursor-not-allowed"
+                    value={stockForm.purpose}
+                    onChange={(e) => setStockForm({ ...stockForm, purpose: e.target.value as 'correct_add' | 'correct_set' })}
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                   >
-                    <option value="grn">Goods Received</option>
+                    <option value="correct_add">Add found stock (increase by this amount)</option>
+                    <option value="correct_set">Set counted quantity on hand</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item Type</label>
-                  <select
-                    value={stockMoveForm.item_type}
-                    onChange={(e) => setStockMoveForm({...stockMoveForm, item_type: e.target.value, move_type: 'grn'})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="material">Material (bags)</option>
-                    <option value="sku">Finished SKU</option>
-                  </select>
-                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item type</label>
+                <select
+                  value={stockForm.item_type}
+                  onChange={(e) => setStockForm({ ...stockForm, item_type: e.target.value, material_id: '', sku_id: '' })}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
+                >
+                  <option value="material">Material (labels, bailing paper, bottles, seals)</option>
+                  <option value="sku">Finished product</option>
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item</label>
                 <select
-                  value={stockMoveForm.material_id || stockMoveForm.sku_id}
+                  required
+                  value={stockForm.item_type === 'material' ? stockForm.material_id : stockForm.sku_id}
                   onChange={(e) => {
-                    if (stockMoveForm.item_type === 'material') {
-                      setStockMoveForm({...stockMoveForm, material_id: e.target.value, sku_id: ''});
+                    if (stockForm.item_type === 'material') {
+                      setStockForm({ ...stockForm, material_id: e.target.value, sku_id: '' });
                     } else {
-                      setStockMoveForm({...stockMoveForm, sku_id: e.target.value, material_id: ''});
+                      setStockForm({ ...stockForm, sku_id: e.target.value, material_id: '' });
                     }
                   }}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                 >
-                  <option value="">Select Item</option>
-                  {(stockMoveForm.item_type === 'material' ? materials : skus).map(i => (
+                  <option value="">Select item</option>
+                  {(stockForm.item_type === 'material' ? materials : skus).map(i => (
                     <option key={i.id} value={i.id}>{i.name} ({i.code})</option>
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={stockForm.purpose === 'arrival' ? 'grid grid-cols-2 gap-4' : ''}>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">From Warehouse</label>
-                  <select
-                    value={stockMoveForm.warehouse_from_id}
-                    onChange={(e) => setStockMoveForm({...stockMoveForm, warehouse_from_id: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">None (stock-in only)</option>
-                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">To Warehouse</label>
-                  <select
-                    value={stockMoveForm.warehouse_to_id}
-                    onChange={(e) => setStockMoveForm({...stockMoveForm, warehouse_to_id: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">None (stock-out only)</option>
-                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {stockForm.purpose === 'correct_set' ? 'Counted quantity on hand' : stockForm.purpose === 'correct_add' ? 'Quantity found / to add' : 'Quantity arrived'}
+                  </label>
                   <input
+                    required
                     type="number"
-                    value={stockMoveForm.qty}
-                    onChange={(e) => setStockMoveForm({...stockMoveForm, qty: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    min={stockForm.purpose === 'correct_set' ? 0 : 0.001}
+                    step="0.001"
+                    value={stockForm.qty}
+                    onChange={(e) => setStockForm({ ...stockForm, qty: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit Cost (KES)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={stockMoveForm.unit_cost}
-                    onChange={(e) => setStockMoveForm({...stockMoveForm, unit_cost: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+                {stockForm.purpose === 'arrival' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit cost (KES)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={stockForm.unit_cost}
+                      onChange={(e) => setStockForm({ ...stockForm, unit_cost: e.target.value })}
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
+                    />
+                  </div>
+                )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {stockForm.purpose === 'arrival' ? 'Note (optional)' : 'Reason (required)'}
+                </label>
                 <textarea
-                  value={stockMoveForm.notes}
-                  onChange={(e) => setStockMoveForm({...stockMoveForm, notes: e.target.value})}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required={stockForm.purpose !== 'arrival'}
+                  value={stockForm.notes}
+                  onChange={(e) => setStockForm({ ...stockForm, notes: e.target.value })}
+                  placeholder={stockForm.purpose === 'arrival' ? 'Supplier, invoice no., or delivery note' : 'e.g. Found 2 bales of labels in packing room'}
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                   rows={3}
                 />
               </div>
@@ -774,18 +1001,15 @@ const InventoryPage: React.FC = () => {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                >
-                  Create Move
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                  {stockForm.purpose === 'arrival' ? 'Save arrival' : 'Save correction'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

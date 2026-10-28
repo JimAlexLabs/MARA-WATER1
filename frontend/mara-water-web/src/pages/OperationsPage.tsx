@@ -12,6 +12,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 import { isHrUnlocked, setHrUnlock, clearHrUnlock } from '../utils/hrUnlock';
+import { PageShell, PageHero } from '../components/PageShell';
 
 type Stage = { key: string; label: string; href: string };
 type Band = {
@@ -72,6 +73,7 @@ const OperationsPage: React.FC = () => {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hypothesis, setHypothesis] = useState<any>(null);
   const [dlKey, setDlKey] = useState<string | null>(null);
   const [skus, setSkus] = useState<{ id: string; name: string; brand?: string }[]>([]);
   const [convForm, setConvForm] = useState({
@@ -116,6 +118,7 @@ const OperationsPage: React.FC = () => {
 
   useEffect(() => {
     load();
+    api.get('/operations/hypothesis').then((res) => setHypothesis(res.data.data)).catch(() => {});
     api.get('/operations/skus').then((res) => {
       const list = res.data.data || [];
       setSkus(list);
@@ -205,35 +208,125 @@ const OperationsPage: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Operations &amp; Supply Chain</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            {data.site.company_name} · Base {data.site.operations_base} · Bottles from {data.site.sourcing_city}
-            {' '}· Papers from {data.site.bailing_papers_from}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            to="/operations/planning"
-            className="rounded-lg border border-emerald-600/40 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200 px-3 py-2 text-sm font-medium hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
-          >
-            Open planning what-if
-          </Link>
-          <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
-            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-            {Array.from({ length: 12 }, (_, i) => (
-              <option key={i + 1} value={i + 1}>{new Date(2000, i, 1).toLocaleString(undefined, { month: 'long' })}</option>
-            ))}
-          </select>
-          <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))}
-            className="w-24 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm" />
-        </div>
-      </div>
+    <PageShell>
+      <PageHero
+        tone="forest"
+        eyebrow="Supply chain"
+        title="Operations"
+        description={`${data.site.company_name} · Base ${data.site.operations_base} · Bottles from Intripet Limited · Papers from ${data.site.bailing_papers_from}`}
+        actions={
+          <>
+            <Link
+              to="/operations/planning"
+              className="inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-semibold bg-white text-emerald-900 hover:bg-emerald-50"
+            >
+              Planning what-if
+            </Link>
+            <button
+              type="button"
+              onClick={() => downloadBlob('/operations/hypothesis/export', `mara-hypothesis-${monthParam}.xlsx`).catch(() => toast.error('Export failed'))}
+              className="inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-semibold bg-white/15 text-white border border-white/30 hover:bg-white/25"
+            >
+              <Download className="w-4 h-4 mr-2" /> Hypothesis Excel
+            </button>
+            <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
+              className="rounded-xl border border-white/25 bg-white/15 text-white px-3 py-2.5 text-sm backdrop-blur-sm">
+              {Array.from({ length: 12 }, (_, i) => (
+                <option key={i + 1} value={i + 1} className="text-slate-900">{new Date(2000, i, 1).toLocaleString(undefined, { month: 'long' })}</option>
+              ))}
+            </select>
+            <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))}
+              className="w-24 rounded-xl border border-white/25 bg-white/15 text-white px-3 py-2.5 text-sm backdrop-blur-sm" />
+          </>
+        }
+      />
+
+      {hypothesis && (
+        <section className="mara-panel p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Hypothesis model — one Intripet trip</h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Intripet · {Number(hypothesis.capacity?.bottles_per_day || 9600).toLocaleString()} btl/day capacity ·
+                ~{hypothesis.capacity?.days_to_fill_trip ?? '—'} days/trip · payroll Excel bands · suggested prices
+              </p>
+            </div>
+            <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+              Trip gross {money(hypothesis.trip?.gross_margin || 0)} · revenue {money(hypothesis.trip?.revenue || 0)}
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-500 uppercase">
+                  <th className="pr-3 py-1">Size</th>
+                  <th className="pr-3 py-1">COP/btl</th>
+                  <th className="pr-3 py-1">Price/bale</th>
+                  <th className="pr-3 py-1">Margin/btl</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {(hypothesis.cost_build || []).filter((r: any) => [0.5, 1, 1.5].includes(Number(r.size_liters))).map((r: any) => (
+                  <tr key={r.size}>
+                    <td className="pr-3 py-1.5 font-medium">{r.size}</td>
+                    <td className="pr-3 py-1.5">{Number(r.cost_of_production_per_bottle).toFixed(2)}</td>
+                    <td className="pr-3 py-1.5">{Number(r.price_per_bale).toLocaleString()}</td>
+                    <td className="pr-3 py-1.5 text-emerald-700">{Number(r.gross_margin_per_bottle).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-500 uppercase">
+                  <th className="pr-3 py-1">Trips/mo</th>
+                  <th className="pr-3 py-1">Jim stipend</th>
+                  <th className="pr-3 py-1">Net (low payroll)</th>
+                  <th className="pr-3 py-1">Net (high payroll)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {(hypothesis.monthly || []).map((m: any) => (
+                  <tr key={m.trips}>
+                    <td className="pr-3 py-1.5">{m.trips}</td>
+                    <td className="pr-3 py-1.5">{money(m.jim_stipend)}</td>
+                    <td className="pr-3 py-1.5">{money(m.net_low)}</td>
+                    <td className="pr-3 py-1.5">{money(m.net_high)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {(hypothesis.profit_split?.rows || []).length > 0 && (
+            <div className="overflow-x-auto">
+              <p className="text-xs text-gray-500 mb-1">Profit split ({hypothesis.profit_split?.phase?.replace(/_/g, ' ')})</p>
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500 uppercase">
+                    <th className="pr-3 py-1">Partner</th>
+                    <th className="pr-3 py-1">%</th>
+                    <th className="pr-3 py-1">KES</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {hypothesis.profit_split.rows.map((p: any) => (
+                    <tr key={p.name}>
+                      <td className="pr-3 py-1.5">{p.name}</td>
+                      <td className="pr-3 py-1.5">{p.pct}%</td>
+                      <td className="pr-3 py-1.5">{money(p.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Flow */}
-      <section id="flow" className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <section id="flow" className="mara-panel p-5">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">End-to-end flow</h2>
         <div className="flex flex-wrap items-center gap-2">
           {data.stages.map((s, i) => {
@@ -264,7 +357,7 @@ const OperationsPage: React.FC = () => {
           { label: 'Bales produced (month)', value: String(data.production.bales_produced_month), sub: `Warehouse ${data.warehouse.finished_qty_on_hand}` },
           { label: 'Returns (computed)', value: String(data.dispatch_sales.returned_bales_computed), sub: data.dispatch_sales.returns_formula },
         ].map((k) => (
-          <div key={k.label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          <div key={k.label} className="mara-stat">
             <p className="text-xs text-gray-500">{k.label}</p>
             <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">{k.value}</p>
             <p className="text-xs text-gray-500 mt-1">{k.sub}</p>
@@ -518,7 +611,7 @@ const OperationsPage: React.FC = () => {
           ))}
         </div>
       </section>
-    </div>
+    </PageShell>
   );
 };
 

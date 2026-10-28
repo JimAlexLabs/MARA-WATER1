@@ -4,6 +4,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import ErrorBoundary from './ErrorBoundary';
 import {
+  DEFAULT_MANAGER_LOCKS,
+  getFieldworkModeLocal,
+  isLocked,
+  mergeManagerLocks,
+  setFieldworkModeLocal,
+  type ManagerLockKey,
+} from '../utils/managerLocks';
+import {
   Menu,
   X,
   Home,
@@ -58,6 +66,30 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, theme, toggleTheme } = useAuth();
+  const [managerLocks, setManagerLocks] = useState(DEFAULT_MANAGER_LOCKS);
+  const [fieldworkMode, setFieldworkMode] = useState(getFieldworkModeLocal);
+
+  useEffect(() => {
+    api.get('/settings')
+      .then((res) => {
+        const data = res.data?.data || {};
+        const locks = mergeManagerLocks(data.manager_ui_locks as Partial<Record<ManagerLockKey, boolean>> | undefined);
+        setManagerLocks(locks);
+        if (user?.role?.access_tier === 'manager' && locks.manager_fieldwork_mode && !getFieldworkModeLocal()) {
+          setFieldworkModeLocal(true);
+          setFieldworkMode(true);
+        }
+      })
+      .catch(() => {});
+  }, [user?.role?.access_tier]);
+
+  const toggleFieldworkMode = () => {
+    const next = !fieldworkMode;
+    setFieldworkMode(next);
+    setFieldworkModeLocal(next);
+    // Best-effort API toggle if backend supports it; localStorage always works.
+    api.post('/settings/fieldwork-mode', { enabled: next }).catch(() => {});
+  };
 
   // --- Global search ---
   const [searchQuery, setSearchQuery] = useState('');
@@ -256,6 +288,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   // access_tier='driver', so they get this same set.
   const tier = user?.role?.access_tier;
   const DIRECTOR_ONLY = ['/users', '/settings', '/operations', '/operations/planning'];
+  const MANAGER_LOCK_NAV: Record<string, ManagerLockKey> = {
+    '/dashboard': 'dashboard',
+    '/analytics': 'analytics',
+    '/qa': 'qa',
+    '/production': 'production',
+    '/pricing': 'pricing',
+    '/inventory': 'inventory',
+    '/sales': 'sales',
+    '/finance': 'finance',
+    '/payments': 'payments',
+    '/fleet': 'fleet',
+    '/hr': 'hr',
+    '/reports': 'reports',
+    '/issues': 'issues',
+    '/discrepancies': 'discrepancies',
+  };
   const DRIVER_NAVIGATION = [
     { name: 'Dashboard', href: '/driver', icon: Home, description: 'This month and my analytics' },
     // Round 4 Phase 9: own sidebar page -- three independent Check In/
@@ -272,7 +320,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     ? [{ name: 'Summary', href: '/investor', icon: Home, description: 'Daily performance summary' }]
     : tier === 'director'
     ? navigation
-    : navigation.filter((item) => !DIRECTOR_ONLY.includes(item.href));
+    : navigation.filter((item) => {
+        if (DIRECTOR_ONLY.includes(item.href)) return false;
+        const lockKey = MANAGER_LOCK_NAV[item.href];
+        if (lockKey && isLocked(managerLocks, lockKey)) return false;
+        return true;
+      });
 
   // Round 4: the driver nav introduced the first real parent/child
   // route pair in this sidebar (/driver and /driver/trips etc.) -- a
@@ -296,17 +349,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-slate-50 dark:bg-gray-950">
       {/* Mobile sidebar */}
       <div className={`fixed inset-0 z-50 lg:hidden ${sidebarOpen ? 'block' : 'hidden'}`}>
         <div className="fixed inset-0 bg-gray-600 bg-opacity-75" onClick={() => setSidebarOpen(false)} />
         <div className="fixed inset-y-0 left-0 flex w-80 flex-col bg-white dark:bg-gray-800 shadow-xl">
           <div className="flex h-16 items-center justify-between px-6 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center">
-              <div className="h-8 w-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
+              <div className="h-9 w-9 bg-gradient-to-br from-sky-800 to-cyan-700 rounded-xl flex items-center justify-center shadow-sm">
                 <Droplets className="h-5 w-5 text-white" />
               </div>
-              <span className="ml-3 text-xl font-bold text-gray-900 dark:text-gray-100">MARA-WATER</span>
+              <span className="ml-3 text-lg font-semibold tracking-tight text-slate-900 dark:text-gray-100">MARA Water</span>
             </div>
             <button
               onClick={() => setSidebarOpen(false)}
@@ -316,21 +369,30 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </button>
           </div>
           <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
+            {tier === 'manager' && fieldworkMode && (
+              <Link
+                to="/driver/trips"
+                onClick={() => setSidebarOpen(false)}
+                className="mb-3 flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-3 py-3 text-sm font-bold text-white shadow-sm hover:bg-amber-600"
+              >
+                <Truck className="h-5 w-5" /> Field trips
+              </Link>
+            )}
             {visibleNavigation.map((item) => {
               const Icon = item.icon;
               return (
                 <Link
                   key={item.name}
                   to={item.href}
-                  className={`group flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-all duration-200 ${
+                  className={`group flex items-center px-3 py-3 text-sm font-medium rounded-xl transition-all duration-200 ${
                     isActive(item.href) 
-                      ? 'bg-blue-50 text-blue-700 border-r-2 border-blue-600' 
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100'
+                      ? 'bg-sky-50 text-sky-900 dark:bg-sky-950/50 dark:text-sky-100 shadow-sm' 
+                      : 'text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-gray-700'
                   }`}
                   onClick={() => setSidebarOpen(false)}
                 >
                   <Icon className={`mr-3 h-5 w-5 ${
-                    isActive(item.href) ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500'
+                    isActive(item.href) ? 'text-sky-700 dark:text-sky-300' : 'text-slate-400 dark:text-gray-500 group-hover:text-slate-500'
                   }`} />
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
@@ -341,6 +403,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </Link>
               );
             })}
+            {tier === 'manager' && (
+              <button
+                type="button"
+                onClick={toggleFieldworkMode}
+                className="mt-3 w-full rounded-xl border border-dashed border-gray-300 dark:border-gray-600 px-3 py-2 text-left text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                Fieldwork mode: <span className="font-semibold">{fieldworkMode ? 'On' : 'Off'}</span>
+              </button>
+            )}
           </nav>
         </div>
       </div>
@@ -356,28 +427,36 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             constrained box to actually scroll within. overflow-hidden here
             forces this wrapper back down to the fixed parent's height,
             which is what makes the nav scroll internally instead. */}
-        <div className="flex flex-col flex-grow overflow-hidden bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="flex h-16 items-center px-6 border-b border-gray-200 dark:border-gray-700">
-            <div className="h-8 w-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
+        <div className="flex flex-col flex-grow overflow-hidden bg-white dark:bg-gray-900 border-r border-slate-200 dark:border-gray-800">
+          <div className="flex h-16 items-center px-6 border-b border-slate-200 dark:border-gray-800">
+            <div className="h-9 w-9 bg-gradient-to-br from-sky-800 to-cyan-700 rounded-xl flex items-center justify-center shadow-sm">
               <Droplets className="h-5 w-5 text-white" />
             </div>
-            <span className="ml-3 text-xl font-bold text-gray-900 dark:text-gray-100">MARA-WATER</span>
+            <span className="ml-3 text-lg font-semibold tracking-tight text-slate-900 dark:text-gray-100">MARA Water</span>
           </div>
           <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
+            {tier === 'manager' && fieldworkMode && (
+              <Link
+                to="/driver/trips"
+                className="mb-3 flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-3 py-3 text-sm font-bold text-white shadow-sm hover:bg-amber-600"
+              >
+                <Truck className="h-5 w-5" /> Field trips
+              </Link>
+            )}
             {visibleNavigation.map((item) => {
               const Icon = item.icon;
               return (
                 <Link
                   key={item.name}
                   to={item.href}
-                  className={`group flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-all duration-200 ${
+                  className={`group flex items-center px-3 py-3 text-sm font-medium rounded-xl transition-all duration-200 ${
                     isActive(item.href) 
-                      ? 'bg-blue-50 text-blue-700 border-r-2 border-blue-600' 
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100'
+                      ? 'bg-sky-50 text-sky-900 dark:bg-sky-950/50 dark:text-sky-100 shadow-sm' 
+                      : 'text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-gray-700'
                   }`}
                 >
                   <Icon className={`mr-3 h-5 w-5 ${
-                    isActive(item.href) ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500'
+                    isActive(item.href) ? 'text-sky-700 dark:text-sky-300' : 'text-slate-400 dark:text-gray-500 group-hover:text-slate-500'
                   }`} />
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
@@ -388,12 +467,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </Link>
               );
             })}
+            {tier === 'manager' && (
+              <button
+                type="button"
+                onClick={toggleFieldworkMode}
+                className="mt-3 w-full rounded-xl border border-dashed border-gray-300 dark:border-gray-600 px-3 py-2 text-left text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                Fieldwork mode: <span className="font-semibold">{fieldworkMode ? 'On' : 'Off'}</span>
+              </button>
+            )}
           </nav>
           
           {/* Sidebar footer */}
           <div className="border-t border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center space-x-3">
-              <div className="h-8 w-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+              <div className="h-8 w-8 bg-gradient-to-br from-sky-800 to-cyan-700 rounded-full flex items-center justify-center">
                 <span className="text-white font-bold text-sm">
                   {user?.first_name?.charAt(0)}
                 </span>
@@ -414,7 +502,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Main content */}
       <div className="lg:pl-80">
         {/* Top bar */}
-        <div className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
+        <div className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-slate-200/80 dark:border-gray-800 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md px-4 sm:gap-x-6 sm:px-6 lg:px-8">
           <button
             type="button"
             className="-m-2.5 p-2.5 text-gray-700 dark:text-gray-300 lg:hidden"
@@ -542,7 +630,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
                   className="flex items-center gap-x-3 text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-gray-700 dark:hover:text-gray-200"
                 >
-                  <div className="h-8 w-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                  <div className="h-8 w-8 bg-gradient-to-br from-sky-800 to-cyan-700 rounded-full flex items-center justify-center">
                     <span className="text-white font-bold text-sm">
                       {user?.first_name?.charAt(0)}
                     </span>
@@ -593,7 +681,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
 
         {/* Page content */}
-        <main className="py-6">
+        <main className="py-6 sm:py-8">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <ErrorBoundary>{children}</ErrorBoundary>
           </div>

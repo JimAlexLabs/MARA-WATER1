@@ -94,11 +94,20 @@ class AuthController extends Controller
         }
 
         if ($user->status !== 'active') {
+            $why = $user->status === 'suspended'
+                ? 'Your account is suspended. Contact Admin.'
+                : 'Your account is not active. Contact Admin.';
+
             return response()->json([
                 'success' => false,
-                'message' => 'Account is not active'
+                'message' => $why,
+                'code' => 'account_'.$user->status,
             ], 403);
         }
+
+        $user->loadMissing('role');
+        $tier = $user->role?->access_tier
+            ?: ($user->role?->code === 'ADMIN' ? 'director' : 'manager');
 
         // Update last login
         $user->update([
@@ -106,14 +115,17 @@ class AuthController extends Controller
         ]);
 
         // Create token
-        $token = $user->createToken($request->device_info ?? 'web')->plainTextToken;
+        $device = $request->device_info ?? 'web';
+        $token = $user->createToken($device)->plainTextToken;
 
-        // Create session record
+        // Create session record (admin can monitor who is on which dashboard)
         $user->sessions()->create([
-            'device_info' => $request->device_info ?? 'web',
+            'device_info' => $device,
+            'dashboard_tier' => $tier,
             'ip' => $request->ip(),
             'refresh_token_hash' => hash('sha256', $token),
             'expires_at' => now()->addDays(30),
+            'last_seen_at' => now(),
         ]);
 
         return response()->json([
@@ -134,12 +146,80 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         $user = $request->user();
-        
+
+        if ($user && $user->status !== 'active') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your account is suspended. Contact Admin.',
+                'code' => 'account_'.$user->status,
+            ], 403);
+        }
+
+        // Touch session last_seen for live login monitoring
+        $bearer = $request->bearerToken();
+        if ($bearer) {
+            \App\Models\UserSession::where('refresh_token_hash', hash('sha256', $bearer))
+                ->where(function ($q) {
+                    $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                })
+                ->update(['last_seen_at' => now()]);
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
                 'user' => $this->serializeUser($user),
             ]
+        ]);
+    }
+
+    /** Director: who is logged in, by dashboard tier. */
+    public function activeSessions(Request $request)
+    {
+        if (! $request->user()?->isDirector() && $request->user()?->role?->access_tier !== 'director') {
+            return response()->json(['success' => false, 'message' => 'Director only'], 403);
+        }
+
+        $since = now()->subHours(24);
+        $rows = \App\Models\UserSession::with(['user.role'])
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->where(function ($q) use ($since) {
+                $q->where('last_seen_at', '>=', $since)
+                    ->orWhere(function ($q2) use ($since) {
+                        $q2->whereNull('last_seen_at')->where('created_at', '>=', $since);
+                    });
+            })
+            ->orderByDesc('last_seen_at')
+            ->orderByDesc('created_at')
+            ->limit(200)
+            ->get()
+            ->map(function ($s) {
+                $u = $s->user;
+
+                return [
+                    'session_id' => $s->id,
+                    'user_id' => $s->user_id,
+                    'name' => $u?->full_name,
+                    'email' => $u?->email,
+                    'dashboard_tier' => $s->dashboard_tier ?: ($u?->role?->access_tier ?? 'unknown'),
+                    'role' => $u?->role?->name,
+                    'device_info' => $s->device_info,
+                    'ip' => $s->ip,
+                    'logged_in_at' => optional($s->created_at)?->toIso8601String(),
+                    'last_seen_at' => optional($s->last_seen_at ?? $s->created_at)?->toIso8601String(),
+                ];
+            });
+
+        $byTier = $rows->groupBy('dashboard_tier')->map->count();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'counts_by_dashboard' => $byTier,
+                'sessions' => $rows->values(),
+            ],
         ]);
     }
 

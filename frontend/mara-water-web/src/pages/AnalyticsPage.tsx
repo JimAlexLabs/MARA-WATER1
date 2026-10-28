@@ -4,9 +4,10 @@ import {
   CartesianGrid, XAxis, YAxis, Tooltip, Legend,
 } from 'recharts';
 import {
-  DollarSign, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, Package, Truck, Users,
+  DollarSign, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, Package, Truck,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 
 // Round 2 Phase 9: a dedicated analytics view, separate from the Phase 2
 // dashboard redesign. Every number here comes from a live query the
@@ -33,16 +34,12 @@ interface ProductionVsSales { trend: ProdVsSalesPoint[]; total_production_liters
 interface TopDebtor { customer_id: string; customer: string; balance: number; }
 interface Debtors { total_balance: number; total_debts: number; overdue_count: number; overdue_total: number; top_debtors: TopDebtor[]; }
 
-interface PayrollTrendPoint { month: string; gross_pay: number; employer_nssf: number; total_cost: number; net_pay: number; employees: number; }
-interface Payroll { trend: PayrollTrendPoint[]; latest_month_cost: number; }
-
 interface AnalyticsOverview {
   period: { date_from: string; date_to: string; group_by: string };
   sales: SalesSection;
   money_flow: MoneyFlow;
   production_vs_sales: ProductionVsSales;
   debtors: Debtors;
-  payroll: Payroll;
 }
 
 interface FleetStats {
@@ -162,38 +159,31 @@ const AnalyticsPage: React.FC = () => {
   ].filter(s => s.value > 0);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Live figures across sales, money flow, production, inventory, debtors, fleet and payroll
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} max={dateTo}
-            className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
-          <span className="text-gray-400 dark:text-gray-500 text-sm">to</span>
-          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} min={dateFrom} max={today}
-            className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
-          <select value={groupBy} onChange={e => setGroupBy(e.target.value as any)}
-            className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm">
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-          </select>
-          <button onClick={() => fetchAll(false)} disabled={refreshing}
-            className="flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-sm hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50">
-            <RefreshCw className={`w-4 h-4 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
-          </button>
-        </div>
-      </div>
-      {lastUpdated && (
-        <p className="text-xs text-gray-400 dark:text-gray-500 -mt-4">
-          Last updated {lastUpdated.toLocaleTimeString()} · refreshes automatically every minute
-        </p>
-      )}
+    <PageShell>
+      <PageHero
+        eyebrow="Live figures"
+        title="Analytics"
+        description={lastUpdated
+          ? `Sales, money, production, stock and fleet · updated ${lastUpdated.toLocaleTimeString()}`
+          : 'Sales, money flow, production, inventory and fleet.'}
+        actions={
+          <>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} max={dateTo}
+              className="rounded-xl border border-white/25 bg-white/15 text-white px-3 py-2 text-sm backdrop-blur-sm" />
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} min={dateFrom} max={today}
+              className="rounded-xl border border-white/25 bg-white/15 text-white px-3 py-2 text-sm backdrop-blur-sm" />
+            <select value={groupBy} onChange={e => setGroupBy(e.target.value as any)}
+              className="rounded-xl border border-white/25 bg-white/15 text-white px-3 py-2 text-sm backdrop-blur-sm">
+              <option value="daily" className="text-slate-900">Daily</option>
+              <option value="weekly" className="text-slate-900">Weekly</option>
+              <option value="monthly" className="text-slate-900">Monthly</option>
+            </select>
+            <HeroButton onClick={() => fetchAll(false)} disabled={refreshing} variant="solid">
+              <RefreshCw className={`w-4 h-4 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+            </HeroButton>
+          </>
+        }
+      />
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
@@ -202,7 +192,6 @@ const AnalyticsPage: React.FC = () => {
         <KpiCard icon={<AlertTriangle className="w-6 h-6 text-red-600" />} label="Outstanding Debt" value={money(overview.money_flow.outstanding_debt.total_balance)} sub={`${overview.money_flow.outstanding_debt.overdue_count} overdue`} />
         <KpiCard icon={<Package className="w-6 h-6 text-blue-600" />} label="Production (period)" value={`${overview.production_vs_sales.total_production_liters.toLocaleString()} L`} />
         <KpiCard icon={<Truck className="w-6 h-6 text-orange-600" />} label="Fleet KM (period)" value={(fleetStats?.total_km ?? 0).toLocaleString()} sub={`${fleetStats?.total_trips ?? 0} trips`} />
-        <KpiCard icon={<Users className="w-6 h-6 text-indigo-600" />} label="Latest Payroll Cost" value={money(overview.payroll.latest_month_cost)} />
       </div>
 
       {/* Sales */}
@@ -414,28 +403,12 @@ const AnalyticsPage: React.FC = () => {
         </div>
       </SectionCard>
 
-      {/* Payroll */}
-      <SectionCard title="Payroll Cost Trend (last 12 months, finalized runs)">
-        {overview.payroll.trend.length === 0 ? <EmptyChart label="No finalized payroll runs yet" /> : (
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={overview.payroll.trend.map(p => ({ ...p, label: periodLabel(p.month + '-01', 'monthly') }))}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
-              <XAxis dataKey="label" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={60} />
-              <Tooltip formatter={(v: number) => money(v)} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="total_cost" name="Total Cost (Gross + Employer NSSF)" fill="#4f46e5" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="net_pay" name="Net Pay" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </SectionCard>
-    </div>
+    </PageShell>
   );
 };
 
 const SectionCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+  <div className="mara-panel p-5">
     <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{title}</h3>
     {children}
   </div>
@@ -448,7 +421,7 @@ const EmptyChart: React.FC<{ label: string }> = ({ label }) => (
 );
 
 const KpiCard: React.FC<{ icon: React.ReactNode; label: string; value: string | number; sub?: string }> = ({ icon, label, value, sub }) => (
-  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+  <div className="mara-stat">
     <div className="flex items-center gap-3">
       {icon}
       <div className="min-w-0">

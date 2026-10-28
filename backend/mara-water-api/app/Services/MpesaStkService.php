@@ -52,8 +52,9 @@ class MpesaStkService
 
     public function startForTripSale(DriverTripSale $sale, string $phone, User $user): MpesaPayment
     {
-        $sale->loadMissing('trip.location');
+        $sale->loadMissing(['trip.location', 'customer']);
         $location = $sale->trip?->location?->code ?? $sale->trip?->location?->name;
+        $buyer = $sale->customer?->name;
 
         return $this->start([
             'driver_trip_sale_id' => $sale->id,
@@ -63,13 +64,16 @@ class MpesaStkService
             'channel' => 'field_trip',
             'trip_id' => $sale->driver_trip_id,
             'location' => $location,
-            'description' => 'Field sale',
+            'buyer_name' => $buyer,
+            // Daraja AccountReference max ~12 chars — keep short; name goes in description.
+            'description' => 'Field '.($buyer ? Str::limit($buyer, 18, '') : 'sale'),
         ], $user);
     }
 
     public function startForOrder(Order $order, string $phone, User $user, string $channel = 'warehouse'): MpesaPayment
     {
-        $order->loadMissing('location');
+        $order->loadMissing(['location', 'customer']);
+        $buyer = $order->customer?->name;
 
         return $this->start([
             'driver_trip_sale_id' => null,
@@ -79,7 +83,8 @@ class MpesaStkService
             'channel' => in_array($channel, ['warehouse', 'refill', 'admin'], true) ? $channel : 'warehouse',
             'trip_id' => null,
             'location' => $order->location?->code ?? $order->location?->name,
-            'description' => 'Outlet sale '.$order->order_no,
+            'buyer_name' => $buyer,
+            'description' => 'Outlet '.($buyer ? Str::limit($buyer, 16, '') : $order->order_no),
         ], $user);
     }
 
@@ -106,7 +111,7 @@ class MpesaStkService
             ->when($input['order_id'] ?? null, fn ($q, $id) => $q->where('order_id', $id))
             ->when($input['driver_trip_sale_id'] ?? null, fn ($q, $id) => $q->where('driver_trip_sale_id', $id))
             ->count() + 1;
-        $reference = $this->referenceFor($saleKey);
+        $reference = $this->referenceFor((string) $saleKey, $input['buyer_name'] ?? null);
 
         $payment = MpesaPayment::create([
             'order_id' => $input['order_id'] ?? null,
@@ -341,9 +346,20 @@ class MpesaStkService
                 'metadata' => ['app_id' => 'mara_water', 'channel' => $payment->channel],
             ]);
             if (! $res->successful()) {
-                throw new \RuntimeException('Payment gateway rejected the request.');
+                $detail = $res->json('message') ?? $res->json('error') ?? $res->json('errorMessage');
+                if (is_array($detail)) {
+                    $detail = json_encode($detail);
+                }
+                $detail = is_string($detail) ? substr(trim($detail), 0, 180) : '';
+                throw new \RuntimeException(trim('Payment gateway rejected the request (HTTP '.$res->status().'). '.$detail));
             }
-            $body = $res->json();
+            $body = $res->json() ?? [];
+            if (isset($body['data']) && is_array($body['data'])) {
+                $body = array_merge($body, $body['data']);
+            }
+            if (empty($body['payment_id']) && empty($body['checkout_request_id'])) {
+                throw new \RuntimeException('Payment gateway accepted the call but did not start an M-Pesa prompt.');
+            }
             $payment->update([
                 'gateway_payment_id' => $body['payment_id'] ?? null,
                 'checkout_request_id' => $body['checkout_request_id'] ?? null,
@@ -578,11 +594,26 @@ class MpesaStkService
         };
     }
 
-    private function referenceFor(string $saleKey): string
+    /**
+     * STK AccountReference is short (~12 chars). Prefer MARA-{initials}-{id}
+     * so statements show who paid without blowing the length limit.
+     * Full name stays in TransactionDesc / description.
+     */
+    private function referenceFor(string $saleKey, ?string $buyerName = null): string
     {
-        $compact = strtoupper(substr(str_replace('-', '', $saleKey), 0, 7));
+        $idPart = strtoupper(substr(str_replace('-', '', $saleKey), 0, 4));
+        $initials = 'XX';
+        if ($buyerName) {
+            $parts = preg_split('/\s+/', trim($buyerName)) ?: [];
+            $letters = '';
+            foreach ($parts as $p) {
+                $letters .= strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $p) ?? '', 0, 1));
+            }
+            $initials = substr($letters ?: 'XX', 0, 3);
+        }
+        $ref = 'MARA-'.$initials.'-'.$idPart;
 
-        return 'MARA-'.$compact;
+        return substr($ref, 0, 12);
     }
 
     private function darajaBase(): string

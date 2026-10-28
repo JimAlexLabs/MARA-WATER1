@@ -2,15 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
 
 @layer base {
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
   }
   
   body {
-    @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-150;
+    @apply bg-slate-50 text-slate-900 dark:bg-gray-950 dark:text-gray-100 transition-colors duration-150;
   }
 }
 
@@ -40,7 +40,31 @@
   }
   
   .card {
-    @apply bg-white rounded-lg shadow-sm border border-gray-200;
+    @apply bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-slate-200 dark:border-gray-700;
+  }
+
+  .mara-panel {
+    @apply rounded-2xl border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden shadow-sm;
+  }
+
+  .mara-stat {
+    @apply rounded-2xl border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-5 py-4 shadow-sm;
+  }
+
+  .mara-table-wrap {
+    @apply rounded-2xl border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-x-auto shadow-sm;
+  }
+
+  .mara-input {
+    @apply border border-slate-200 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-sky-600/30 focus:border-sky-600;
+  }
+
+  .mara-btn-primary {
+    @apply inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-medium bg-sky-800 text-white hover:bg-sky-900 disabled:opacity-40;
+  }
+
+  .mara-btn-secondary {
+    @apply inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-medium border border-slate-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-slate-700 dark:text-gray-200 hover:bg-slate-50 dark:hover:bg-gray-700;
   }
   
   .card-header {

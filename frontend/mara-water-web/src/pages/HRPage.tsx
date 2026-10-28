@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero } from '../components/PageShell';
 import { usePermissions } from '../contexts/AuthContext';
 import { clearHrUnlock, getHrUnlock, isHrUnlocked, setHrUnlock } from '../utils/hrUnlock';
 
@@ -640,19 +641,14 @@ const HRPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <PageShell>
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">HR &amp; Payroll</h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Attendance, payroll runs, loans/advances, and salary templates. Adding or bulk-importing
-            employee records (name, phone, ID number, department, role, employment date, salary,
-            bank details) is in{' '}
-            <Link to="/users" className="text-blue-600 hover:text-blue-800 font-medium">Employees</Link>.
-          </p>
-        </div>
-      </div>
+      <PageHero
+        eyebrow="Attendance · payroll"
+        title="HR & Payroll"
+        description="Clock-ins, attendance records, and payroll."
+        tone="ink"
+      />
 
       {/* Tabs */}
       <div className="border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-4">
@@ -721,7 +717,7 @@ const HRPage: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="mara-stat">
               <div className="flex items-center">
                 <Users className="w-8 h-8 text-blue-600" />
                 <div className="ml-4">
@@ -730,7 +726,7 @@ const HRPage: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="mara-stat">
               <div className="flex items-center">
                 <CheckCircle className="w-8 h-8 text-green-600" />
                 <div className="ml-4">
@@ -741,7 +737,7 @@ const HRPage: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="mara-stat">
               <div className="flex items-center">
                 <Clock className="w-8 h-8 text-yellow-600" />
                 <div className="ml-4">
@@ -752,7 +748,7 @@ const HRPage: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="mara-stat">
               <div className="flex items-center">
                 <AlertTriangle className="w-8 h-8 text-red-600" />
                 <div className="ml-4">
@@ -765,7 +761,7 @@ const HRPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <div className="mara-panel">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Attendance Records</h3>
             </div>
@@ -877,7 +873,7 @@ const HRPage: React.FC = () => {
                   <Plus className="w-4 h-4 mr-2" /> New Payroll Run
                 </button>
               </div>
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow divide-y divide-gray-200 dark:divide-gray-700">
+              <div className="mara-panel divide-y divide-gray-200 dark:divide-gray-700">
                 {payrollRuns.length === 0 && <p className="p-6 text-sm text-gray-500 dark:text-gray-400">No payroll runs yet.</p>}
                 {payrollRuns.map(run => (
                   <button key={run.id} onClick={() => openRun(run.id)} className="w-full text-left px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -922,7 +918,7 @@ const HRPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+              <div className="mara-panel p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
                     {new Date(selectedRun.month + 'T00:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
@@ -1032,7 +1028,7 @@ const HRPage: React.FC = () => {
               <p className="text-sm text-gray-500">No profit data for this month.</p>
             )}
             {profitSummary && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 text-sm space-y-2 text-gray-600 dark:text-gray-300">
+              <div className="mara-panel p-5 text-sm space-y-2 text-gray-600 dark:text-gray-300">
                 <p>Orders {money(profitSummary.gross_revenue_breakdown?.completed_orders)} · Trip sales {money(profitSummary.gross_revenue_breakdown?.driver_trip_sales)}</p>
                 <p>Salaries source: {profitSummary.salaries_breakdown?.source === 'payroll_run' ? `payroll run (${profitSummary.salaries_breakdown?.payroll_status})` : 'operational staff salaries'} · gross {money(profitSummary.salaries_breakdown?.gross)} · net {money(profitSummary.salaries_breakdown?.net)}</p>
                 <p>Other: petty cash out {money(profitSummary.other_breakdown?.petty_cash_out)} · fuel {money(profitSummary.other_breakdown?.fuel_cost)}</p>
@@ -1054,7 +1050,7 @@ const HRPage: React.FC = () => {
               <Plus className="w-4 h-4 mr-2" /> Record Advance / Loan
             </button>
           </div>
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+          <div className="mara-panel overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
@@ -1110,7 +1106,7 @@ const HRPage: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {templates.map(t => (
-              <div key={t.id} className="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
+              <div key={t.id} className="mara-panel p-5">
                 <div className="flex items-start justify-between">
                   <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">{t.name}</h3>
                   <button onClick={() => handleDeleteTemplate(t)} className="text-red-600 hover:text-red-900">
@@ -1486,13 +1482,13 @@ const HRPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 
 /** Locked-tab placeholder until password re-auth succeeds. */
 const SecureGatePrompt: React.FC<{ onUnlock: () => void }> = ({ onUnlock }) => (
-  <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-10 text-center space-y-4">
+  <div className="mara-panel p-10 text-center space-y-4">
     <Lock className="w-10 h-10 text-gray-400 mx-auto" />
     <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Password required</h3>
     <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">

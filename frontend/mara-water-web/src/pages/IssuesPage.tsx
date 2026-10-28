@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Send, X, CheckCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero } from '../components/PageShell';
 import { useAuth } from '../contexts/AuthContext';
 
 // Round 3 Phase 5: Manager/Director's inbox for issues raised from the
@@ -78,21 +79,27 @@ const IssuesPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Issues</h1>
-          <p className="text-gray-600 dark:text-gray-400">Issues reported by drivers/salespeople from their dashboard.</p>
-        </div>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 text-sm">
-          <option value="all">All statuses</option>
-          <option value="open">Open</option>
-          <option value="acknowledged">Acknowledged</option>
-          <option value="resolved">Resolved</option>
-        </select>
-      </div>
+    <PageShell>
+      <PageHero
+        eyebrow="Field reports"
+        title="Issues"
+        description="Problems reported from the field."
+        tone="amber"
+        actions={
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="rounded-xl border border-white/25 bg-white/15 text-white px-3 py-2.5 text-sm backdrop-blur-sm"
+          >
+            <option value="all" className="text-slate-900">All statuses</option>
+            <option value="open" className="text-slate-900">Open</option>
+            <option value="acknowledged" className="text-slate-900">Acknowledged</option>
+            <option value="resolved" className="text-slate-900">Resolved</option>
+          </select>
+        }
+      />
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+      <div className="mara-panel overflow-hidden">
         {loading ? (
           <div className="p-6 text-sm text-gray-500 dark:text-gray-400">Loading…</div>
         ) : issues.length === 0 ? (
@@ -167,7 +174,7 @@ const IssuesPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

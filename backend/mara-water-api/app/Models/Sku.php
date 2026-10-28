@@ -46,4 +46,39 @@ class Sku extends Model
     {
         return $this->hasMany(StockItem::class);
     }
+
+    /**
+     * Finished-goods production/sales unit is the bale.
+     * Returns how many bottles (or containers) make one bale for this SKU size.
+     */
+    public function bottlesPerBale(): int
+    {
+        $size = round((float) $this->size_liters, 2);
+        $map = config('mara_operations.bottles_per_bale_by_size', []);
+        foreach ($map as $key => $bpb) {
+            if (abs((float) $key - $size) < 0.011) {
+                return max(1, (int) $bpb);
+            }
+        }
+
+        return (int) config('mara_operations.bottles_per_bale', 24);
+    }
+
+    public function usesBailingPaper(): bool
+    {
+        $size = round((float) $this->size_liters, 2);
+
+        return in_array($size, [0.5, 1.0, 1.5, 5.0], true);
+    }
+
+    /** Canonical size key used in material codes, e.g. 0.5 → "0.5L". */
+    public function sizeCode(): string
+    {
+        $size = round((float) $this->size_liters, 2);
+        if (abs($size - (int) $size) < 0.011) {
+            return ((int) $size) . 'L';
+        }
+
+        return rtrim(rtrim(number_format($size, 2, '.', ''), '0'), '.') . 'L';
+    }
 }

@@ -5,6 +5,7 @@ import {
   Calculator, Loader2, RefreshCw, Save, ArrowLeft, AlertTriangle, TrendingUp,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { PageShell, PageHero } from '../components/PageShell';
 
 type Assumptions = {
   payroll: Record<string, { label: string; count: number; pay_each: number }>;
@@ -46,9 +47,10 @@ const pct = (n: number | null | undefined) => `${(Number(n || 0) * 100).toFixed(
 const DirectorPlanningPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<'dashboard' | 'costs' | 'restock' | 'cash' | 'timeline'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'costs' | 'restock' | 'cash' | 'timeline' | 'hypothesis'>('hypothesis');
   const [assumptions, setAssumptions] = useState<Assumptions | null>(null);
   const [computed, setComputed] = useState<Computed | null>(null);
+  const [hypothesis, setHypothesis] = useState<any>(null);
   const [notes, setNotes] = useState('');
   const [name, setName] = useState('Premium Restart Plan');
 
@@ -62,16 +64,34 @@ const DirectorPlanningPage: React.FC = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/operations/restart-plan');
-      applyPayload(res.data.data);
+      const [planRes, hypRes] = await Promise.all([
+        api.get('/operations/restart-plan'),
+        api.get('/operations/hypothesis'),
+      ]);
+      applyPayload(planRes.data.data);
+      setHypothesis(hypRes.data.data);
     } catch {
-      toast.error('Could not load restart plan');
+      toast.error('Could not load planning model');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => { load(); }, []);
+
+  const downloadHypothesis = async () => {
+    try {
+      const res = await api.get('/operations/hypothesis/export', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'mara-hypothesis-model.xlsx';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Could not download Excel');
+    }
+  };
 
   const save = async () => {
     if (!assumptions) return;
@@ -120,7 +140,7 @@ const DirectorPlanningPage: React.FC = () => {
     });
   };
 
-  if (loading || !assumptions || !computed) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -128,9 +148,27 @@ const DirectorPlanningPage: React.FC = () => {
     );
   }
 
+  // Narrow for TypeScript — hypothesis tab can render even if restart-plan fails.
+  if (!assumptions || !computed) {
+    return (
+      <PageShell>
+        <PageHero eyebrow="What-if" title="Planning" description="Hypothesis model from the Excel workbook." tone="ink" />
+        {hypothesis ? (
+          <div className="mara-panel p-5 space-y-3">
+            <p className="text-sm">Trip gross {money(hypothesis.trip?.gross_margin)} · revenue {money(hypothesis.trip?.revenue)}</p>
+            <button type="button" onClick={downloadHypothesis} className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm">Download Hypothesis Excel</button>
+          </div>
+        ) : (
+          <p className="text-sm text-red-600">Could not load planning data.</p>
+        )}
+      </PageShell>
+    );
+  }
+
   const k = computed.kpis;
   const t = computed.totals;
   const tabs = [
+    { id: 'hypothesis', label: 'Hypothesis model' },
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'costs', label: 'Team & costs' },
     { id: 'restock', label: 'Restock what-if' },
@@ -139,7 +177,13 @@ const DirectorPlanningPage: React.FC = () => {
   ] as const;
 
   return (
-    <div className="space-y-6">
+    <PageShell>
+      <PageHero
+        eyebrow="What-if"
+        title="Planning"
+        description="Restart plan assumptions and forecasts."
+        tone="ink"
+      />
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
         <div>
           <Link to="/operations" className="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 mb-2">
@@ -159,6 +203,10 @@ const DirectorPlanningPage: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={downloadHypothesis}
+            className="inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm">
+            Download Hypothesis Excel
+          </button>
           <button type="button" onClick={reset} disabled={saving}
             className="inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm">
             <RefreshCw className="w-4 h-4 mr-1.5" /> Reset defaults
@@ -173,7 +221,7 @@ const DirectorPlanningPage: React.FC = () => {
 
       <div className="flex flex-wrap gap-2">
         {tabs.map((x) => (
-          <button key={x.id} type="button" onClick={() => setTab(x.id)}
+          <button key={x.id} type="button" onClick={() => setTab(x.id as any)}
             className={`px-3 py-1.5 rounded-full text-sm ${tab === x.id
               ? 'bg-blue-600 text-white'
               : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
@@ -181,6 +229,97 @@ const DirectorPlanningPage: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {tab === 'hypothesis' && hypothesis && (
+        <div className="space-y-6">
+          <div className="mara-panel p-5">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">Intripet trip + suggested prices</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Supplier {hypothesis.trip?.supplier}. Transport {money(hypothesis.trip?.transport_per_trip)}.
+              Capacity {Number(hypothesis.capacity?.bottles_per_day || 0).toLocaleString()} btl/day
+              ({hypothesis.capacity?.bottles_per_hour}/hr × {hypothesis.capacity?.hours_per_day}h) ·
+              ~{hypothesis.capacity?.days_to_fill_trip ?? '—'} days to fill trip.
+              Revenue {money(hypothesis.trip?.revenue)} · COGS {money(hypothesis.trip?.cost_total)} ·
+              Gross {money(hypothesis.trip?.gross_margin)}.
+            </p>
+            <div className="overflow-x-auto mt-4">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500 uppercase">
+                    <th className="pr-3 py-1">SKU</th><th className="pr-3 py-1">Bottles</th>
+                    <th className="pr-3 py-1">COP/btl</th><th className="pr-3 py-1">Price/btl</th>
+                    <th className="pr-3 py-1">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {(hypothesis.trip?.lines || []).map((l: any) => (
+                    <tr key={l.sku}>
+                      <td className="pr-3 py-1.5">{l.sku}</td>
+                      <td className="pr-3 py-1.5">{Number(l.qty_bottles).toLocaleString()}</td>
+                      <td className="pr-3 py-1.5">{Number(l.cost_per_bottle).toFixed(2)}</td>
+                      <td className="pr-3 py-1.5">{Number(l.price_per_bottle).toFixed(2)}</td>
+                      <td className="pr-3 py-1.5">{money(l.revenue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="mara-panel p-5">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">Monthly net by trip count</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Payroll Excel: accountant 24.5k · driver 20–25k · sales 15–25k · Finalis 15k · Jim stipend by trips · overheads ~66k.
+            </p>
+            <div className="overflow-x-auto mt-4">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500 uppercase">
+                    <th className="pr-3 py-1">Trips</th><th className="pr-3 py-1">Jim</th>
+                    <th className="pr-3 py-1">Net low</th><th className="pr-3 py-1">Net high</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {(hypothesis.monthly || []).map((m: any) => (
+                    <tr key={m.trips}>
+                      <td className="pr-3 py-1.5">{m.trips}</td>
+                      <td className="pr-3 py-1.5">{money(m.jim_stipend)}</td>
+                      <td className="pr-3 py-1.5">{money(m.net_low)}</td>
+                      <td className="pr-3 py-1.5">{money(m.net_high)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {(hypothesis.profit_split?.rows || []).length > 0 && (
+            <div className="mara-panel p-5">
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+                Profit split — {(hypothesis.profit_split?.phase || '').replace(/_/g, ' ')}
+              </h3>
+              <div className="overflow-x-auto mt-4">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-gray-500 uppercase">
+                      <th className="pr-3 py-1">Partner</th>
+                      <th className="pr-3 py-1">%</th>
+                      <th className="pr-3 py-1">KES @ 1-trip net high</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {hypothesis.profit_split.rows.map((p: any) => (
+                      <tr key={p.name}>
+                        <td className="pr-3 py-1.5">{p.name}</td>
+                        <td className="pr-3 py-1.5">{p.pct}%</td>
+                        <td className="pr-3 py-1.5">{money(p.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {tab === 'dashboard' && (
         <div className="space-y-6">
@@ -439,7 +578,7 @@ const DirectorPlanningPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

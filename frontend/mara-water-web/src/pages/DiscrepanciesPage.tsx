@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Download, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 
 // Round 4 Phase 6: dedicated Discrepancies page -- Manager/Director only
 // (never reachable from the Driver dashboard). Rows are created
@@ -103,21 +104,23 @@ const DiscrepanciesPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Discrepancies</h1>
-          <p className="text-gray-600 dark:text-gray-400">Flagged cash, stock, and mileage anomalies -- Manager/Director only. Never shown on the Driver dashboard.</p>
-        </div>
-        <button onClick={exportLog} className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
-          <Download className="w-4 h-4 mr-2" /> Export
-        </button>
-      </div>
+    <PageShell>
+      <PageHero
+        eyebrow="Anomalies"
+        title="Discrepancies"
+        description="Flagged cash, stock, and mileage gaps."
+        tone="amber"
+        actions={
+          <HeroButton onClick={exportLog}>
+            <Download className="w-4 h-4 mr-2" /> Export
+          </HeroButton>
+        }
+      />
 
       {rollups && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {(['cash', 'stock', 'mileage'] as const).map(cat => (
-            <div key={cat} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <div key={cat} className="mara-panel p-4">
               <p className="text-sm text-gray-500 dark:text-gray-400">{CATEGORY_LABEL[cat]} discrepancies</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{rollups.by_category[cat]?.count ?? 0}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">total off: {Number(rollups.by_category[cat]?.total ?? 0).toLocaleString()}</p>
@@ -126,7 +129,7 @@ const DiscrepanciesPage: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+      <div className="mara-panel p-4">
         <div className="flex flex-wrap gap-3 items-end">
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">From</label>
@@ -157,7 +160,7 @@ const DiscrepanciesPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+      <div className="mara-panel">
         {loading ? (
           <div className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">Loading…</div>
         ) : rows.length === 0 ? (
@@ -226,7 +229,7 @@ const DiscrepanciesPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

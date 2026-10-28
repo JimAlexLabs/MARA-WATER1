@@ -154,9 +154,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setUser(response.data.data.user);
           } else {
             localStorage.removeItem('auth_token');
+            if (response.data?.code?.startsWith?.('account_')) {
+              toast.error(response.data.message || 'Contact Admin.');
+            }
           }
-        } catch (error) {
+        } catch (error: any) {
           localStorage.removeItem('auth_token');
+          const msg = error?.response?.data?.message;
+          if (error?.response?.status === 403 && msg) {
+            toast.error(msg);
+          }
         }
       }
       setLoading(false);
@@ -270,7 +277,7 @@ export const usePermissions = () => {
   };
 
   const isDirector = (): boolean => {
-    return user?.role?.code === 'ADMIN';
+    return user?.role?.code === 'ADMIN' || user?.role?.access_tier === 'director';
   };
 
   const accessTier = () => user?.role?.access_tier ?? null;

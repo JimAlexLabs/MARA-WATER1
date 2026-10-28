@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 import { usePermissions } from '../contexts/AuthContext';
 
 interface Vehicle {
@@ -238,6 +239,7 @@ const FleetPage: React.FC = () => {
   const [showUnlockPrompt, setShowUnlockPrompt] = useState(false);
   const [unlockReason, setUnlockReason] = useState('');
   const [unlocking, setUnlocking] = useState(false);
+  const [deletingTripSaleId, setDeletingTripSaleId] = useState<string | null>(null);
 
   const fetchTrips = async () => {
     setTripsLoading(true);
@@ -392,6 +394,27 @@ const FleetPage: React.FC = () => {
     }
   };
 
+  const handleDeleteTripSale = async (sale: TripSale) => {
+    if (!viewingTrip || !isDirector()) {
+      toast.error('Only a Director can delete a trip sale');
+      return;
+    }
+    const buyer = sale.customer?.name || 'walk-in';
+    if (!window.confirm(`Delete field sale for ${buyer} (KES ${parseFloat(sale.amount).toLocaleString()})? Use for test entries.`)) return;
+    setDeletingTripSaleId(sale.id);
+    try {
+      const res = await api.delete(`/fleet/trips/${viewingTrip.id}/sales/${sale.id}`);
+      toast.success('Sale deleted');
+      if (res.data?.data) setViewingTrip(res.data.data);
+      else openTripDetail(viewingTrip.id);
+      fetchTrips();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to delete sale');
+    } finally {
+      setDeletingTripSaleId(null);
+    }
+  };
+
   const openTripDetail = (id: string) => {
     api.get(`/fleet/trips/${id}`).then(res => setViewingTrip(res.data.data)).catch(() => toast.error('Failed to load trip'));
   };
@@ -457,25 +480,24 @@ const FleetPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <PageShell>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Fleet Management</h1>
-          <p className="text-gray-600 dark:text-gray-400">Vehicles, driver trips, and reconciliation</p>
-        </div>
-        <div className="flex space-x-3">
-          {activeTab === 'vehicles' ? (
-            <button onClick={openNewVehicle} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+      <PageHero
+        eyebrow="Vehicles · trips"
+        title="Fleet"
+        description="Vehicles, fuel, maintenance, and trip dispatch."
+        actions={
+          activeTab === 'vehicles' ? (
+            <HeroButton onClick={openNewVehicle} variant="solid">
               <Plus className="w-4 h-4 mr-2" /> New Vehicle
-            </button>
+            </HeroButton>
           ) : (
-            <button onClick={downloadTripLog} disabled={exportingTrips} className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50">
+            <HeroButton onClick={downloadTripLog} disabled={exportingTrips}>
               <Download className="w-4 h-4 mr-2" /> {exportingTrips ? 'Exporting…' : 'Export'}
-            </button>
-          )}
-        </div>
-      </div>
+            </HeroButton>
+          )
+        }
+      />
 
       {/* Tabs */}
       <div className="flex space-x-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1 w-fit">
@@ -494,7 +516,7 @@ const FleetPage: React.FC = () => {
         <>
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="mara-stat">
               <div className="flex items-center">
                 <Truck className="w-8 h-8 text-blue-600" />
                 <div className="ml-4">
@@ -503,7 +525,7 @@ const FleetPage: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="mara-stat">
               <div className="flex items-center">
                 <CheckCircle className="w-8 h-8 text-green-600" />
                 <div className="ml-4">
@@ -512,7 +534,7 @@ const FleetPage: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="mara-stat">
               <div className="flex items-center">
                 <Wrench className="w-8 h-8 text-yellow-600" />
                 <div className="ml-4">
@@ -521,7 +543,7 @@ const FleetPage: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="mara-stat">
               <div className="flex items-center">
                 <AlertTriangle className="w-8 h-8 text-red-600" />
                 <div className="ml-4">
@@ -539,7 +561,7 @@ const FleetPage: React.FC = () => {
           </div>
 
           {/* Vehicles Table */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <div className="mara-panel">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700"><h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Vehicles</h3></div>
             <div className="p-6">
               <div className="flex flex-col md:flex-row gap-4 mb-6">
@@ -645,7 +667,7 @@ const FleetPage: React.FC = () => {
             </div>
           )}
 
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <div className="mara-panel">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700"><h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Driver Trips</h3></div>
             <div className="p-6">
               {tripsLoading ? (
@@ -733,7 +755,7 @@ const FleetPage: React.FC = () => {
       {/* Round 4 Phase 8: Fuel Logs -- Manager/Director only (route-
           gated), no driver-facing entry point anywhere. */}
       {activeTab === 'fuel' && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="mara-panel">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-wrap gap-3 items-end justify-between">
             <div className="flex flex-wrap gap-3 items-end">
               <div>
@@ -841,7 +863,7 @@ const FleetPage: React.FC = () => {
 
       {/* Ops brief §2.5: major/minor vehicle repairs */}
       {activeTab === 'repairs' && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="mara-panel">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-wrap gap-3 items-end justify-between">
             <div className="flex flex-wrap gap-3 items-end">
               <div>
@@ -924,7 +946,7 @@ const FleetPage: React.FC = () => {
       {/* Round 4 Phase 7: Mileage Logs -- auto-populated from every
           trip's Mileage Start/End, no separate manual entry. */}
       {activeTab === 'mileage' && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="mara-panel">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-wrap gap-3 items-end">
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Vehicle</label>
@@ -1142,6 +1164,7 @@ const FleetPage: React.FC = () => {
                       <th className="pr-4 py-1">Amount</th>
                       <th className="pr-4 py-1">Details</th>
                       <th className="pr-4 py-1">Photo</th>
+                      {isDirector() && <th className="pr-4 py-1"> </th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -1162,6 +1185,19 @@ const FleetPage: React.FC = () => {
                             <a href={sale.photo_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline">View</a>
                           ) : '—'}
                         </td>
+                        {isDirector() && (
+                          <td className="pr-4 py-1">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTripSale(sale)}
+                              disabled={deletingTripSaleId === sale.id}
+                              className="text-red-600 hover:text-red-800 disabled:opacity-40"
+                              title="Delete sale (director)"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -1205,7 +1241,7 @@ const FleetPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

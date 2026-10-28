@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts';
 import { useAuth, usePermissions } from '../contexts/AuthContext';
 import { api } from '../services/api';
+import { PageShell, PageHero } from '../components/PageShell';
 import { toast } from 'react-hot-toast';
 import {
   Droplets,
@@ -24,6 +25,10 @@ import {
   Lock,
 } from 'lucide-react';
 import { isHrUnlocked, setHrUnlock, clearHrUnlock } from '../utils/hrUnlock';
+import {
+  getFieldworkModeLocal,
+  setFieldworkModeLocal,
+} from '../utils/managerLocks';
 
 interface MyAttendanceToday {
   id: string;
@@ -83,7 +88,7 @@ const dayLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, { 
 
 const DashboardPage: React.FC = () => {
   const { user } = useAuth();
-  const { isDirector } = usePermissions();
+  const { isDirector, isManagerTier } = usePermissions();
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [data, setData] = useState<Overview | null>(null);
@@ -94,6 +99,7 @@ const DashboardPage: React.FC = () => {
   const [showDashUnlock, setShowDashUnlock] = useState(false);
   const [dashPassword, setDashPassword] = useState('');
   const [dashUnlocking, setDashUnlocking] = useState(false);
+  const [fieldworkMode, setFieldworkMode] = useState(getFieldworkModeLocal);
 
   const loadMonthProfit = () => {
     if (!isDirector()) return;
@@ -196,7 +202,9 @@ const DashboardPage: React.FC = () => {
   const quickActions = [
     { name: 'Log a Sale', description: 'Create a customer order', icon: Truck, color: 'bg-purple-600 hover:bg-purple-700', route: '/sales?tab=orders' },
     { name: 'Add a Customer', description: 'Register a new customer', icon: UserPlus, color: 'bg-blue-600 hover:bg-blue-700', route: '/sales?tab=customers' },
-    { name: 'Stock Arrival', description: 'Goods received (bags)', icon: Package, color: 'bg-green-600 hover:bg-green-700', route: '/inventory' },
+    ...(isDirector()
+      ? [{ name: 'Stock Arrival', description: 'Goods received (bags)', icon: Package, color: 'bg-green-600 hover:bg-green-700', route: '/inventory' }]
+      : []),
     { name: 'New Water Test', description: 'Record QA parameters', icon: Droplets, color: 'bg-cyan-600 hover:bg-cyan-700', route: '/qa' },
     { name: 'Record Payment', description: 'Mark an invoice paid', icon: DollarSign, color: 'bg-orange-600 hover:bg-orange-700', route: '/finance' },
     { name: 'Staff Attendance', description: 'Record today’s attendance', icon: Users, color: 'bg-pink-600 hover:bg-pink-700', route: '/hr' },
@@ -213,20 +221,63 @@ const DashboardPage: React.FC = () => {
   const d = data;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 px-4 py-5 sm:px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">
-            Welcome back, {user?.first_name}
-          </h1>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">Here's what's happening at MARA-WATER today</p>
+    <PageShell>
+      <PageHero
+        eyebrow="Today at the plant"
+        title={<>Welcome back, {user?.first_name}</>}
+        description={(() => {
+          const hour = Number(new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Africa/Nairobi', hour: 'numeric', hour12: false,
+          }).format(currentTime));
+          if (hour >= 5 && hour < 11) {
+            return 'Good morning — enjoy breakfast while you scan live analytics of sales, production, stock, and people.';
+          }
+          if (hour >= 11 && hour < 15) {
+            return 'Lunchtime check-in — live analytics of sales, production, stock, and people are ready for you.';
+          }
+          if (hour >= 15 && hour < 19) {
+            return 'Good afternoon — live analytics of sales, production, stock, and people, same numbers everywhere.';
+          }
+          return 'Good evening — here are the live analytics of sales, production, stock, and people.';
+        })()}
+        stats={[
+          { label: 'Clock', value: currentTime.toLocaleTimeString() },
+          { label: 'Date', value: currentTime.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) },
+        ]}
+      />
+
+      {isManagerTier() && !isDirector() && (
+        <div className="mara-panel p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Fieldwork mode</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              When on, a Field trips link stays prominent so you can log route sales quickly.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {fieldworkMode && (
+              <Link
+                to="/driver/trips"
+                className="inline-flex items-center px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600"
+              >
+                <Truck className="w-4 h-4 mr-2" /> Field trips
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                const next = !fieldworkMode;
+                setFieldworkMode(next);
+                setFieldworkModeLocal(next);
+                api.post('/settings/fieldwork-mode', { enabled: next }).catch(() => {});
+              }}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              {fieldworkMode ? 'Turn off' : 'Turn on'}
+            </button>
+          </div>
         </div>
-        <div className="text-left sm:text-right">
-          <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">{currentTime.toLocaleTimeString()}</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">{currentTime.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
-        </div>
-      </div>
+      )}
 
       {/* Round 2 Phase 5: self-service clock in/out -- deliberately just
           one big button at a time, no typing, so this works from a phone
@@ -275,7 +326,7 @@ const DashboardPage: React.FC = () => {
           <div>
             <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Today</h2>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-              <KpiCard label="Sales Today" value={money(d.today.sales_amount)} icon={TrendingUp} color="from-purple-500 to-purple-600" onClick={() => navigate('/sales?tab=orders')} />
+              <KpiCard label="Sales Today" value={money(d.today.sales_amount)} icon={TrendingUp} color="from-sky-700 to-cyan-600" onClick={() => navigate('/sales?tab=orders')} />
               <KpiCard label="Litres Produced" value={`${d.today.production_liters.toLocaleString()} L`} icon={Droplets} color="from-blue-500 to-blue-600" onClick={() => navigate('/production')} />
               <KpiCard
                 label="Stock Alerts"
@@ -499,7 +550,7 @@ const DashboardPage: React.FC = () => {
           </div>
         </>
       )}
-    </div>
+    </PageShell>
   );
 };
 
@@ -508,7 +559,7 @@ const KpiCard: React.FC<{
 }> = ({ label, value, icon: Icon, color, onClick, compact }) => (
   <button
     onClick={onClick}
-    className={`text-left bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow ${compact ? 'p-4' : 'p-4 sm:p-5'}`}
+    className={`text-left mara-stat hover:shadow-md transition-shadow ${compact ? '' : ''}`}
   >
     <div className={`bg-gradient-to-r ${color} rounded-lg p-2.5 inline-flex mb-3`}>
       <Icon className="h-5 w-5 text-white" />

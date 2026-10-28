@@ -91,7 +91,10 @@ class SkuController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
+            'name' => 'nullable|string|max:200',
             'brand' => 'nullable|string|max:50',
+            'size_liters' => 'nullable|numeric|min:0.01',
+            'unit' => 'nullable|string|max:10',
             'reorder_threshold' => 'nullable|integer|min:0',
             'active' => 'nullable|boolean',
         ]);
@@ -105,7 +108,7 @@ class SkuController extends Controller
         }
 
         $sku->update(array_merge(
-            $request->only(['brand', 'reorder_threshold', 'active']),
+            $request->only(['name', 'brand', 'size_liters', 'unit', 'reorder_threshold', 'active']),
             ['updated_by' => Auth::id()]
         ));
 

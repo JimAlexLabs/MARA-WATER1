@@ -411,50 +411,49 @@ class UserController extends Controller
         }
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         try {
-            $user = User::find($id);
-
-            if (!$user) {
+            if (! $request->user()?->isDirector()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'User not found'
+                    'message' => 'Only a Director can remove an employee.',
+                ], 403);
+            }
+
+            $user = User::find($id);
+
+            if (! $user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found',
                 ], 404);
             }
 
-            // Prevent deletion of the current user
             if ($user->id === Auth::id()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot delete your own account'
+                    'message' => 'Cannot delete your own account',
                 ], 422);
             }
 
-            // Check if user has any related data
-            $hasRelatedData = $user->waterTests()->exists() ||
-                             $user->batches()->exists() ||
-                             $user->orders()->exists() ||
-                             $user->attendances()->exists();
-
-            if ($hasRelatedData) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cannot delete user with related data. Consider deactivating instead.'
-                ], 422);
-            }
-
+            // Soft-delete + deactivate so history (attendance, sales, batches)
+            // stays intact but the login is gone from the active roster.
+            $user->update([
+                'status' => 'inactive',
+                'updated_by' => Auth::id(),
+            ]);
             $user->delete();
 
             return response()->json([
                 'success' => true,
-                'message' => 'User deleted successfully'
+                'message' => 'Employee removed (deactivated). Historical records were kept.',
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to delete user',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

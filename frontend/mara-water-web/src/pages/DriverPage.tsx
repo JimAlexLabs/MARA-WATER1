@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero } from '../components/PageShell';
 import { useAuth } from '../contexts/AuthContext';
 
 // Ops brief §2.5: driver/sales exec operational tool — KPIs, sell-through,
@@ -81,29 +82,31 @@ const DriverPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Welcome, {user?.first_name}</h1>
-        <p className="text-gray-600 dark:text-gray-400">Your operational overview — trips, sell-through, fuel, repairs, and customer base.</p>
-      </div>
+    <PageShell>
+      <PageHero
+        eyebrow="Field ops"
+        title={<>Welcome, {user?.first_name}</>}
+        description="Your operational overview — trips, sell-through, fuel, repairs, and customer base."
+        tone="water"
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="mara-panel p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Trips This Month</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{summary?.this_month.trips ?? 0}</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="mara-panel p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">KM Covered (month)</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{(ops?.this_month.km_covered ?? summary?.this_month.km_covered ?? 0).toLocaleString()}</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="mara-panel p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Collected</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{money(summary?.this_month.total_collected ?? 0)}</p>
         </div>
       </div>
 
       {ops && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <div className="mara-panel p-6">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Sell-through &amp; costs</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
             <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3">
@@ -186,7 +189,7 @@ const DriverPage: React.FC = () => {
       )}
 
       {analytics && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <div className="mara-panel p-6">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">My Analytics</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
@@ -240,7 +243,7 @@ const DriverPage: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <div className="mara-panel p-6">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Customer base</h3>
           <span className="text-xs text-gray-500">{customers.length} shown</span>
@@ -273,7 +276,7 @@ const DriverPage: React.FC = () => {
           </div>
         )}
       </div>
-    </div>
+    </PageShell>
   );
 };
 

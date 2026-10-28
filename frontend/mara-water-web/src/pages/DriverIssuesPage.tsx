@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Plus, X, Send, Paperclip } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero } from '../components/PageShell';
 import { useAuth } from '../contexts/AuthContext';
 
 // Round 4: split out of the old single-page DriverPage.tsx -- own
@@ -90,13 +91,15 @@ const DriverIssuesPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Issues</h1>
-        <p className="text-gray-600 dark:text-gray-400">Report a problem and follow up with Manager/Director</p>
-      </div>
+    <PageShell>
+      <PageHero
+        eyebrow="Field reports"
+        title="Issues"
+        description="Problems you reported from the road."
+        tone="amber"
+      />
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <div className="mara-panel p-6">
         <div className="mb-4 space-y-3">
           <div>
             <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Report a problem</h3>
@@ -190,7 +193,7 @@ const DriverIssuesPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

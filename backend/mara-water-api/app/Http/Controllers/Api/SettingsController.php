@@ -20,7 +20,46 @@ class SettingsController extends Controller
         // Danger Zone gate (Phase 3) -- the reset endpoint checks this
         // server-side too, this isn't just a frontend show/hide flag.
         'danger_zone_unlocked',
+        // Director toggles: lock manager-facing pages/sections (data stays live).
+        'manager_ui_locks',
+        'driver_allow_cash',
     ];
+
+    /** Defaults when a key has never been saved. locked=true → hidden on manager UI. */
+    public static function defaultManagerUiLocks(): array
+    {
+        return [
+            'dashboard' => false,
+            'analytics' => false,
+            'qa' => false,
+            'production' => false,
+            'pricing' => false,
+            'inventory' => false,
+            'inventory_arrivals' => true,
+            'sales' => false,
+            'finance' => false,
+            'finance_invoices' => true,
+            'finance_pettycash' => true,
+            'finance_debtors' => true,
+            'finance_payables' => true,
+            'finance_costing' => true,
+            'payments' => false,
+            'fleet' => true,
+            'hr' => false,
+            'reports' => true,
+            'issues' => false,
+            'discrepancies' => false,
+            // true = cash locked (M-Pesa only).
+            'driver_cash_payment' => true,
+            'manager_cash_payment' => true,
+            'manager_edit_sales' => true,
+            // Unlock = Admin approved temporary edit rights.
+            'manager_edit_sales_7d' => true,
+            'manager_edit_inventory' => true,
+            'manager_edit_production' => true,
+            'manager_fieldwork_mode' => false,
+        ];
+    }
 
     public function __construct(private BackupService $backups)
     {
@@ -28,9 +67,18 @@ class SettingsController extends Controller
 
     public function index()
     {
+        $data = Setting::allAsMap();
+        $locks = is_array($data['manager_ui_locks'] ?? null)
+            ? array_merge(self::defaultManagerUiLocks(), $data['manager_ui_locks'])
+            : self::defaultManagerUiLocks();
+        $data['manager_ui_locks'] = $locks;
+        if (! array_key_exists('driver_allow_cash', $data)) {
+            $data['driver_allow_cash'] = ! ($locks['driver_cash_payment'] ?? false);
+        }
+
         return response()->json([
             'success' => true,
-            'data' => Setting::allAsMap(),
+            'data' => $data,
         ]);
     }
 
@@ -44,6 +92,16 @@ class SettingsController extends Controller
         }
 
         $values = $request->only(self::ALLOWED_KEYS);
+
+        if (array_key_exists('manager_ui_locks', $values) && is_array($values['manager_ui_locks'])) {
+            $values['manager_ui_locks'] = array_merge(
+                self::defaultManagerUiLocks(),
+                array_intersect_key(
+                    $values['manager_ui_locks'],
+                    self::defaultManagerUiLocks()
+                )
+            );
+        }
 
         // Round 5B Phase 8: unlocking Danger Zone requires a fresh backup
         // first — force one if missing, then allow unlock.

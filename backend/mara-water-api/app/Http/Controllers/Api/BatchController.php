@@ -7,6 +7,7 @@ use App\Models\Batch;
 use App\Models\Sku;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\ProductionCapacityService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -167,6 +168,23 @@ class BatchController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * What can still be baled/sold from on-hand bottles, labels, caps, seals, bailing.
+     * Includes depletion alerts (stock left + production left until binding material depletes).
+     */
+    public function capacity(Request $request)
+    {
+        $snapshot = app(ProductionCapacityService::class)->snapshot($request->get('warehouse_id'));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Based on current on-hand packaging (pending purchase orders not counted until landed).',
+            'data' => $snapshot['rows'],
+            'alerts' => $snapshot['alerts'],
+            'summary' => $snapshot['summary'],
+        ]);
     }
 
     /**

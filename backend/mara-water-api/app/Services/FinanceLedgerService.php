@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\DebtorLedgerEntry;
 use App\Models\Invoice;
 use App\Models\PettyCashEntry;
+use App\Models\SupplierLedgerEntry;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -40,6 +41,10 @@ class FinanceLedgerService
         // Open debtor balance (all-time closing) — same query regardless of role.
         $openDebtorBalance = (float) DebtorLedgerEntry::selectRaw('COALESCE(SUM(debit) - SUM(credit), 0) as bal')->value('bal');
 
+        $payableBilled = (float) SupplierLedgerEntry::whereBetween('entry_date', [$from, $to])->sum('credit');
+        $payablePaid = (float) SupplierLedgerEntry::whereBetween('entry_date', [$from, $to])->sum('debit');
+        $openPayableBalance = (float) SupplierLedgerEntry::selectRaw('COALESCE(SUM(credit) - SUM(debit), 0) as bal')->value('bal');
+
         return [
             'date_from' => $from,
             'date_to' => $to,
@@ -60,6 +65,12 @@ class FinanceLedgerService
                 'period_credits' => round($debtorCredits, 2),
                 'period_net' => round($debtorDebits - $debtorCredits, 2),
                 'open_balance' => round($openDebtorBalance, 2),
+            ],
+            'payables' => [
+                'period_billed' => round($payableBilled, 2),
+                'period_paid' => round($payablePaid, 2),
+                'period_net' => round($payableBilled - $payablePaid, 2),
+                'open_balance' => round($openPayableBalance, 2),
             ],
         ];
     }

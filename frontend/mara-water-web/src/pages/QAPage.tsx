@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 import { useAuth } from '../contexts/AuthContext';
 
 interface WaterTest {
@@ -366,33 +367,29 @@ const QAPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <PageShell>
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Quality Assurance</h1>
-          <p className="text-gray-600 dark:text-gray-400">Water tests, production batches, and the warehouse audit</p>
-        </div>
-        <div className="flex space-x-3">
-          <button
-            onClick={() => setShowWaterTestForm(true)}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Water Test
-          </button>
-          <button
-            onClick={() => setShowBatchForm(true)}
-            className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Batch
-          </button>
-        </div>
-      </div>
+      <PageHero
+        eyebrow="Water tests"
+        title="Quality"
+        description="QA checks and non-conformances."
+        tone="amber"
+        actions={
+          <>
+            <HeroButton onClick={() => setShowWaterTestForm(true)} variant="solid">
+              <Plus className="w-4 h-4 mr-2" />
+              New Water Test
+            </HeroButton>
+            <HeroButton onClick={() => setShowBatchForm(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              New Batch
+            </HeroButton>
+          </>
+        }
+      />
 
       {/* Tabs */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+      <div className="mara-panel">
         <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex space-x-8 px-6">
             <button
@@ -422,7 +419,7 @@ const QAPage: React.FC = () => {
       <>
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <TestTube className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
@@ -431,7 +428,7 @@ const QAPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <CheckCircle className="w-8 h-8 text-green-600" />
             <div className="ml-4">
@@ -442,7 +439,7 @@ const QAPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <XCircle className="w-8 h-8 text-red-600" />
             <div className="ml-4">
@@ -453,7 +450,7 @@ const QAPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <BarChart3 className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
@@ -467,7 +464,7 @@ const QAPage: React.FC = () => {
       </div>
 
       {/* Search and Filters */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+      <div className="mara-stat">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <div className="relative">
@@ -505,7 +502,7 @@ const QAPage: React.FC = () => {
       </div>
 
       {/* Water Tests Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+      <div className="mara-panel overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Recent Water Tests</h3>
         </div>
@@ -580,7 +577,7 @@ const QAPage: React.FC = () => {
           ) : (
           <>
           {/* Critical Gaps -- ranked by what actually blocks production */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <div className="mara-panel">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 flex items-center">
                 <AlertTriangle className="w-5 h-5 text-red-500 mr-2" />
@@ -609,7 +606,7 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* Round 5B Phase 1: stock arrivals linked to Warehouse Audit quality */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <div className="mara-panel">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Stock Receipt Quality</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Every purchase batch and its Warehouse Audit quality status. Pending/failed receipts are held off usable stock.</p>
@@ -649,7 +646,7 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* Packaging materials stock watch */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+          <div className="mara-panel overflow-x-auto">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Packaging Materials Stock Watch</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Labels, seals (bottle vs. refill jerrican), stickers, bailing papers. Edit reorder levels in Production &gt; Materials.</p>
@@ -677,7 +674,7 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* Chemicals & water testing log */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+          <div className="mara-panel overflow-x-auto">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Chemicals & Water Testing Log</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Chlorine stock and expiry. Edit stock/expiry in Production &gt; Materials.</p>
@@ -705,7 +702,7 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* PPE tracking */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+          <div className="mara-panel overflow-x-auto">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">PPE Tracking</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Gunboots, raincoats, hair coverings -- against active headcount from HR.</p>
@@ -735,7 +732,7 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* Stationery stock */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+          <div className="mara-panel overflow-x-auto">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Stationery Stock</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Receipt books, delivery books, invoice books.</p>
@@ -763,7 +760,7 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* Equipment & machinery log */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+          <div className="mara-panel overflow-x-auto">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Equipment & Machinery Log</h3>
@@ -807,7 +804,7 @@ const QAPage: React.FC = () => {
           </div>
 
           {/* Test equipment */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+          <div className="mara-panel overflow-x-auto">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Test Equipment</h3>
@@ -1122,7 +1119,7 @@ const QAPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

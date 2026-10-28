@@ -75,7 +75,7 @@ const CustomerDetailPage: React.FC = () => {
         <ArrowLeft className="w-4 h-4 mr-1" /> Back to Customers
       </Link>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <div className="mara-panel p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{customer.name}</h1>
@@ -91,26 +91,26 @@ const CustomerDetailPage: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="mara-panel p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Lifetime Purchases</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">KES {(stats?.lifetime_purchases ?? 0).toLocaleString()}</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="mara-panel p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Debt Outstanding</p>
           <p className={`text-2xl font-bold ${customer.debtor_balance > 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>KES {(customer.debtor_balance ?? 0).toLocaleString()}</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="mara-panel p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Last Purchase</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.last_purchase_date ? new Date(stats.last_purchase_date).toLocaleDateString() : '—'}</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="mara-panel p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Preferred Payment</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 capitalize">{stats?.preferred_payment_method?.replace('_', ' ') || '—'}</p>
         </div>
       </div>
 
       {stats && Object.keys(stats.payment_method_breakdown).length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <div className="mara-panel p-6">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Payment Method Breakdown (by number of sales)</h3>
           <div className="flex flex-wrap gap-4">
             {Object.entries(stats.payment_method_breakdown).map(([method, count]) => (
@@ -124,7 +124,7 @@ const CustomerDetailPage: React.FC = () => {
       )}
 
       {chartData.length > 1 && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <div className="mara-panel p-6">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Purchases Over Time</h3>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={chartData}>
@@ -138,7 +138,7 @@ const CustomerDetailPage: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+      <div className="mara-panel">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700"><h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Purchase History</h3></div>
         <div className="p-6">
           {history.length === 0 ? (

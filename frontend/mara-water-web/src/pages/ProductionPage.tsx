@@ -5,12 +5,16 @@ import {
   Search,
   Package,
   Calendar,
-  CheckCircle,
   ChevronLeft,
   Trash2,
+  AlertTriangle,
+  Gauge,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { usePermissions } from '../contexts/AuthContext';
+import { PageShell, PageHero, HeroButton } from '../components/PageShell';
+import { CONTACT_ADMIN_MSG } from '../utils/managerLocks';
 
 interface Sku {
   id: string;
@@ -71,15 +75,63 @@ interface DailyDetail {
   skus: DailySkuRow[];
 }
 
+interface CapacityRow {
+  size: string;
+  size_liters: number;
+  bottles_per_bale: number;
+  uses_bailing: boolean;
+  labels_on_hand: number;
+  bailing_on_hand: number | null;
+  bailing_display?: string;
+  bottles_on_hand: number;
+  caps_on_hand: number;
+  seals_on_hand: number;
+  binding_constraint: string;
+  bales_possible: number;
+  bottles_possible: number;
+  production_left?: { bales: number; bottles: number; until: string | null };
+}
+
+interface CapacityAlert {
+  level: 'critical' | 'warning' | 'info';
+  size: string;
+  code: string;
+  message: string;
+  bales_left: number;
+  stock?: {
+    labels: number;
+    bailing: number | null;
+    bottles: number;
+    caps: number;
+    seals: number;
+  };
+}
+
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const ProductionPage: React.FC = () => {
   const [searchParams] = useSearchParams();
+  const { isDirector, accessTier } = usePermissions();
+  const director = isDirector() || accessTier() === 'director';
+  const [canEditProduction, setCanEditProduction] = useState(director);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState('daily');
+  const [activeTab, setActiveTab] = useState('capacity');
   const [showBatchForm, setShowBatchForm] = useState(false);
   const [submittingBatch, setSubmittingBatch] = useState(false);
+
+  useEffect(() => {
+    if (director) {
+      setCanEditProduction(true);
+      return;
+    }
+    api.get('/settings')
+      .then((res) => {
+        const locks = res.data?.data?.manager_ui_locks || {};
+        setCanEditProduction(locks.manager_edit_production === false);
+      })
+      .catch(() => setCanEditProduction(false));
+  }, [director]);
 
   const [skus, setSkus] = useState<Sku[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -91,6 +143,9 @@ const ProductionPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [dayDetail, setDayDetail] = useState<DailyDetail | null>(null);
   const [dayLoading, setDayLoading] = useState(false);
+  const [capacityRows, setCapacityRows] = useState<CapacityRow[]>([]);
+  const [capacityAlerts, setCapacityAlerts] = useState<CapacityAlert[]>([]);
+  const [capacitySummary, setCapacitySummary] = useState<{ total_bales_possible?: number; sizes_blocked?: number; rules?: Record<string, string> } | null>(null);
 
   const [batchForm, setBatchForm] = useState({
     sku_id: '',
@@ -102,11 +157,12 @@ const ProductionPage: React.FC = () => {
     const q = searchParams.get('q');
     if (q) setSearchTerm(q);
     const tab = searchParams.get('tab');
-    if (tab === 'materials' || tab === 'bom' || tab === 'daily') setActiveTab(tab);
+    if (tab === 'materials' || tab === 'bom' || tab === 'daily' || tab === 'capacity') setActiveTab(tab);
   }, [searchParams]);
 
   useEffect(() => {
     fetchDaily();
+    fetchCapacity();
     api.get('/fleet/skus').then(res => setSkus(res.data.data)).catch(() => {});
     api.get('/production/materials').then(res => setMaterials(res.data.data)).catch(() => {});
   }, []);
@@ -125,6 +181,17 @@ const ProductionPage: React.FC = () => {
       toast.error('Failed to fetch daily production');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCapacity = async () => {
+    try {
+      const res = await api.get('/production/capacity');
+      setCapacityRows(res.data.data || []);
+      setCapacityAlerts(res.data.alerts || []);
+      setCapacitySummary(res.data.summary || null);
+    } catch {
+      /* capacity endpoint may be deploying */
     }
   };
 
@@ -153,12 +220,13 @@ const ProductionPage: React.FC = () => {
         planned_qty: Number(batchForm.planned_qty),
         manufacture_date: mfgDate,
       });
-      toast.success('Batch recorded — warehouse stock updated');
-      const warnings = res.data?.data?.material_warnings || [];
-      warnings.forEach((w: { message: string }) => toast.error(w.message, { duration: 8000 }));
+      toast.success('Batch recorded — packaging deducted from inventory');
+      // Do not toast material_warnings (negative balances). Production must
+      // never block or scare the operator; capacity/alerts live on the Capacity tab.
       setShowBatchForm(false);
       setBatchForm({ sku_id: '', planned_qty: '', manufacture_date: todayIso() });
       await fetchDaily();
+      await fetchCapacity();
       if (selectedDate === mfgDate) {
         await openDay(mfgDate);
       }
@@ -213,7 +281,7 @@ const ProductionPage: React.FC = () => {
   const recentDays = dailyDays.slice(0, 7);
   const weekTotal = recentDays.reduce((s, d) => s + (d.total_bales || 0), 0);
 
-  if (loading) {
+  if (loading && dailyDays.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -222,23 +290,28 @@ const ProductionPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Production</h1>
-          <p className="text-gray-600 dark:text-gray-400">Log daily batches by SKU — stock updates automatically</p>
-        </div>
-        <button
-          onClick={() => setShowBatchForm(true)}
-          className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          New Batch
-        </button>
-      </div>
+    <PageShell>
+      <PageHero
+        eyebrow="Batches · packaging"
+        title="Production"
+        description="Each bale deducts bottles, labels, caps, seals, and bailing paper from inventory."
+        actions={
+          (director || canEditProduction) ? (
+            <HeroButton onClick={() => setShowBatchForm(true)} variant="solid">
+              <Plus className="w-4 h-4 mr-2" />
+              New Batch
+            </HeroButton>
+          ) : undefined
+        }
+      />
+      {!director && !canEditProduction && (
+        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2">
+          {CONTACT_ADMIN_MSG}
+        </p>
+      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="mara-stat">
           <div className="flex items-center">
             <Package className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
@@ -247,7 +320,7 @@ const ProductionPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <Calendar className="w-8 h-8 text-indigo-600" />
             <div className="ml-4">
@@ -256,21 +329,69 @@ const ProductionPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
-            <CheckCircle className="w-8 h-8 text-green-600" />
+            <Gauge className="w-8 h-8 text-sky-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Production days</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dailyDays.length}</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Bales still possible</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                {Number(capacitySummary?.total_bales_possible ?? 0).toLocaleString()}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="mara-stat">
+          <div className="flex items-center">
+            <AlertTriangle className={`w-8 h-8 ${(capacitySummary?.sizes_blocked || 0) > 0 ? 'text-red-600' : 'text-green-600'}`} />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Sizes blocked</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{capacitySummary?.sizes_blocked ?? 0}</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+      {capacityAlerts.length > 0 && (
+        <div className="mara-panel p-4 space-y-2 border-l-4 border-amber-500">
+          <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            Stock &amp; production runway
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Production left until the binding material depletes. Pending orders are not counted until received.
+          </p>
+          <ul className="space-y-1.5">
+            {capacityAlerts.map((a) => (
+              <li
+                key={`${a.size}-${a.code}`}
+                className={`text-sm rounded-md px-3 py-2 ${
+                  a.level === 'critical'
+                    ? 'bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-200'
+                    : 'bg-amber-50 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100'
+                }`}
+              >
+                <span className="font-medium">{a.message}</span>
+                {a.stock && (
+                  <span className="block text-xs mt-0.5 opacity-80">
+                    Stock left — labels {Number(a.stock.labels).toLocaleString()}
+                    {a.stock.bailing != null ? ` · bailing ${Number(a.stock.bailing).toLocaleString()}` : ''}
+                    {' · '}bottles {Number(a.stock.bottles).toLocaleString()}
+                    {' · '}caps {Number(a.stock.caps).toLocaleString()}
+                    {' · '}seals {Number(a.stock.seals).toLocaleString()}
+                    {a.bales_left > 0 ? ` · ${a.bales_left} bales left` : ''}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mara-panel">
         <div className="border-b border-gray-200 dark:border-gray-700">
-          <nav className="flex space-x-8 px-6">
+          <nav className="flex space-x-8 px-6 overflow-x-auto">
             {[
+              { id: 'capacity', label: 'Capacity & stock' },
               { id: 'daily', label: 'Daily Production' },
               { id: 'materials', label: `Materials (${materials.length})` },
               { id: 'bom', label: 'Bill of Materials' },
@@ -302,6 +423,67 @@ const ProductionPage: React.FC = () => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'capacity' && (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Based on current on-hand bottles, labels, caps, seals and bailing paper
+                (nothing from pending orders counts until landed). Per bottle: 1 label + 1 cap + 1 seal.
+                Bailing: 1 sheet = 24×0.5L, 12×1L / 1.5L, 4×5L; 10L / 20L not baled.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Labels</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bailing</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bottles</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Caps</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Seals</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Binding</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bales left</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bottles left</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {capacityRows.map((row) => (
+                      <tr key={row.size} className={row.bales_possible <= 0 ? 'bg-red-50/60 dark:bg-red-900/10' : ''}>
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{row.size}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{Number(row.labels_on_hand).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
+                          {row.uses_bailing
+                            ? (Number(row.bailing_on_hand || 0) > 500
+                              ? 'More than enough'
+                              : `${Number(row.bailing_on_hand || 0).toLocaleString()} sheets`)
+                            : 'Not baled'}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{Number(row.bottles_on_hand).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{Number(row.caps_on_hand).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{Number(row.seals_on_hand).toLocaleString()}</td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                            row.bales_possible <= 0 ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-900'
+                          }`}>
+                            {row.binding_constraint}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-gray-900 dark:text-gray-100">{Number(row.bales_possible).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{Number(row.bottles_possible).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                    {capacityRows.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                          No capacity data yet — packaging stock will appear after sync.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -431,7 +613,7 @@ const ProductionPage: React.FC = () => {
           {activeTab === 'materials' && (
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                Display only — receive stock arrivals on Inventory. Production deducts these via each SKU&apos;s bill of materials.
+                Display only. To record arrivals or correct counts for labels, bailing papers and bottles, use Inventory → Stock arrival / Correct stock. Production deducts these via each product&apos;s bill of materials.
               </p>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -624,7 +806,7 @@ const ProductionPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

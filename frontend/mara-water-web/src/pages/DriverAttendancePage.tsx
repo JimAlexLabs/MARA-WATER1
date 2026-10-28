@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Clock, LogIn, LogOut } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero } from '../components/PageShell';
 import { useAuth } from '../contexts/AuthContext';
 
 // Daily check-in for the field phone. The logged-in person is the
@@ -107,11 +108,13 @@ const DriverAttendancePage: React.FC = () => {
   const selfIn = meToday.clocked_in && !meToday.clocked_out;
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Check in</h1>
-        <p className="text-gray-600 dark:text-gray-400">One tap for you. Then check in anyone else on the trip.</p>
-      </div>
+    <PageShell>
+      <PageHero
+        eyebrow="Clock"
+        title="Check in"
+        description="Check in and out for the day."
+        tone="ink"
+      />
 
       <div className={`rounded-2xl p-5 shadow ${selfDone ? 'bg-gray-100 dark:bg-gray-800' : selfIn ? 'bg-green-50 dark:bg-green-950/40 border-2 border-green-600' : 'bg-white dark:bg-gray-800 border-2 border-blue-600'}`}>
         <div className="flex items-center gap-3 mb-4">
@@ -181,7 +184,7 @@ const DriverAttendancePage: React.FC = () => {
       {fieldTeam.length === 0 && (
         <p className="text-sm text-gray-500 dark:text-gray-400">No teammates listed yet. Your Director assigns Driver, Sales, and Field Work under Users.</p>
       )}
-    </div>
+    </PageShell>
   );
 };
 

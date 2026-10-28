@@ -259,6 +259,7 @@ class AdminController extends Controller
             'stock_moves' => 'created_at',
             'petty_cash_entries' => 'entry_date',
             'debtor_ledger_entries' => 'entry_date',
+            'supplier_ledger_entries' => 'entry_date',
             'driver_trips' => 'trip_date',
             'attendances' => 'date',
             'fuel_logs' => 'log_date',

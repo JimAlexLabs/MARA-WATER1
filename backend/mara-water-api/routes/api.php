@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\SkuController;
 use App\Http\Controllers\Api\ChartOfAccountController;
 use App\Http\Controllers\Api\PettyCashController;
 use App\Http\Controllers\Api\DebtorLedgerController;
+use App\Http\Controllers\Api\SupplierLedgerController;
 use App\Http\Controllers\Api\CostingController;
 use App\Http\Controllers\Api\FinanceController;
 use App\Http\Controllers\Api\HrSecureController;
@@ -68,6 +69,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/auth/profile', [AuthController::class, 'me'])->middleware('auth:sanctum');
     Route::match(['put', 'patch'], '/auth/profile', [AuthController::class, 'updateProfile'])->middleware('auth:sanctum');
     Route::post('/auth/refresh', [AuthController::class, 'refresh'])->middleware('auth:sanctum');
+    Route::get('/auth/sessions', [AuthController::class, 'activeSessions'])->middleware(['auth:sanctum', 'tier:director']);
 
     // Safaricom / AfriGig callbacks — no MARA login. Signature / CheckoutRequestID verified in controller.
     Route::post('/payments/daraja/callback', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'darajaCallback']);
@@ -124,6 +126,10 @@ Route::prefix('v1')->group(function () {
             Route::get('/restart-plan', [\App\Http\Controllers\Api\DirectorRestartPlanController::class, 'show']);
             Route::put('/restart-plan', [\App\Http\Controllers\Api\DirectorRestartPlanController::class, 'update']);
             Route::post('/restart-plan/reset', [\App\Http\Controllers\Api\DirectorRestartPlanController::class, 'reset']);
+
+            // Hypothesis Model (Intripet / wages / transport / payroll) + Excel download.
+            Route::get('/hypothesis', [\App\Http\Controllers\Api\HypothesisModelController::class, 'show']);
+            Route::get('/hypothesis/export', [\App\Http\Controllers\Api\HypothesisModelController::class, 'export']);
         });
 
         Route::middleware('tier:driver,manager,director')->prefix('payments')->group(function () {
@@ -257,6 +263,8 @@ Route::prefix('v1')->group(function () {
         Route::middleware('tier:manager,director')->prefix('production')->group(function () {
             // Ops brief §4: daily production rollup (date list + date drill-down).
             Route::get('/daily', [BatchController::class, 'daily']);
+            // Packaging runway: labels/caps/seals/bailing/bottles → bales left + alerts.
+            Route::get('/capacity', [BatchController::class, 'capacity']);
 
             Route::get('/packaging-runs/statistics', [PackagingRunController::class, 'statistics']);
             Route::get('/packaging-runs/batch/{batchId}', [PackagingRunController::class, 'byBatch']);
@@ -330,6 +338,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/orders/{id}', [OrderController::class, 'show']);
             Route::put('/orders/{id}', [OrderController::class, 'update']);
             Route::delete('/orders/{id}', [OrderController::class, 'destroy']);
+            Route::put('/field-sales/{id}', [OrderController::class, 'updateFieldSale']);
+            Route::delete('/field-sales/{id}', [OrderController::class, 'destroyFieldSale']);
             Route::put('/orders/{id}/status', [OrderController::class, 'updateStatus']);
 
             // Reference lists the Log-a-Sale form reads from. Fixed
@@ -420,6 +430,12 @@ Route::prefix('v1')->group(function () {
             Route::get('/debtors/{customerId}/open-debts', [DebtorLedgerController::class, 'openDebts']);
             Route::post('/debtors/ledger', [DebtorLedgerController::class, 'store']);
             Route::post('/debtors/debts/{debtId}/pay', [DebtorLedgerController::class, 'recordPayment']);
+
+            // Creditors / payables ledger.
+            Route::get('/payables', [SupplierLedgerController::class, 'summary']);
+            Route::get('/payables/supplier/{supplierName}', [SupplierLedgerController::class, 'bySupplier']);
+            Route::post('/payables', [SupplierLedgerController::class, 'store']);
+            Route::delete('/payables/{id}', [SupplierLedgerController::class, 'destroy']);
 
             // Costing & P&L (Phase 9).
             Route::get('/costing/per-bottle', [CostingController::class, 'perBottleCost']);
@@ -527,6 +543,7 @@ Route::prefix('v1')->group(function () {
         // as every other Director-only route in this file).
         Route::middleware('tier:director')->prefix('fleet')->group(function () {
             Route::post('/trips/{id}/unlock', [DriverTripController::class, 'unlock']);
+            Route::delete('/trips/{tripId}/sales/{saleId}', [DriverTripController::class, 'deleteSale']);
         });
 
         // HR routes -- clock-in/out is every employee's own action

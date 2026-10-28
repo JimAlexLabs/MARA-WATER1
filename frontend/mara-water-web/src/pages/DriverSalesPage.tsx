@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Phone, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero } from '../components/PageShell';
 
 type SalePaymentMethod = 'cash' | 'mpesa' | 'debt' | 'pay_direct';
 interface SaleLine { sku_name: string; qty_bales: number; unit_price: number; }
@@ -53,11 +53,13 @@ const DriverSalesPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Sales</h1>
-        <p className="text-gray-600 dark:text-gray-400">Tap a customer to see their phone, shop type, and what they bought. New sales start on <Link to="/driver/trips" className="text-blue-600 font-medium">Trips</Link>.</p>
-      </div>
+    <PageShell>
+      <PageHero
+        eyebrow="Field sales"
+        title="Sales"
+        description="Tap a customer for phone, shop type, and what they bought."
+        tone="water"
+      />
 
       <div className="flex gap-2">
         <button onClick={() => setMySalesFilter('all')} className={`min-h-12 flex-1 rounded-xl text-base font-semibold ${mySalesFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600'}`}>Paid sales</button>
@@ -151,7 +153,7 @@ const DriverSalesPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

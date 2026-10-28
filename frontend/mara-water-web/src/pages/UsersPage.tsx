@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 
 interface Role { id: string; code: string; name: string; }
 interface Department { id: string; code: string; name: string; }
@@ -86,12 +87,25 @@ const UsersPage: React.FC = () => {
   const [bulkPreview, setBulkPreview] = useState<Record<string, string>[]>([]);
   const [bulkResult, setBulkResult] = useState<{ created: any[]; errors: any[] } | null>(null);
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [sessions, setSessions] = useState<{
+    counts_by_dashboard: Record<string, number>;
+    sessions: Array<{
+      name?: string; email?: string; dashboard_tier?: string; device_info?: string;
+      last_seen_at?: string; logged_in_at?: string; ip?: string;
+    }>;
+  } | null>(null);
 
   useEffect(() => {
     fetchData();
     api.get('/users/roles').then(res => setRoles(res.data.data)).catch(() => {});
     api.get('/users/departments').then(res => setDepartments(res.data.data)).catch(() => {});
     api.get('/hr/salary-templates').then(res => setSalaryTemplates(res.data.data)).catch(() => {});
+    const loadSessions = () => {
+      api.get('/auth/sessions').then((res) => setSessions(res.data.data)).catch(() => {});
+    };
+    loadSessions();
+    const t = setInterval(loadSessions, 60000);
+    return () => clearInterval(t);
   }, []);
 
   const fetchData = async () => {
@@ -157,13 +171,27 @@ const UsersPage: React.FC = () => {
   };
 
   const handleDelete = async (u: User) => {
-    if (!window.confirm(`Remove ${u.first_name} ${u.last_name}? This can't be undone.`)) return;
+    if (!window.confirm(`Remove ${u.first_name} ${u.last_name}? They will be deactivated and hidden from the roster. History is kept.`)) return;
     try {
       await api.delete(`/users/${u.id}`);
       toast.success('Employee removed');
       fetchData();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to remove employee');
+      toast.error(error.response?.data?.message || error.response?.data?.error || 'Failed to remove employee');
+    }
+  };
+
+  const quickSetStatus = async (u: User, status: 'active' | 'inactive' | 'suspended') => {
+    const label = status === 'suspended'
+      ? `Suspend ${u.first_name}? They will see “Contact Admin” and cannot open their dashboard.`
+      : `Set ${u.first_name} to ${status}?`;
+    if (!window.confirm(label)) return;
+    try {
+      await api.put(`/users/${u.id}`, { status });
+      toast.success(status === 'suspended' ? 'User suspended' : `Status → ${status}`);
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to update status');
     }
   };
 
@@ -249,34 +277,68 @@ const UsersPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <PageShell>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Employees</h1>
-          <p className="text-gray-600 dark:text-gray-400">Staff records used across Fleet, Sales, and HR — not just system logins</p>
+      <PageHero
+        eyebrow="People · access"
+        title="Employees"
+        description="Staff roster, roles, and access."
+        tone="ink"
+        actions={
+          <>
+            <HeroButton onClick={() => setShowBulkImport(true)}>
+              <Upload className="w-4 h-4 mr-2" />
+              Bulk Import
+            </HeroButton>
+            <HeroButton onClick={openNewForm} variant="solid">
+              <Plus className="w-4 h-4 mr-2" />
+              New Employee
+            </HeroButton>
+          </>
+        }
+      />
+
+      {sessions && (
+        <div className="mara-panel p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Live logins (last 24h)</h3>
+          <div className="flex flex-wrap gap-3 text-sm">
+            {Object.entries(sessions.counts_by_dashboard || {}).map(([tier, n]) => (
+              <span key={tier} className="rounded-full bg-sky-50 dark:bg-sky-900/30 text-sky-900 dark:text-sky-100 px-3 py-1">
+                {tier}: <strong>{n}</strong>
+              </span>
+            ))}
+            {Object.keys(sessions.counts_by_dashboard || {}).length === 0 && (
+              <span className="text-gray-500">No active sessions</span>
+            )}
+          </div>
+          <div className="overflow-x-auto max-h-40">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-500">
+                  <th className="pr-3 py-1">User</th>
+                  <th className="pr-3 py-1">Dashboard</th>
+                  <th className="pr-3 py-1">Device</th>
+                  <th className="pr-3 py-1">Last seen</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {(sessions.sessions || []).slice(0, 20).map((s, i) => (
+                  <tr key={i}>
+                    <td className="pr-3 py-1.5">{s.name || s.email}</td>
+                    <td className="pr-3 py-1.5">{s.dashboard_tier}</td>
+                    <td className="pr-3 py-1.5">{s.device_info}</td>
+                    <td className="pr-3 py-1.5">{s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div className="flex space-x-3">
-          <button
-            onClick={() => setShowBulkImport(true)}
-            className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
-          >
-            <Upload className="w-4 h-4 mr-2" />
-            Bulk Import
-          </button>
-          <button
-            onClick={openNewForm}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Employee
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <Users className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
@@ -285,7 +347,7 @@ const UsersPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <CheckCircle className="w-8 h-8 text-green-600" />
             <div className="ml-4">
@@ -296,7 +358,7 @@ const UsersPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <Shield className="w-8 h-8 text-purple-600" />
             <div className="ml-4">
@@ -307,7 +369,7 @@ const UsersPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="mara-stat">
           <div className="flex items-center">
             <XCircle className="w-8 h-8 text-red-600" />
             <div className="ml-4">
@@ -321,7 +383,7 @@ const UsersPage: React.FC = () => {
       </div>
 
       {/* Users Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+      <div className="mara-panel">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Employees</h3>
         </div>
@@ -393,10 +455,27 @@ const UsersPage: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex items-center space-x-3">
-                        <button onClick={() => openEditForm(user)} className="text-green-600 hover:text-green-900">
+                        <button onClick={() => openEditForm(user)} className="text-green-600 hover:text-green-900" title="Edit">
                           <Edit className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleDelete(user)} className="text-red-600 hover:text-red-900">
+                        {user.status === 'suspended' ? (
+                          <button
+                            onClick={() => quickSetStatus(user, 'active')}
+                            className="text-emerald-700 hover:text-emerald-900 text-xs font-medium"
+                            title="Unsuspend"
+                          >
+                            Unsuspend
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => quickSetStatus(user, 'suspended')}
+                            className="text-amber-700 hover:text-amber-900 text-xs font-medium"
+                            title="Suspend — blocks dashboard login"
+                          >
+                            Suspend
+                          </button>
+                        )}
+                        <button onClick={() => handleDelete(user)} className="text-red-600 hover:text-red-900" title="Delete">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -684,7 +763,7 @@ const UsersPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

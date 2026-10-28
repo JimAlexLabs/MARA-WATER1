@@ -36,7 +36,6 @@ const HRPage = lazy(() => import('./pages/HRPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const IssuesPage = lazy(() => import('./pages/IssuesPage'));
 const DiscrepanciesPage = lazy(() => import('./pages/DiscrepanciesPage'));
-const MpesaPaymentsPage = lazy(() => import('./pages/MpesaPaymentsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const UsersPage = lazy(() => import('./pages/UsersPage'));
 
@@ -104,7 +103,13 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 // home, or an anonymous visitor to login.
 const HomeRedirect: React.FC = () => {
   const { user, loading } = useAuth();
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+      </div>
+    );
+  }
   return <Navigate to={user ? homeRouteFor(user.role?.access_tier) : '/login'} replace />;
 };
 

@@ -106,7 +106,7 @@ class DriverTripController extends Controller
             'driver_id' => 'required|exists:users,id',
             'vehicle_id' => 'required|exists:vehicles,id',
             'route' => 'required|string|max:255',
-            'warehouse_id' => 'required|exists:warehouses,id',
+            'warehouse_id' => 'nullable|exists:warehouses,id',
             'location_id' => 'nullable|exists:locations,id',
             'mileage_start' => 'required|integer|min:0',
             'authorizing_officer_id' => 'required|exists:users,id',
@@ -121,14 +121,24 @@ class DriverTripController extends Controller
             return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
-        $trip = DB::transaction(function () use ($request) {
+        $warehouseId = $request->warehouse_id
+            ?: \App\Models\Warehouse::whereNull('deleted_at')
+                ->where(function ($q) {
+                    $q->where('code', 'like', '%MAIN%')->orWhere('name', 'like', '%Main%');
+                })->value('id')
+            ?: \App\Models\Warehouse::whereNull('deleted_at')->value('id');
+        if (! $warehouseId) {
+            return response()->json(['success' => false, 'message' => 'No Main warehouse configured'], 422);
+        }
+
+        $trip = DB::transaction(function () use ($request, $warehouseId) {
             $trip = DriverTrip::create([
                 'trip_date' => now()->toDateString(),
                 'driver_id' => $request->driver_id,
                 'vehicle_id' => $request->vehicle_id,
                 'route' => $request->route,
-                'warehouse_id' => $request->warehouse_id,
-                'location_id' => $request->location_id,
+                'warehouse_id' => $warehouseId,
+                'location_id' => null,
                 'status' => 'pending_departure',
                 'mileage_start' => $request->mileage_start,
                 'authorizing_officer_id' => $request->authorizing_officer_id,
@@ -267,26 +277,10 @@ class DriverTripController extends Controller
             return response()->json(['success' => false, 'message' => 'Add at least one dispatched item before starting the trip'], 422);
         }
 
-        $stockWarnings = [];
-        DB::transaction(function () use ($trip, &$stockWarnings) {
-            $inventoryController = new InventoryController();
-
-            foreach ($trip->items as $item) {
-                if ($item->qty_carried_bales <= 0) {
-                    continue;
-                }
-                // Round 4 Phase 1: bales are the atomic unit for
-                // finished-goods stock movement from Production onward --
-                // no bottle-to-bale conversion factor exists (and Round 3
-                // deliberately didn't invent one), so this deducts the
-                // dispatched bale count directly rather than the
-                // now-unused bottle count.
-                $stockWarnings = array_merge(
-                    $stockWarnings,
-                    $inventoryController->deductStock($item->sku_id, $item->sku, $trip->warehouse_id, $item->qty_carried_bales, 'driver_trip', $trip->id, 'BALE')
-                );
-            }
-
+        // Warehouse inventory is NOT deducted at start. Dispatch sheet tracks
+        // carried vs sold (paid); warehouse stock issues only on End Trip for
+        // paid/sold bales. Walk-in (admin/manager) still deducts immediately.
+        DB::transaction(function () use ($trip) {
             $trip->update([
                 'status' => 'in_transit',
                 'time_out' => now()->format('H:i:s'),
@@ -297,9 +291,9 @@ class DriverTripController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Trip started -- dispatch is now locked',
+            'message' => 'Trip started -- dispatch is now locked (warehouse stock deducts when you end the trip)',
             'data' => $trip->fresh(self::WITH),
-            'stock_warnings' => $stockWarnings,
+            'stock_warnings' => [],
         ]);
     }
 
@@ -323,28 +317,20 @@ class DriverTripController extends Controller
             return response()->json(['success' => false, 'message' => 'Sales can only be recorded on a trip that is in transit'], 422);
         }
 
+        $allowCash = (bool) (\App\Models\Setting::allAsMap()['driver_allow_cash']
+            ?? ! ((\App\Models\Setting::allAsMap()['manager_ui_locks']['driver_cash_payment'] ?? false)));
+        $paymentRules = $allowCash ? 'required|in:cash,mpesa' : 'required|in:mpesa';
+
         $validator = Validator::make($request->all(), [
-            'customer_id' => 'required|exists:customers,id',
-            'payment_method' => 'required|in:cash,mpesa',
+            'customer_id' => 'nullable|exists:customers,id',
+            'buyer_name' => 'required_without:customer_id|nullable|string|max:150',
+            'buyer_phone' => 'nullable|string|max:20',
+            'payment_method' => $paymentRules,
             'stk_phone' => 'required_if:payment_method,mpesa|nullable|string|max:20',
-            // Dual-purpose: M-Pesa code for 'mpesa', QR/reference note for
-            // 'pay_direct' -- see DriverTripSale model docblock.
             'mpesa_reference' => 'nullable|string|max:100',
-            'debt_signatory' => 'required_if:payment_method,debt|nullable|string|max:150',
-            'debt_expected_repayment_date' => 'required_if:payment_method,debt|nullable|date',
-            // Round 3 Phase 3: optional paper-book cross-reference -- the
-            // driver keeps writing the physical receipt/delivery note as
-            // today, this just lets the number also be looked up here.
             'physical_receipt_no' => 'nullable|string|max:50',
             'physical_delivery_note_no' => 'nullable|string|max:50',
-            // Round 5A Phase 3: optional proof-of-delivery photo -- the
-            // frontend uploads via /files/upload first and passes back
-            // just the resulting URL, same pattern as Issue photos.
-            'photo_url' => 'nullable|url|max:500',
-            // Round 4 Phase 0/4: line items are mandatory, price is keyed
-            // per line, and the sale total is never typed in separately --
-            // it's always the computed sum of these (see below). This is
-            // the fix for the double-entry that caused mismatches.
+            'photo_url' => 'nullable|string|max:500',
             'items' => 'required|array|min:1',
             'items.*.sku_id' => 'required|exists:skus,id',
             'items.*.qty_bales' => 'required|numeric|min:0.01',
@@ -355,12 +341,56 @@ class DriverTripController extends Controller
             return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
-        if ($request->payment_method === 'mpesa' && $request->filled('stk_phone')) {
+        if (! $allowCash && $request->payment_method === 'cash') {
+            return response()->json(['success' => false, 'message' => 'Cash field sales are locked by Admin — use M-Pesa prompt.'], 403);
+        }
+
+        $phoneForBuyer = $request->input('stk_phone') ?: $request->input('buyer_phone');
+        if ($request->payment_method === 'mpesa' && $phoneForBuyer) {
             try {
-                \App\Services\MpesaStkService::normalizePhone($request->stk_phone);
+                $normalized = \App\Services\MpesaStkService::normalizePhone($phoneForBuyer);
+                $request->merge(['stk_phone' => $normalized, 'buyer_phone' => $request->input('buyer_phone') ?: $normalized]);
             } catch (\InvalidArgumentException $e) {
                 return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
             }
+        }
+
+        // Resolve or auto-create customer from name + phone (fieldwork simple path).
+        $customerId = $request->customer_id;
+        if (! $customerId) {
+            $phone = $request->input('buyer_phone') ?: $request->input('stk_phone');
+            $name = trim((string) $request->buyer_name);
+            if ($phone) {
+                $digits = preg_replace('/\D+/', '', (string) $phone) ?? '';
+                $existing = \App\Models\Customer::query()
+                    ->whereNull('deleted_at')
+                    ->where(function ($q) use ($name, $digits, $phone) {
+                        $q->where('name', $name);
+                        if ($digits !== '') {
+                            $q->orWhere('phone', 'like', '%'.substr($digits, -9).'%');
+                        }
+                    })
+                    ->first();
+                if ($existing) {
+                    $customerId = $existing->id;
+                }
+            }
+            if (! $customerId) {
+                $customer = \App\Models\Customer::create([
+                    'code' => 'CUST-'.strtoupper(\Illuminate\Support\Str::random(6)),
+                    'name' => $name,
+                    'type' => 'retail',
+                    'phone' => $phone ?: 'N/A',
+                    'address' => $trip->route,
+                    'price_tier' => 'standard',
+                    'status' => 'active',
+                    'notes' => 'Field sale (auto)',
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+                $customerId = $customer->id;
+            }
+            $request->merge(['customer_id' => $customerId]);
         }
 
         // Round 4 Phase 4: block selling more of a brand/size than
@@ -586,17 +616,27 @@ class DriverTripController extends Controller
                     ];
                 }
 
-                if ($returnedBales > 0) {
-                    $inventoryController->recordMove([
-                        'move_type' => 'return',
-                        'item_type' => 'sku',
-                        'sku_id' => $item->sku_id,
-                        'warehouse_to_id' => $trip->warehouse_id,
-                        'qty' => $returnedBales,
-                        'uom' => 'BALE',
-                        'ref_entity' => 'driver_trip',
-                        'ref_id' => $trip->id,
-                    ]);
+                // Deduct only paid/sold bales from Main warehouse at End Trip.
+                // Unsold stays in warehouse (never left the books at start).
+                $soldPaid = (float) \App\Models\DriverTripSaleItem::where('sku_id', $item->sku_id)
+                    ->whereHas('sale', fn ($q) => $q->where('driver_trip_id', $trip->id)->whereNull('deleted_at')->where(function ($q) {
+                        $q->where('payment_status', 'paid')->orWhereNull('payment_status');
+                    }))
+                    ->sum('qty_bales');
+                $soldPaidBales = (int) max(0, floor($soldPaid));
+                if ($soldPaidBales > 0) {
+                    $stockWarnings = array_merge(
+                        $stockWarnings,
+                        $inventoryController->deductStock(
+                            $item->sku_id,
+                            $item->sku,
+                            $trip->warehouse_id,
+                            $soldPaidBales,
+                            'driver_trip',
+                            $trip->id,
+                            'BALE'
+                        )
+                    );
                 }
             }
 
@@ -629,6 +669,44 @@ class DriverTripController extends Controller
                     'category' => 'mileage',
                     'amount' => round($kmCovered, 2),
                     'description' => "{$trip->vehicle->reg_no}: this trip covered {$kmCovered} km, more than 3x its trailing-30-day average of " . round($avgDistance, 1) . ' km -- flagged for review.',
+                ];
+            }
+
+            // Silent fuel vs sales check (10 km/L). Drivers are not notified;
+            // Managers/Directors see it on Discrepancies only.
+            $expectedLiters = $kmCovered > 0 ? ($kmCovered / 10.0) : 0.0;
+            $fuelLiters = (float) \App\Models\FuelLog::whereNull('deleted_at')
+                ->where('vehicle_id', $trip->vehicle_id)
+                ->whereDate('date', $trip->trip_date)
+                ->sum('liters');
+            if ($fuelLiters <= 0 && $trip->fuel_liters) {
+                $fuelLiters = (float) $trip->fuel_liters;
+            }
+            $fuelCost = (float) \App\Models\FuelLog::whereNull('deleted_at')
+                ->where('vehicle_id', $trip->vehicle_id)
+                ->whereDate('date', $trip->trip_date)
+                ->sum('cost');
+            if ($fuelCost <= 0 && $trip->fuel_cost) {
+                $fuelCost = (float) $trip->fuel_cost;
+            }
+            $salesTotal = (float) $trip->sales()->whereNull('deleted_at')
+                ->where(function ($q) {
+                    $q->where('payment_status', 'paid')->orWhereNull('payment_status');
+                })
+                ->sum('amount');
+
+            if ($fuelLiters > 0 && $expectedLiters > 0 && $fuelLiters > ($expectedLiters * 1.25)) {
+                $discrepancies[] = [
+                    'category' => 'fuel',
+                    'amount' => round($fuelLiters - $expectedLiters, 2),
+                    'description' => "{$trip->vehicle->reg_no}: fuel {$fuelLiters} L for {$kmCovered} km (expected ~".round($expectedLiters, 1)." L at 10 km/L). Silent flag — not shown to driver.",
+                ];
+            }
+            if ($fuelCost > 0 && $salesTotal >= 0 && $fuelCost > $salesTotal) {
+                $discrepancies[] = [
+                    'category' => 'fuel',
+                    'amount' => round($fuelCost - $salesTotal, 2),
+                    'description' => "{$trip->vehicle->reg_no}: fuel cost KES ".number_format($fuelCost, 0)." exceeds trip sales KES ".number_format($salesTotal, 0)." ({$kmCovered} km). Silent flag — not shown to driver.",
                 ];
             }
 
@@ -784,6 +862,60 @@ class DriverTripController extends Controller
             'success' => true,
             'message' => "Trip unlocked -- reverted from {$fromStatus} to {$trip->fresh()->status}",
             'data' => $trip->fresh(array_merge(self::WITH, ['unlocks.unlockedBy'])),
+        ]);
+    }
+
+    /**
+     * Director-only: delete one field sale on a trip (test entries / mistakes).
+     * Does not reverse warehouse dispatch stock — only removes the sale tally.
+     */
+    public function deleteSale(Request $request, $tripId, $saleId)
+    {
+        $tier = $request->user()?->role?->access_tier;
+        if ($tier !== 'director') {
+            return response()->json(['success' => false, 'message' => 'Only a Director can delete a field sale.'], 403);
+        }
+
+        $trip = DriverTrip::find($tripId);
+        if (! $trip) {
+            return response()->json(['success' => false, 'message' => 'Trip not found'], 404);
+        }
+
+        $sale = \App\Models\DriverTripSale::with('debt')
+            ->where('driver_trip_id', $trip->id)
+            ->whereNull('deleted_at')
+            ->find($saleId);
+        if (! $sale) {
+            return response()->json(['success' => false, 'message' => 'Sale not found on this trip'], 404);
+        }
+
+        DB::transaction(function () use ($sale) {
+            \App\Models\MpesaPayment::where('driver_trip_sale_id', $sale->id)->get()->each(function ($payment) {
+                if ($payment->status === 'pending') {
+                    $payment->update([
+                        'status' => 'cancelled',
+                        'result_desc' => 'Field sale deleted by director',
+                    ]);
+                }
+                $payment->delete();
+            });
+
+            if ($sale->debt_id) {
+                $debt = \App\Models\Debt::find($sale->debt_id);
+                if ($debt) {
+                    \App\Models\DebtorLedgerEntry::where('debt_id', $debt->id)->delete();
+                    $debt->delete();
+                }
+            }
+
+            $sale->items()->delete();
+            $sale->delete();
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Field sale deleted.',
+            'data' => $trip->fresh(self::WITH),
         ]);
     }
 
@@ -1152,10 +1284,37 @@ class DriverTripController extends Controller
         $prices = \App\Models\PriceListItem::whereHas('priceList', fn ($q) => $q->where('is_default', true))
             ->pluck('unit_price', 'sku_id');
 
-        $skus = Sku::where('active', true)->orderBy('name')->get()->map(function ($sku) use ($prices) {
-            $sku->current_price = isset($prices[$sku->id]) ? (float) $prices[$sku->id] : null;
-            return $sku;
-        });
+        $allowedSizes = [0.5, 1.0, 1.5, 5.0, 10.0, 20.0];
+        $skus = Sku::where('active', true)
+            ->whereNull('deleted_at')
+            ->where(function ($q) {
+                // Premium / Platinum / Grace / Refill only — Mara Water merged into Premium.
+                $q->whereIn('brand', ['Premium', 'Platinum', 'Grace', 'Refill'])
+                    ->orWhereNull('brand');
+            })
+            ->orderBy('brand')
+            ->orderBy('size_liters')
+            ->orderBy('name')
+            ->get()
+            ->filter(function ($sku) use ($allowedSizes) {
+                $size = round((float) $sku->size_liters, 2);
+                if (!in_array($size, $allowedSizes, true)) {
+                    return false;
+                }
+                // Hide custom SKUs from the main driver grid; standard sizes only.
+                if (stripos((string) $sku->code, 'CUSTOM') !== false) {
+                    return false;
+                }
+                if (stripos((string) $sku->brand, 'Mara') !== false) {
+                    return false;
+                }
+                return true;
+            })
+            ->values()
+            ->map(function ($sku) use ($prices) {
+                $sku->current_price = isset($prices[$sku->id]) ? (float) $prices[$sku->id] : null;
+                return $sku;
+            });
 
         return response()->json(['success' => true, 'data' => $skus]);
     }
@@ -1185,13 +1344,33 @@ class DriverTripController extends Controller
      */
     public function authorizingOfficers()
     {
-        return response()->json([
-            'success' => true,
-            'data' => \App\Models\User::whereHas('role', fn ($q) => $q->whereIn('access_tier', ['manager', 'director']))
+        // Field rule: only CPA Kathy (manager/accountant) or Director Jamal.
+        $officers = \App\Models\User::with('role')
+            ->where('status', 'active')
+            ->whereHas('role', fn ($q) => $q->whereIn('access_tier', ['manager', 'director']))
+            ->orderBy('first_name')
+            ->get()
+            ->filter(function ($u) {
+                $blob = strtolower(trim(($u->first_name ?? '').' '.($u->last_name ?? '').' '.($u->email ?? '')));
+                $isDirector = ($u->role?->access_tier === 'director') || ($u->role?->code === 'ADMIN');
+                $isKathy = str_contains($blob, 'kathy') || str_contains($blob, 'cpa');
+                $isJamal = str_contains($blob, 'jamal') || str_contains($blob, 'jim');
+
+                return $isKathy || ($isDirector && $isJamal) || ($isDirector && str_contains($blob, 'director'));
+            })
+            ->values();
+
+        // Fallback: if name filters match nobody (seed drift), keep director + managers.
+        if ($officers->isEmpty()) {
+            $officers = \App\Models\User::whereHas('role', fn ($q) => $q->whereIn('access_tier', ['manager', 'director']))
                 ->where('status', 'active')
                 ->orderBy('first_name')
-                ->get()
-                ->map(fn ($u) => ['id' => $u->id, 'full_name' => $u->full_name]),
+                ->get();
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $officers->map(fn ($u) => ['id' => $u->id, 'full_name' => $u->full_name])->values(),
         ]);
     }
 

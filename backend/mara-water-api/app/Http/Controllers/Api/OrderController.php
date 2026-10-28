@@ -233,7 +233,10 @@ class OrderController extends Controller
                 // not banned, so this is enforced only when payment_method
                 // is actually credit, not on every sale.
                 'signatory' => 'required_if:payment_method,credit|nullable|string|max:150',
-                'expected_repayment_date' => 'required_if:payment_method,credit|nullable|date',
+                // Director may leave repayment open-ended (indefinite credit).
+                'expected_repayment_date' => 'nullable|date',
+                'buyer_name' => 'nullable|string|max:150',
+                'sale_channel' => 'nullable|in:walk_in,field,outlet',
                 'notes' => 'nullable|string|max:1000',
                 'items' => 'required|array|min:1',
                 'items.*.sku_id' => 'required|exists:skus,id',
@@ -251,33 +254,80 @@ class OrderController extends Controller
                 ], 422);
             }
 
-            if ($request->payment_method === 'credit' && !$request->customer_id) {
+            $user = $request->user();
+            $tier = $user?->role?->access_tier;
+            $isDirector = $tier === 'director' || ($user?->role?->code === 'ADMIN');
+
+            if ($request->payment_method === 'credit' && ! $isDirector) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'A customer is required for credit sales',
+                    'message' => 'Only a Director can log a credit sale.',
+                ], 403);
+            }
+
+            // Managers implement the price list as-is — no overrides.
+            if (! $isDirector) {
+                foreach ($request->items as $i => $item) {
+                    if (! empty($item['override_reason']) || (isset($item['unit_price']) && $request->boolean('force_price_override'))) {
+                        // strip override intent; price will fall back to list below
+                    }
+                    if (! empty($item['override_reason'])) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Only a Director can override the price list.',
+                            'errors' => ["items.{$i}.override_reason" => ['Director only']],
+                        ], 403);
+                    }
+                }
+            }
+
+            if ($request->payment_method === 'credit' && ! $request->customer_id && ! $request->filled('buyer_name')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'A customer or buyer name is required for credit sales',
                     'errors' => ['customer_id' => ['Required when payment method is credit']]
                 ], 422);
             }
 
-            // Round 2 Phase 6: "never more than 7 days from the sale
-            // date" -- checked here (not just a max-date validation rule)
-            // so the message names the actual limit rather than a bare
-            // "invalid date".
-            if ($request->payment_method === 'credit') {
-                $saleDate = \Carbon\Carbon::parse($request->order_date ?? now()->toDateString())->startOfDay();
+            if ($request->payment_method === 'credit' && ! $request->filled('signatory') && $request->filled('buyer_name')) {
+                $request->merge(['signatory' => trim((string) $request->buyer_name)]);
+            }
+
+            $orderDateParsed = \Carbon\Carbon::parse($request->order_date ?? now('Africa/Nairobi')->toDateString(), 'Africa/Nairobi')->startOfDay();
+            $todayNairobi = now('Africa/Nairobi')->startOfDay();
+            if ($orderDateParsed->gt($todayNairobi)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Sale date cannot be in the future',
+                    'errors' => ['order_date' => ['Cannot be after today']],
+                ], 422);
+            }
+            // Catch-up logging after offline days — Director/Admin only.
+            if ($orderDateParsed->lt($todayNairobi) && ! $isDirector) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only a Director can log a backdated (catch-up) sale.',
+                    'errors' => ['order_date' => ['Backdated sales are Director-only']],
+                ], 422);
+            }
+            if ($orderDateParsed->lt($todayNairobi->copy()->subDays(60))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Sale date cannot be more than 60 days ago',
+                    'errors' => ['order_date' => ['Choose a date within the last 60 days']],
+                ], 422);
+            }
+            $isCatchUp = $orderDateParsed->lt($todayNairobi);
+
+            // Optional repayment date — indefinite credit allowed for directors.
+            if ($request->payment_method === 'credit' && $request->filled('expected_repayment_date')) {
+                $saleDate = $orderDateParsed->copy();
                 $repaymentDate = \Carbon\Carbon::parse($request->expected_repayment_date)->startOfDay();
                 if ($repaymentDate->lt($saleDate)) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Expected repayment date cannot be before the sale date',
                         'errors' => ['expected_repayment_date' => ['Cannot be before the sale date']]
-                    ], 422);
-                }
-                if ($repaymentDate->gt($saleDate->copy()->addDays(7))) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Expected repayment date cannot be more than 7 days from the sale date',
-                        'errors' => ['expected_repayment_date' => ['Cannot be more than 7 days from the sale date']]
                     ], 422);
                 }
             }
@@ -299,7 +349,7 @@ class OrderController extends Controller
                 }
                 $listPrice = $listPrices->get($item['sku_id']);
                 $overridden = isset($item['unit_price']) && $listPrice !== null
-                    && bccomp((string) $item['unit_price'], (string) $listPrice, 2) !== 0;
+                    && $this->moneyDiffers($item['unit_price'], $listPrice);
                 if ($overridden && empty($item['override_reason'])) {
                     $errors["items.{$i}.override_reason"] = ['Required when the price list price is overridden'];
                 }
@@ -325,22 +375,80 @@ class OrderController extends Controller
 
             DB::beginTransaction();
 
-            $orderDate = $request->order_date ?? now()->toDateString();
+            $orderDate = $orderDateParsed->toDateString();
+            $customerId = $request->customer_id;
+
+            // Single Main warehouse — auto-pick when client omits / sends blank.
+            $warehouseId = $request->warehouse_id;
+            if (! $warehouseId) {
+                $warehouseId = \App\Models\Warehouse::query()
+                    ->whereNull('deleted_at')
+                    ->where(function ($q) {
+                        $q->where('code', 'like', '%MAIN%')
+                            ->orWhere('name', 'like', '%Main%')
+                            ->orWhere('name', 'like', '%Warehouse%');
+                    })
+                    ->value('id')
+                    ?: \App\Models\Warehouse::whereNull('deleted_at')->value('id');
+                if (! $warehouseId) {
+                    DB::rollBack();
+
+                    return response()->json(['success' => false, 'message' => 'No warehouse configured'], 422);
+                }
+                $request->merge(['warehouse_id' => $warehouseId]);
+            }
+
+            // M-Pesa prompt phone doubles as customer phone.
+            if ($request->filled('stk_phone') && ! $request->filled('buyer_phone')) {
+                $request->merge(['buyer_phone' => $request->stk_phone]);
+            }
+            if ($request->filled('buyer_phone') && ! $request->filled('stk_phone') && $request->payment_method === 'mpesa') {
+                $request->merge(['stk_phone' => $request->buyer_phone]);
+            }
+
+            // Walk-in / field buyer name → create a light customer record so
+            // the name lands on the customer list automatically.
+            if (! $customerId && $request->filled('buyer_name')) {
+                $channel = $request->input('sale_channel', 'walk_in');
+                $customer = \App\Models\Customer::create([
+                    'code' => 'CUST-' . strtoupper(\Illuminate\Support\Str::random(6)),
+                    'name' => trim((string) $request->buyer_name),
+                    'type' => $channel === 'field' ? 'retail' : 'walk_in',
+                    'phone' => $request->input('buyer_phone') ?: 'N/A',
+                    'address' => $request->input('buyer_location'),
+                    'price_tier' => 'standard',
+                    'status' => 'active',
+                    'notes' => $channel === 'field' ? 'Field sale (auto)' : 'Walk-in sale (auto)',
+                    'created_by' => Auth::id(),
+                    'updated_by' => Auth::id(),
+                ]);
+                $customerId = $customer->id;
+            }
 
             $deferStock = $request->payment_method === 'mpesa' && $request->filled('stk_phone');
 
+            $noteParts = array_filter([
+                $request->notes,
+                $request->filled('sale_channel') ? ('Channel: ' . $request->sale_channel) : null,
+                $request->filled('buyer_location') ? ('Location: ' . $request->buyer_location) : null,
+            ]);
+
+            $paymentStatus = $deferStock
+                ? 'awaiting_payment'
+                : ($request->payment_method === 'credit' ? 'unpaid' : 'paid');
+
             $order = Order::create([
                 'order_no' => $this->generateOrderNumber(),
-                'customer_id' => $request->customer_id,
-                'warehouse_id' => $request->warehouse_id,
-                'location_id' => $request->location_id,
+                'customer_id' => $customerId,
+                'warehouse_id' => $warehouseId ?: $request->warehouse_id,
+                'location_id' => null, // walk-in / outlet — no KDN/KDQ branch picker
                 'sales_officer_id' => Auth::id(),
                 'price_list_id' => $priceList?->id,
                 'status' => $deferStock ? 'awaiting_payment' : 'delivered',
                 'order_date' => $orderDate,
                 'requested_date' => $orderDate,
                 'payment_method' => $request->payment_method,
-                'payment_status' => $deferStock ? 'awaiting_payment' : 'paid',
+                'payment_status' => $paymentStatus,
                 'stock_posted' => ! $deferStock,
                 'payment_reference' => $request->payment_reference,
                 'created_by' => Auth::id(),
@@ -357,7 +465,7 @@ class OrderController extends Controller
                 $listPrice = $listPrices->get($item['sku_id']);
                 $unitPrice = $item['unit_price'] ?? $listPrice;
                 $overridden = isset($item['unit_price']) && $listPrice !== null
-                    && bccomp((string) $item['unit_price'], (string) $listPrice, 2) !== 0;
+                    && $this->moneyDiffers($item['unit_price'], $listPrice);
 
                 $orderItem = $order->items()->create([
                     'sku_id' => $item['sku_id'],
@@ -418,23 +526,30 @@ class OrderController extends Controller
 
             $invoice = null;
             if ($request->payment_method === 'credit') {
+                if (! $customerId) {
+                    DB::rollBack();
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'A customer is required for credit sales',
+                    ], 422);
+                }
+
+                $dueDate = $request->filled('expected_repayment_date')
+                    ? \Carbon\Carbon::parse($request->expected_repayment_date)->toDateString()
+                    : null; // indefinite credit — Director may leave open
                 $invoice = Invoice::create([
                     'invoice_no' => $this->generateInvoiceNumber(),
                     'order_id' => $order->id,
-                    'customer_id' => $request->customer_id,
+                    'customer_id' => $customerId,
                     'invoice_date' => $orderDate,
-                    // No per-customer credit term is captured yet (Customer's
-                    // payment_terms from Phase 6 is a payment-method
-                    // preference, not a day count) -- Net 30 is a standard
-                    // KES trade-credit default; Phase 9 can make this
-                    // configurable per customer if that turns out to matter.
-                    'due_date' => \Carbon\Carbon::parse($orderDate)->addDays(30)->toDateString(),
+                    'due_date' => $dueDate ?: \Carbon\Carbon::parse($orderDate)->addYears(10)->toDateString(),
                     'subtotal' => $totalAmount,
                     'tax_amount' => 0,
                     'discount_amount' => 0,
                     'total_amount' => $totalAmount,
-                    'payment_terms' => 'Net 30',
-                    'notes' => $request->notes,
+                    'payment_terms' => $dueDate ? 'Agreed repayment' : 'Indefinite / open credit',
+                    'notes' => implode(' · ', $noteParts) ?: null,
                     'status' => 'sent',
                     'payment_status' => 'pending',
                     'sent_at' => now(),
@@ -448,9 +563,9 @@ class OrderController extends Controller
                 // (Round 2 Phase 6) -- computed from expected_repayment_date,
                 // not stored/frozen at creation.
                 $debt = Debt::create([
-                    'customer_id' => $request->customer_id,
+                    'customer_id' => $customerId,
                     'invoice_id' => $invoice->id,
-                    'signatory' => $request->signatory,
+                    'signatory' => $request->signatory ?: ($request->buyer_name ?: 'Director'),
                     'expected_repayment_date' => $request->expected_repayment_date,
                     'principal' => $totalAmount,
                     'balance' => $totalAmount,
@@ -464,7 +579,7 @@ class OrderController extends Controller
                 // is just the current running total DebtorLedgerController
                 // keeps in sync with it.
                 \App\Models\DebtorLedgerEntry::create([
-                    'customer_id' => $request->customer_id,
+                    'customer_id' => $customerId,
                     'debt_id' => $debt->id,
                     'entry_date' => $orderDate,
                     'details' => "Credit sale - Invoice {$invoice->invoice_no}",
@@ -498,24 +613,37 @@ class OrderController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Sale logged successfully',
+                'message' => $isCatchUp
+                    ? 'Catch-up sale logged successfully'
+                    : 'Sale logged successfully',
                 'data' => [
                     'order' => $order,
                     'invoice' => $invoice,
-                    'stock_warnings' => $stockWarnings,
+                    // Directors backfilling offline days should not be blocked by
+                    // negative-stock toasts — stock still deducts for the ledger.
+                    'stock_warnings' => ($isCatchUp && $isDirector) ? [] : $stockWarnings,
+                    'catch_up' => $isCatchUp,
                     'payment' => $payment,
                     'stk_error' => $stkError,
                 ]
             ], 201);
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
+            \Log::error('logSale failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to log sale',
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /** Compare money without requiring ext-bcmath (not installed on Railway). */
+    private function moneyDiffers(mixed $a, mixed $b): bool
+    {
+        return round((float) $a, 2) !== round((float) $b, 2);
     }
 
     // Round 2 Phase 8: the FEFO stock-deduction logic that used to live
@@ -555,44 +683,73 @@ class OrderController extends Controller
     public function update(Request $request, $id)
     {
         try {
-            $order = Order::whereNull('deleted_at')->findOrFail($id);
+            $order = Order::with(['items', 'invoice'])->whereNull('deleted_at')->findOrFail($id);
+            $tier = $request->user()?->role?->access_tier;
+            $isDirector = $tier === 'director';
 
-            // Only allow updates if order is in draft status
-            if ($order->status !== 'draft') {
+            // Drafts: managers can edit routing fields.
+            // Posted sales: Director only — correct test / mis-keyed payment metadata.
+            if ($order->status !== 'draft' && ! $isDirector) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot update order that is not in draft status'
-                ], 422);
+                    'message' => 'Only a Director can alter a posted sale. Use this for test entries or mistakes.',
+                ], 403);
             }
 
-            $validator = Validator::make($request->all(), [
-                'requested_date' => 'nullable|date|after_or_equal:order_date',
-                'sales_officer_id' => 'nullable|exists:users,id',
-                'route_id' => 'nullable|exists:routes,id',
-                'price_list_id' => 'nullable|exists:price_lists,id',
-            ]);
+            if ($order->status === 'draft') {
+                $validator = Validator::make($request->all(), [
+                    'requested_date' => 'nullable|date|after_or_equal:order_date',
+                    'sales_officer_id' => 'nullable|exists:users,id',
+                    'route_id' => 'nullable|exists:routes,id',
+                    'price_list_id' => 'nullable|exists:price_lists,id',
+                ]);
 
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Validation failed',
-                    'errors' => $validator->errors()
-                ], 422);
+                if ($validator->fails()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Validation failed',
+                        'errors' => $validator->errors()
+                    ], 422);
+                }
+
+                $order->update([
+                    'requested_date' => $request->requested_date ?? $order->requested_date,
+                    'sales_officer_id' => $request->sales_officer_id ?? $order->sales_officer_id,
+                    'route_id' => $request->route_id ?? $order->route_id,
+                    'price_list_id' => $request->price_list_id ?? $order->price_list_id,
+                    'updated_by' => Auth::id(),
+                ]);
+            } else {
+                $validator = Validator::make($request->all(), [
+                    'customer_id' => 'nullable|exists:customers,id',
+                    'order_date' => 'nullable|date',
+                    'payment_method' => 'nullable|in:cash,mpesa,credit',
+                    'payment_reference' => 'nullable|string|max:120',
+                    'payment_status' => 'nullable|in:pending,paid,partial,failed,cancelled',
+                ]);
+
+                if ($validator->fails()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Validation failed',
+                        'errors' => $validator->errors()
+                    ], 422);
+                }
+
+                $patch = ['updated_by' => Auth::id()];
+                foreach (['customer_id', 'order_date', 'payment_method', 'payment_reference', 'payment_status'] as $field) {
+                    if ($request->exists($field)) {
+                        $patch[$field] = $request->input($field);
+                    }
+                }
+                $order->update($patch);
             }
 
-            $order->update([
-                'requested_date' => $request->requested_date ?? $order->requested_date,
-                'sales_officer_id' => $request->sales_officer_id ?? $order->sales_officer_id,
-                'route_id' => $request->route_id ?? $order->route_id,
-                'price_list_id' => $request->price_list_id ?? $order->price_list_id,
-                'updated_by' => Auth::id(),
-            ]);
-
-            $order->load(['customer', 'salesOfficer', 'items.sku']);
+            $order->load(['customer', 'salesOfficer', 'items.sku', 'warehouse', 'invoice']);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Order updated successfully',
+                'message' => 'Sale updated successfully',
                 'data' => [
                     'order' => $order
                 ]
@@ -608,46 +765,232 @@ class OrderController extends Controller
     }
 
     /**
-     * Remove the specified order
+     * Remove an order / outlet sale.
+     * Drafts: any manager/director.
+     * Posted sales (delivered, awaiting payment, etc.): Director only —
+     * reverses stock, voids linked M-Pesa rows, and soft-deletes invoice/debt.
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         try {
-            $order = Order::whereNull('deleted_at')->findOrFail($id);
-            
-            // Only allow deletion if order is in draft status
-            if ($order->status !== 'draft') {
+            $order = Order::with(['items', 'invoice'])->whereNull('deleted_at')->findOrFail($id);
+            $tier = $request->user()?->role?->access_tier;
+            $isDirector = $tier === 'director' || ($request->user()?->role?->code === 'ADMIN');
+
+            if ($order->status !== 'draft' && ! $isDirector) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot delete order that is not in draft status'
-                ], 422);
+                    'message' => 'Only a Director can delete a posted sale. Use this for test entries or mistakes.',
+                ], 403);
             }
 
             DB::beginTransaction();
 
-            // Delete order items
-            $order->items()->delete();
+            // Always reverse posted stock (incl. awaiting_payment that later posted).
+            if ($order->stock_posted || in_array($order->status, ['delivered', 'dispatched', 'partially_returned', 'confirmed', 'awaiting_payment'], true)) {
+                $this->reverseOrderStock($order);
+            }
 
-            // Round 2 Phase 3: deleted_at isn't in $fillable (correctly), so
-            // mass-assigning it here silently did nothing -- see WaterTestController.
-            $order->update(['updated_by' => Auth::id()]);
+            \App\Models\MpesaPayment::where('order_id', $order->id)->get()->each(function ($payment) {
+                if ($payment->status === 'pending') {
+                    $payment->update([
+                        'status' => 'cancelled',
+                        'result_desc' => 'Sale deleted by director',
+                    ]);
+                }
+                $payment->delete();
+            });
+
+            if ($order->invoice) {
+                $invoice = $order->invoice;
+                Debt::where('invoice_id', $invoice->id)->get()->each(function ($debt) {
+                    \App\Models\DebtorLedgerEntry::where('debt_id', $debt->id)->delete();
+                    $debt->delete();
+                });
+                $invoice->delete();
+            }
+
+            $order->items()->delete();
+            $order->update(['updated_by' => Auth::id(), 'status' => 'cancelled']);
             $order->delete();
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Order deleted successfully'
+                'message' => 'Sale deleted. Stock was reversed where it had been posted.',
             ]);
-
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to delete order',
-                'error' => $e->getMessage()
+                'message' => 'Failed to delete sale',
+                'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Director-only: correct a field/trip sale (payment method, reference, amount, buyer).
+     * Does not rewrite line items — delete and re-log if the SKU mix was wrong.
+     */
+    public function updateFieldSale(Request $request, $id)
+    {
+        $tier = $request->user()?->role?->access_tier;
+        if ($tier !== 'director') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a Director can alter a field sale.',
+            ], 403);
+        }
+
+        $sale = \App\Models\DriverTripSale::with(['customer', 'trip.driver', 'items.sku'])
+            ->whereNull('deleted_at')
+            ->find($id);
+        if (! $sale) {
+            return response()->json(['success' => false, 'message' => 'Field sale not found'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'customer_id' => 'nullable|exists:customers,id',
+            'payment_method' => 'nullable|in:cash,mpesa,debt,credit',
+            'payment_reference' => 'nullable|string|max:120',
+            'mpesa_reference' => 'nullable|string|max:120',
+            'amount' => 'nullable|numeric|min:0',
+            'payment_status' => 'nullable|in:pending,paid,partial,failed,cancelled',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $method = $request->input('payment_method', $sale->payment_method);
+        if ($method === 'credit') {
+            $method = 'debt';
+        }
+
+        $ref = $request->exists('mpesa_reference')
+            ? $request->input('mpesa_reference')
+            : ($request->exists('payment_reference') ? $request->input('payment_reference') : $sale->mpesa_reference);
+
+        $sale->update([
+            'customer_id' => $request->exists('customer_id') ? $request->input('customer_id') : $sale->customer_id,
+            'payment_method' => $method,
+            'mpesa_reference' => $ref,
+            'amount' => $request->exists('amount') ? $request->input('amount') : $sale->amount,
+            'payment_status' => $request->exists('payment_status') ? $request->input('payment_status') : $sale->payment_status,
+            'updated_by' => Auth::id(),
+        ]);
+
+        $sale->refresh()->load(['customer', 'trip.driver', 'items.sku']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Field sale updated.',
+            'data' => $sale,
+        ]);
+    }
+
+    /**
+     * Director-only: remove a field/trip sale used for testing or keyed in error.
+     * Warehouse stock is not reversed here — dispatch already left with the truck;
+     * removing the sale only clears the sale/debt/M-Pesa records from tallies.
+     */
+    public function destroyFieldSale(Request $request, $id)
+    {
+        $tier = $request->user()?->role?->access_tier;
+        if ($tier !== 'director') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a Director can delete a field sale.',
+            ], 403);
+        }
+
+        $sale = \App\Models\DriverTripSale::with(['items', 'debt'])->whereNull('deleted_at')->find($id);
+        if (! $sale) {
+            return response()->json(['success' => false, 'message' => 'Field sale not found'], 404);
+        }
+
+        try {
+            DB::transaction(function () use ($sale) {
+                \App\Models\MpesaPayment::where('driver_trip_sale_id', $sale->id)->get()->each(function ($payment) {
+                    if ($payment->status === 'pending') {
+                        $payment->update([
+                            'status' => 'cancelled',
+                            'result_desc' => 'Field sale deleted by director',
+                        ]);
+                    }
+                    $payment->delete();
+                });
+
+                if ($sale->debt_id) {
+                    $debt = Debt::find($sale->debt_id);
+                    if ($debt) {
+                        \App\Models\DebtorLedgerEntry::where('debt_id', $debt->id)->delete();
+                        $debt->delete();
+                    }
+                }
+
+                $sale->items()->delete();
+                $sale->delete();
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Field sale deleted.',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete field sale',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    private function reverseOrderStock(Order $order): void
+    {
+        $inventory = new InventoryController();
+        $moves = \App\Models\StockMove::where('ref_entity', 'order')
+            ->where('ref_id', $order->id)
+            ->whereNull('deleted_at')
+            ->get();
+
+        foreach ($moves as $move) {
+            if ($move->move_type === 'issue' && $move->warehouse_from_id) {
+                $inventory->recordMove([
+                    'move_type' => 'adjust',
+                    'item_type' => $move->item_type,
+                    'sku_id' => $move->sku_id,
+                    'batch_id' => $move->batch_id,
+                    'warehouse_to_id' => $move->warehouse_from_id,
+                    'qty' => $move->qty,
+                    'uom' => $move->uom,
+                    'ref_entity' => 'order_deleted',
+                    'ref_id' => $order->id,
+                ]);
+            } elseif ($move->move_type === 'return' && $move->warehouse_to_id) {
+                $inventory->recordMove([
+                    'move_type' => 'adjust',
+                    'item_type' => $move->item_type,
+                    'sku_id' => $move->sku_id,
+                    'batch_id' => $move->batch_id,
+                    'warehouse_from_id' => $move->warehouse_to_id,
+                    'qty' => $move->qty,
+                    'uom' => $move->uom,
+                    'ref_entity' => 'order_deleted',
+                    'ref_id' => $order->id,
+                ], true);
+            }
+            $move->delete();
+        }
+
+        $order->update(['stock_posted' => false]);
     }
 
     /**
@@ -819,15 +1162,34 @@ class OrderController extends Controller
     }
 
     /**
-     * Generate unique order number
+     * Generate unique order number.
+     * Must include soft-deleted rows — uk_orders_order_no still holds them,
+     * and count()-only-active reused ORD-…-0001 after a director deleted a test sale.
      */
-    private function generateOrderNumber()
+    private function generateOrderNumber(): string
     {
-        $date = date('Ymd');
-        $count = Order::whereDate('created_at', today())->count();
-        $sequence = str_pad($count + 1, 4, '0', STR_PAD_LEFT);
-        
-        return "ORD-{$date}-{$sequence}";
+        $date = now('Africa/Nairobi')->format('Ymd');
+        $prefix = "ORD-{$date}-";
+
+        for ($attempt = 0; $attempt < 25; $attempt++) {
+            $last = Order::withTrashed()
+                ->where('order_no', 'like', $prefix.'%')
+                ->orderByDesc('order_no')
+                ->value('order_no');
+
+            $next = 1;
+            if (is_string($last) && preg_match('/-(\d+)$/', $last, $m)) {
+                $next = ((int) $m[1]) + 1;
+            }
+            $candidate = $prefix.str_pad((string) ($next + $attempt), 4, '0', STR_PAD_LEFT);
+
+            $exists = Order::withTrashed()->where('order_no', $candidate)->exists();
+            if (! $exists) {
+                return $candidate;
+            }
+        }
+
+        return $prefix.now('Africa/Nairobi')->format('His').'-'.strtoupper(\Illuminate\Support\Str::random(4));
     }
 
     /**
@@ -848,19 +1210,28 @@ class OrderController extends Controller
      * as generateOrderNumber() above already duplicates OrderController's
      * own numbering convention.
      */
-    private function generateInvoiceNumber()
+    private function generateInvoiceNumber(): string
     {
         $prefix = 'INV';
-        $year = date('Y');
-        $month = date('m');
+        $yearMonth = now('Africa/Nairobi')->format('Ym');
 
-        $lastInvoice = Invoice::where('invoice_no', 'like', "{$prefix}-{$year}{$month}-%")
-            ->orderBy('invoice_no', 'desc')
-            ->first();
+        for ($attempt = 0; $attempt < 25; $attempt++) {
+            $last = Invoice::withTrashed()
+                ->where('invoice_no', 'like', "{$prefix}-{$yearMonth}-%")
+                ->orderByDesc('invoice_no')
+                ->value('invoice_no');
 
-        $newNumber = $lastInvoice ? ((int) substr($lastInvoice->invoice_no, -4)) + 1 : 1;
+            $next = 1;
+            if (is_string($last) && preg_match('/-(\d+)$/', $last, $m)) {
+                $next = ((int) $m[1]) + 1;
+            }
+            $candidate = "{$prefix}-{$yearMonth}-".str_pad((string) ($next + $attempt), 4, '0', STR_PAD_LEFT);
+            if (! Invoice::withTrashed()->where('invoice_no', $candidate)->exists()) {
+                return $candidate;
+            }
+        }
 
-        return "{$prefix}-{$year}{$month}-" . str_pad($newNumber, 4, '0', STR_PAD_LEFT);
+        return "{$prefix}-{$yearMonth}-".now('Africa/Nairobi')->format('His');
     }
 
     /**

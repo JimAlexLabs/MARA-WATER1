@@ -50,7 +50,7 @@ const LoginPage: React.FC = () => {
         </div>
 
         {/* Login Form */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8">
+        <div className="mara-panel-xl p-8">
           <div className="mb-6">
             <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
               Sign in to your account

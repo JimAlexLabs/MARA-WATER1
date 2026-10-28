@@ -13,13 +13,16 @@ class UserSession extends Model
     protected $fillable = [
         'user_id',
         'device_info',
+        'dashboard_tier',
         'ip',
         'refresh_token_hash',
         'expires_at',
+        'last_seen_at',
     ];
 
     protected $casts = [
         'expires_at' => 'datetime',
+        'last_seen_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
