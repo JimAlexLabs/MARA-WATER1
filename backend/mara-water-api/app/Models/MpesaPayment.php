@@ -13,12 +13,17 @@ class MpesaPayment extends Model
         'order_id', 'driver_trip_sale_id', 'reference', 'gateway_payment_id',
         'merchant_request_id', 'checkout_request_id', 'phone', 'amount', 'status',
         'result_code', 'result_desc', 'mpesa_receipt', 'initiated_by', 'channel',
-        'trip_id', 'location', 'idempotency_key', 'paid_at',
+        'trip_id', 'location', 'location_id', 'idempotency_key', 'paid_at',
+        'unmatched', 'assigned_sale_id', 'assigned_sale_type', 'assigned_by', 'assigned_at',
+        'pending_sale_snapshot',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'paid_at' => 'datetime',
+        'assigned_at' => 'datetime',
+        'unmatched' => 'boolean',
+        'pending_sale_snapshot' => 'array',
     ];
 
     public function initiator()

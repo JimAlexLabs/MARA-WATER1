@@ -142,8 +142,11 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware('tier:manager,director')->prefix('payments')->group(function () {
             Route::get('/export', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'export']);
+            Route::get('/unmatched', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'unmatched']);
             Route::get('/', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'index']);
+            Route::post('/{id}/retry', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'retry']);
             Route::post('/{id}/assign', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'assign']);
+            Route::post('/unmatched/{id}/assign', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'assign']);
         });
 
         // Round 2 Phase 11: a driver's own dashboard -- their own trip

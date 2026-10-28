@@ -94,10 +94,53 @@ class MpesaPaymentController extends Controller
 
     public function index(Request $request)
     {
-        $q = $this->filtered($request)->with('initiator:id,first_name,last_name');
-        $rows = $q->latest()->paginate(min(100, (int) $request->input('per_page', 40)));
+        $limit = min(100, (int) ($request->input('limit') ?: $request->input('per_page', 40)));
+        $page = $this->filtered($request)
+            ->with([
+                'initiator:id,first_name,last_name',
+                'tripSale.customer:id,name',
+                'order.customer:id,name',
+            ])
+            ->latest()
+            ->paginate($limit);
+
+        return response()->json([
+            'success' => true,
+            // Always a plain array — the M-Pesa page does rows.map(...).
+            'data' => collect($page->items())->map(fn (MpesaPayment $p) => $this->listRow($p))->values(),
+            'pagination' => [
+                'current_page' => $page->currentPage(),
+                'per_page' => $page->perPage(),
+                'total' => $page->total(),
+                'last_page' => $page->lastPage(),
+            ],
+        ]);
+    }
+
+    /** GET /payments/unmatched — payments with no linked sale. */
+    public function unmatched(Request $request)
+    {
+        $rows = MpesaPayment::query()
+            ->where(function ($q) {
+                $q->where('unmatched', true)
+                    ->orWhere(function ($q2) {
+                        $q2->whereNull('order_id')->whereNull('driver_trip_sale_id');
+                    });
+            })
+            ->where('status', 'success')
+            ->orderByDesc('created_at')
+            ->limit(200)
+            ->get()
+            ->map(fn (MpesaPayment $p) => array_merge($this->listRow($p), ['unmatched' => true]))
+            ->values();
 
         return response()->json(['success' => true, 'data' => $rows]);
+    }
+
+    /** POST /payments/{id}/retry — alias of recheck for the monitoring UI. */
+    public function retry(Request $request, string $id, MpesaStkService $stk)
+    {
+        return $this->status($request, $id, $stk);
     }
 
     public function export(Request $request)
@@ -135,20 +178,24 @@ class MpesaPaymentController extends Controller
     public function assign(Request $request, string $id, MpesaStkService $stk)
     {
         $data = $request->validate([
-            'sale_type' => 'required|in:order,trip',
+            'sale_type' => 'required|in:order,trip,driver_trip_sale',
             'sale_id' => 'required|uuid',
         ]);
+        $saleType = $data['sale_type'] === 'driver_trip_sale' ? 'trip' : $data['sale_type'];
         $payment = MpesaPayment::find($id);
         if (! $payment) {
             return response()->json(['success' => false, 'message' => 'Payment not found'], 404);
         }
         try {
-            $payment = $stk->assignToSale($payment, $data['sale_type'], $data['sale_id']);
+            $payment = $stk->assignToSale($payment, $saleType, $data['sale_id']);
+            if (\Illuminate\Support\Facades\Schema::hasColumn('mpesa_payments', 'unmatched')) {
+                $payment->update(['unmatched' => false]);
+            }
         } catch (\InvalidArgumentException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         }
 
-        return response()->json(['success' => true, 'data' => $this->present($payment, $stk)]);
+        return response()->json(['success' => true, 'data' => $this->present($payment->fresh(), $stk)]);
     }
 
     public function darajaCallback(Request $request, MpesaStkService $stk)
@@ -202,14 +249,52 @@ class MpesaPaymentController extends Controller
         if ($request->boolean('unmatched')) {
             $q->whereNull('order_id')->whereNull('driver_trip_sale_id');
         }
-        if ($request->filled('from')) {
-            $q->whereDate('created_at', '>=', $request->from);
+        $from = $request->input('date_from') ?: $request->input('from');
+        $to = $request->input('date_to') ?: $request->input('to');
+        if ($from) {
+            $q->whereDate('created_at', '>=', $from);
         }
-        if ($request->filled('to')) {
-            $q->whereDate('created_at', '<=', $request->to);
+        if ($to) {
+            $q->whereDate('created_at', '<=', $to);
         }
 
         return $q;
+    }
+
+    /** Shape used by the Manager/Director M-Pesa monitoring table. */
+    private function listRow(MpesaPayment $payment): array
+    {
+        $initiator = $payment->initiator;
+        $fullName = $initiator
+            ? trim(($initiator->first_name ?? '').' '.($initiator->last_name ?? ''))
+            : null;
+        $tripSale = $payment->tripSale;
+        $order = $payment->order;
+
+        return [
+            'id' => $payment->id,
+            'channel' => $payment->channel,
+            'reference' => $payment->reference,
+            'phone' => $payment->phone,
+            'amount' => (string) $payment->amount,
+            'status' => $payment->status,
+            'result_desc' => $payment->result_desc,
+            'mpesa_receipt' => $payment->mpesa_receipt,
+            'created_at' => optional($payment->created_at)?->toIso8601String(),
+            'location' => is_string($payment->location) && $payment->location !== ''
+                ? ['name' => $payment->location]
+                : null,
+            'initiated_by' => $fullName ? ['full_name' => $fullName] : null,
+            'driver_trip_sale' => $tripSale ? [
+                'id' => $tripSale->id,
+                'customer' => $tripSale->customer ? ['name' => $tripSale->customer->name] : null,
+            ] : null,
+            'order' => $order ? [
+                'id' => $order->id,
+                'order_no' => $order->order_no ?? $order->order_number ?? null,
+                'customer' => $order->customer ? ['name' => $order->customer->name] : null,
+            ] : null,
+        ];
     }
 
     private function present(MpesaPayment $payment, MpesaStkService $stk): array

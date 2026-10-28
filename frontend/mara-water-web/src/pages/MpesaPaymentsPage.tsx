@@ -30,6 +30,15 @@ const STATUS_COLOR: Record<string, string> = {
 };
 const CHANNEL_LABEL: Record<string, string> = { field_trip: 'Field Trip', warehouse: 'Warehouse', refill: 'Refill', admin: 'Admin' };
 
+/** Accept a plain array, or a Laravel paginator `{ data: [...] }`, never throw on .map. */
+function asPaymentList<T>(payload: unknown): T[] {
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data)) {
+    return (payload as { data: T[] }).data;
+  }
+  return [];
+}
+
 const MpesaPaymentsPage: React.FC = () => {
   const [tab, setTab] = useState<'all' | 'unmatched'>('all');
   const [rows, setRows] = useState<PaymentRow[]>([]);
@@ -56,11 +65,15 @@ const MpesaPaymentsPage: React.FC = () => {
         ...(channelFilter !== 'all' ? { channel: channelFilter } : {}),
         ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
       },
-    }).then(res => setRows(res.data.data)).catch(() => toast.error('Failed to load payments')).finally(() => setLoading(false));
+    }).then(res => setRows(asPaymentList<PaymentRow>(res.data?.data)))
+      .catch(() => { setRows([]); toast.error('Failed to load payments'); })
+      .finally(() => setLoading(false));
   }, [dateFrom, dateTo, channelFilter, statusFilter]);
 
   const fetchUnmatched = useCallback(() => {
-    api.get('/payments/unmatched').then(res => setUnmatchedRows(res.data.data)).catch(() => {});
+    api.get('/payments/unmatched')
+      .then(res => setUnmatchedRows(asPaymentList<UnmatchedRow>(res.data?.data)))
+      .catch(() => setUnmatchedRows([]));
   }, []);
 
   useEffect(() => { fetchAll(); fetchUnmatched(); }, [fetchAll, fetchUnmatched]);
