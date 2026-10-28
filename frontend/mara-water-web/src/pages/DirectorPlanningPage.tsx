@@ -1,87 +1,185 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import {
-  Calculator, Loader2, RefreshCw, Save, ArrowLeft, AlertTriangle, TrendingUp,
-} from 'lucide-react';
+import { Download, Loader2, Plus, RefreshCw, Save, Trash2, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { api } from '../services/api';
 import { PageShell, PageHero } from '../components/PageShell';
 
-type Assumptions = {
-  payroll: Record<string, { label: string; count: number; pay_each: number }>;
-  overheads: Record<string, number>;
-  transport_per_trip: number;
-  lorry_materials_cost: number;
-  lorry_projected_revenue: number;
-  operating_cash: number;
-  restocks_per_month: number;
-  profit_targets: number[];
-  operating_days_per_month: number;
-  sept_daily_pace: number;
-  sept_weekly_pace: number;
-  production: Record<string, number>;
-  timeline: { when: string; action: string }[];
-  sku_mix_note?: string;
-};
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-type Computed = {
-  assumptions: Assumptions;
-  totals: Record<string, number>;
-  payroll_rows: { key: string; label: string; count: number; pay_each: number; monthly_total: number }[];
-  overhead_rows: { key: string; label: string; monthly_cost: number }[];
-  restock_scenarios: any[];
-  chosen_restocks: number;
-  chosen_pnl: any;
-  targets: any[];
-  weekly_cash: any[];
-  capacity: any;
-  kpis: any;
-  timeline: { when: string; action: string }[];
-};
+type Path = (string | number)[];
+type Snapshot = { assumptions: any; defaults: any; app_prices: any[]; computed: any };
+
+const SIZES = ['0.5L', '1L', '1.5L', '5L', '10L', '20L'];
+const BOTTLED = ['0.5L', '1L', '1.5L'];
+const PARTNERS = ['Jim', 'Derrick', 'Diana', 'Onroy', 'Company'];
 
 const money = (n: number | null | undefined) =>
-  `KES ${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  `KES ${Math.round(Number(n || 0)).toLocaleString()}`;
+const dec = (n: number | null | undefined, d = 2) =>
+  Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+const pct = (n: number | null | undefined, d = 1) => `${(Number(n || 0) * 100).toFixed(d)}%`;
+const neg = (n: number) => (n < 0 ? 'text-red-600 dark:text-red-400' : '');
 
-const pct = (n: number | null | undefined) => `${(Number(n || 0) * 100).toFixed(1)}%`;
+const getPath = (obj: any, path: Path) => path.reduce((o, k) => (o == null ? o : o[k]), obj);
+const setPath = (obj: any, path: Path, value: any) => {
+  const next = JSON.parse(JSON.stringify(obj));
+  let cur = next;
+  for (let i = 0; i < path.length - 1; i++) {
+    if (cur[path[i]] == null) cur[path[i]] = typeof path[i + 1] === 'number' ? [] : {};
+    cur = cur[path[i]];
+  }
+  cur[path[path.length - 1]] = value;
+  return next;
+};
+
+/** Number input that tolerates partial typing ("0.", "") and optional percent scaling. */
+const Field: React.FC<{
+  label: string;
+  value: number | null | undefined;
+  onChange: (v: number | null) => void;
+  scale?: number;
+  suffix?: string;
+  nullable?: boolean;
+  placeholder?: string;
+  hint?: string;
+}> = ({ label, value, onChange, scale = 1, suffix, nullable, placeholder, hint }) => {
+  const fmt = (v: number | null | undefined) =>
+    v == null ? '' : String(Math.round(Number(v) * scale * 1e6) / 1e6);
+  const [text, setText] = useState(fmt(value));
+  const [focus, setFocus] = useState(false);
+  useEffect(() => {
+    if (!focus) setText(fmt(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, focus]);
+  return (
+    <label className="block">
+      <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
+      <div className="mt-1 flex items-center rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/20 focus-within:ring-2 focus-within:ring-blue-400">
+        <input
+          inputMode="decimal"
+          value={text}
+          placeholder={placeholder}
+          onFocus={() => setFocus(true)}
+          onBlur={() => setFocus(false)}
+          onChange={(e) => {
+            const t = e.target.value;
+            setText(t);
+            if (t.trim() === '') {
+              if (nullable) onChange(null);
+              return;
+            }
+            const n = Number(t);
+            if (!Number.isNaN(n)) onChange(n / scale);
+          }}
+          className="w-full bg-transparent px-2.5 py-1.5 text-sm tabular-nums outline-none text-blue-900 dark:text-blue-100"
+        />
+        {suffix && <span className="pr-2 text-xs text-gray-400">{suffix}</span>}
+      </div>
+      {hint && <span className="text-[11px] text-gray-400">{hint}</span>}
+    </label>
+  );
+};
+
+const Card: React.FC<{ title: string; note?: React.ReactNode; children: React.ReactNode; cols?: string }> = ({
+  title, note, children, cols = 'grid-cols-2 md:grid-cols-4',
+}) => (
+  <section className="mara-panel p-5 space-y-3">
+    <div>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+      {note && <p className="text-xs text-gray-500 mt-0.5">{note}</p>}
+    </div>
+    <div className={`grid gap-3 ${cols}`}>{children}</div>
+  </section>
+);
+
+const TH: React.FC<{ children?: React.ReactNode; right?: boolean; className?: string }> = ({ children, right = true, className = '' }) => (
+  <th className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 ${right ? 'text-right' : 'text-left'} ${className}`}>{children}</th>
+);
+const TD: React.FC<{ children?: React.ReactNode; right?: boolean; className?: string }> = ({ children, right = true, className = '' }) => (
+  <td className={`px-3 py-1.5 text-sm tabular-nums ${right ? 'text-right' : 'text-left'} ${className}`}>{children}</td>
+);
+const Table: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-100 dark:divide-gray-700">{children}</table></div>
+);
+
+const TABS = [
+  { id: 'assumptions', label: 'Assumptions' },
+  { id: 'cost', label: 'Cost Build' },
+  { id: 'margins', label: 'SKU Margins' },
+  { id: 'trip', label: 'Trip P&L' },
+  { id: 'split', label: 'Profit Split' },
+  { id: 'funding', label: 'Funding & Startup' },
+] as const;
+type TabId = typeof TABS[number]['id'];
 
 const DirectorPlanningPage: React.FC = () => {
+  const [snap, setSnap] = useState<Snapshot | null>(null);
+  const [draft, setDraft] = useState<any>(null);
+  const [tab, setTab] = useState<TabId>('assumptions');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<'dashboard' | 'costs' | 'restock' | 'cash' | 'timeline' | 'hypothesis'>('hypothesis');
-  const [assumptions, setAssumptions] = useState<Assumptions | null>(null);
-  const [computed, setComputed] = useState<Computed | null>(null);
-  const [hypothesis, setHypothesis] = useState<any>(null);
-  const [notes, setNotes] = useState('');
-  const [name, setName] = useState('Premium Restart Plan');
+  const [marginView, setMarginView] = useState<'both' | 'vat' | 'nonvat'>('both');
 
-  const applyPayload = (data: any) => {
-    setName(data.name || 'Premium Restart Plan');
-    setNotes(data.notes || '');
-    setComputed(data.computed);
-    setAssumptions(data.computed?.assumptions || null);
+  const apply = (data: Snapshot) => {
+    setSnap(data);
+    setDraft(JSON.parse(JSON.stringify(data.assumptions)));
   };
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [planRes, hypRes] = await Promise.all([
-        api.get('/operations/restart-plan'),
-        api.get('/operations/hypothesis'),
-      ]);
-      applyPayload(planRes.data.data);
-      setHypothesis(hypRes.data.data);
+      const res = await api.get('/operations/model');
+      apply(res.data.data);
     } catch {
-      toast.error('Could not load planning model');
+      toast.error('Could not load the planning model');
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const dirty = useMemo(
+    () => !!snap && !!draft && JSON.stringify(snap.assumptions) !== JSON.stringify(draft),
+    [snap, draft],
+  );
+
+  const set = (path: Path, v: any) => setDraft((d: any) => setPath(d, path, v));
+  const F = (label: string, path: Path, opts: Partial<React.ComponentProps<typeof Field>> = {}) => (
+    <Field key={path.join('.')} label={label} value={getPath(draft, path)} onChange={(v) => set(path, v)} {...opts} />
+  );
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await api.put('/operations/model', { assumptions: draft });
+      apply(res.data.data);
+      toast.success('Saved — every sheet recalculated');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  useEffect(() => { load(); }, []);
-
-  const downloadHypothesis = async () => {
+  const reset = async () => {
+    if (!window.confirm('Reset every assumption to the Excel defaults? Your saved edits will be lost.')) return;
+    setSaving(true);
     try {
-      const res = await api.get('/operations/hypothesis/export', { responseType: 'blob' });
+      const res = await api.post('/operations/model/reset');
+      apply(res.data.data);
+      toast.success('Reset to Excel defaults');
+    } catch {
+      toast.error('Reset failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const download = async () => {
+    try {
+      const res = await api.get('/operations/model/export', { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement('a');
       a.href = url;
@@ -93,491 +191,558 @@ const DirectorPlanningPage: React.FC = () => {
     }
   };
 
-  const save = async () => {
-    if (!assumptions) return;
-    setSaving(true);
-    try {
-      const res = await api.put('/operations/restart-plan', { name, notes, assumptions });
-      applyPayload(res.data.data);
-      toast.success('Plan saved — forecasts updated');
-    } catch {
-      toast.error('Save failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const reset = async () => {
-    if (!window.confirm('Reset all inputs to workbook defaults?')) return;
-    setSaving(true);
-    try {
-      const res = await api.post('/operations/restart-plan/reset');
-      applyPayload({ ...res.data.data, name: 'Premium Restart Plan', notes: res.data.data?.notes });
-      toast.success('Reset to defaults');
-    } catch {
-      toast.error('Reset failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const setPayroll = (key: string, field: 'count' | 'pay_each', value: number) => {
-    if (!assumptions) return;
-    setAssumptions({
-      ...assumptions,
-      payroll: {
-        ...assumptions.payroll,
-        [key]: { ...assumptions.payroll[key], [field]: value },
-      },
-    });
-  };
-
-  const setOverhead = (key: string, value: number) => {
-    if (!assumptions) return;
-    setAssumptions({
-      ...assumptions,
-      overheads: { ...assumptions.overheads, [key]: value },
-    });
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
+  if (loading && !snap) {
+    return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>;
+  }
+  if (!snap || !draft) {
+    return <div className="text-center py-12 text-gray-500">Could not load planning data.</div>;
   }
 
-  // Narrow for TypeScript — hypothesis tab can render even if restart-plan fails.
-  if (!assumptions || !computed) {
-    return (
-      <PageShell>
-        <PageHero eyebrow="What-if" title="Planning" description="Hypothesis model from the Excel workbook." tone="ink" />
-        {hypothesis ? (
-          <div className="mara-panel p-5 space-y-3">
-            <p className="text-sm">Trip gross {money(hypothesis.trip?.gross_margin)} · revenue {money(hypothesis.trip?.revenue)}</p>
-            <button type="button" onClick={downloadHypothesis} className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm">Download Hypothesis Excel</button>
+  const c = snap.computed;
+  const trip = c.trip_pl;
+  const split = c.profit_split;
+  const fund = c.funding;
+  const sums = (k: string) => PARTNERS.reduce((s, p) => s + Number(getPath(draft, ['profit_split', k, p]) || 0), 0);
+
+  /* ───────────────────────── Assumptions ───────────────────────── */
+  const assumptionsTab = (
+    <div className="space-y-4">
+      <p className="text-xs text-gray-500">
+        Blue cells are editable. Press <strong>Save &amp; recalculate</strong> and every other sheet updates.
+        Selling prices are <strong>not</strong> taken from the Excel — they come from the application price list.
+      </p>
+
+      <Card title="Bottle + cap — Intripet Limited (ex-VAT)" note="Intripet charges 16% VAT on the total of each purchase. 5L / 10L / 20L use the Blowplast quote (final, VAT-inclusive) — Intripet can be quoted later.">
+        {BOTTLED.map((s) => F(`Bottle ${s} ex-VAT`, ['bottle_ex_vat', s], { suffix: 'KES' }))}
+        {F('Cap ex-VAT (all sizes)', ['cap_ex_vat'], { suffix: 'KES' })}
+        {F('VAT rate', ['vat_rate'], { scale: 100, suffix: '%' })}
+        {['5L', '10L', '20L'].map((s) => F(`Bottle+cap ${s}, final`, ['bottle_cap_final', s], { suffix: 'KES' }))}
+      </Card>
+
+      <Card title="Labels — NEOPACK (listed prices ex-VAT)" note="16% VAT is charged on the total purchase. MOQs: 0.5L = 50,000 pcs · 1L / 1.5L = 30,000 pcs · lead time 7 business days.">
+        {BOTTLED.map((s) => F(`Label ${s} ex-VAT`, ['label_ex_vat', s], { suffix: 'KES' }))}
+        {F('Label 5L/10L/20L, final', ['label_large_final'], { suffix: 'KES' })}
+      </Card>
+
+      <Card title="Bailing paper — KES per sheet (no VAT)" note="One sheet wraps one bale; 1 bag = sheets per bag.">
+        {['0.5L', '1L', '1.5L', '5L'].map((s) => F(`Rate / sheet ${s}`, ['bailing_rate_sheet', s], { suffix: 'KES' }))}
+        {['0.5L', '1L', '1.5L', '5L'].map((s) => F(`Bottles / bale ${s}`, ['bottles_per_bale', s]))}
+        {F('Sheets per bag', ['sheets_per_bag'])}
+      </Card>
+
+      <Card title="Seals">
+        {F('Security seal 0.5L–5L (and 10L)', ['seal', 'security'], { suffix: 'KES', hint: 'MOQ 100,000 pcs' })}
+        {F('Topseal 10L/20L', ['seal', 'topseal'], { suffix: 'KES', hint: '500 pcs/bale MOQ' })}
+        {F('Security seal 10L/20L (extra)', ['seal', 'security_large'], { suffix: 'KES' })}
+      </Card>
+
+      <Card title="Production wages — KES per bottle" note="Paid per bottle regardless of how many ladies are on the line.">
+        {SIZES.map((s) => F(`Wage ${s}`, ['wage_per_bottle', s], { suffix: 'KES' }))}
+      </Card>
+
+      <Card title="Trip quantities & transport" note="Edit to model a future Intripet trip. Transport is split evenly across every bottle on the trip.">
+        {BOTTLED.map((s) => F(`Bottles / trip ${s}`, ['trip_bottles', s]))}
+        {F('Transport / trip (Nairobi → Rongo)', ['transport_per_trip'], { suffix: 'KES' })}
+        {F('Refill revenue, % of bottled (reference)', ['refill_revenue_pct'], { scale: 100, suffix: '%' })}
+      </Card>
+
+      <section className="mara-panel p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Selling prices — from the application</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Read-only. Change them in Pricing; this model follows automatically.</p>
           </div>
-        ) : (
-          <p className="text-sm text-red-600">Could not load planning data.</p>
-        )}
-      </PageShell>
-    );
-  }
+          <Link to="/pricing" className="text-xs font-semibold text-blue-700 hover:underline">Open Pricing →</Link>
+        </div>
+        <Table>
+          <thead><tr><TH right={false}>SKU</TH><TH right={false}>Sold as</TH><TH>Price / unit</TH><TH>Price / bottle</TH></tr></thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            {snap.app_prices.map((p: any) => (
+              <tr key={p.code}>
+                <TD right={false} className="font-medium">{p.name}</TD>
+                <TD right={false}>{p.sold_as}</TD>
+                <TD>{money(p.price_per_unit)}</TD>
+                <TD>{dec(p.price_per_piece)}</TD>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </section>
 
-  const k = computed.kpis;
-  const t = computed.totals;
-  const tabs = [
-    { id: 'hypothesis', label: 'Hypothesis model' },
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'costs', label: 'Team & costs' },
-    { id: 'restock', label: 'Restock what-if' },
-    { id: 'cash', label: 'Cash' },
-    { id: 'timeline', label: 'Timeline' },
-  ] as const;
+      <section className="mara-panel p-5 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Payroll — monthly, KES</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Driver and sales: base + bonuses ≈ 25,000 average. Planning for the next 2 months uses the “with bonuses” figure. Jim’s stipend is not payroll — it’s paid on each month’s profit-share and trips.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {F('Accountant / manager', ['payroll', 'accountant_manager'], { suffix: 'KES' })}
+          {F('Driver — base', ['payroll', 'driver_low'], { suffix: 'KES' })}
+          {F('Driver — with bonuses', ['payroll', 'driver_high'], { suffix: 'KES' })}
+          {F('Finalis LLP (HR)', ['payroll', 'finalis'], { suffix: 'KES' })}
+          {F('Sales — base', ['payroll', 'sales_low'], { suffix: 'KES' })}
+          {F('Sales — with bonuses', ['payroll', 'sales_high'], { suffix: 'KES' })}
+          <label className="block col-span-2">
+            <span className="text-xs text-gray-500">Profit-split basis (planning figure)</span>
+            <select
+              value={draft.payroll_basis}
+              onChange={(e) => set(['payroll_basis'], e.target.value)}
+              className="mt-1 w-full rounded-lg border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-900/60 px-2.5 py-1.5 text-sm"
+            >
+              <option value="high">With bonuses (≈ 25k driver &amp; sales) — recommended</option>
+              <option value="low">Base only (18k driver &amp; sales)</option>
+            </select>
+          </label>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {[1, 2, 3, 4, 5].map((t) => F(`Jim’s stipend — ${t}${t === 5 ? '+' : ''} trip${t > 1 ? 's' : ''}/mo`, ['jim_stipend', `t${t}`], { suffix: 'KES' }))}
+        </div>
+      </section>
+
+      <Card title="Monthly overheads — KES">
+        {Object.keys(draft.overheads).map((k) => F(k.charAt(0).toUpperCase() + k.slice(1), ['overheads', k], { suffix: 'KES' }))}
+      </Card>
+
+      <section className="mara-panel p-5 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Profit split %</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Percentages from the Excel, editable. Each phase should total 100%.</p>
+        </div>
+        {([
+          ['phase1_one', 'Phase 1 (Nov–Dec 2026) @ 1 trip / month'],
+          ['phase1_multi', 'Phase 1 (Nov–Dec 2026) @ 2–5 trips / month'],
+          ['phase2', 'Phase 2 (Jan 2027 onward)'],
+        ] as const).map(([k, label]) => {
+          const total = sums(k);
+          const ok = Math.abs(total - 1) < 0.0001;
+          return (
+            <div key={k} className="space-y-1">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{label}</p>
+                <span className={`text-xs font-semibold ${ok ? 'text-emerald-600' : 'text-red-600'}`}>{ok ? '✓ 100%' : `Total ${(total * 100).toFixed(1)}% — must be 100%`}</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                {PARTNERS.map((p) => F(p, ['profit_split', k, p], { scale: 100, suffix: '%' }))}
+              </div>
+            </div>
+          );
+        })}
+      </section>
+
+      <Card title="Capital & loan" note="Derrick’s total commitment = capital given + pending.">
+        {F('Diana / Onroy capital given', ['capital', 'diana_onroy'], { suffix: 'KES' })}
+        {F('Derrick capital given', ['capital', 'derrick_given'], { suffix: 'KES' })}
+        {F('Derrick capital pending', ['capital', 'derrick_pending'], { suffix: 'KES' })}
+        <div className="text-xs text-gray-500 flex items-end pb-2">Derrick total: <strong className="ml-1">{money(Number(draft.capital.derrick_given) + Number(draft.capital.derrick_pending))}</strong></div>
+        {F('Loan principal (elder brother)', ['loan', 'principal'], { suffix: 'KES' })}
+        {F('Loan interest (flat)', ['loan', 'rate'], { scale: 100, suffix: '%' })}
+        <label className="block col-span-2">
+          <span className="text-xs text-gray-500">Repayment due</span>
+          <input
+            value={draft.loan.due}
+            onChange={(e) => set(['loan', 'due'], e.target.value)}
+            className="mt-1 w-full rounded-lg border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-900/60 px-2.5 py-1.5 text-sm"
+          />
+        </label>
+      </Card>
+
+      <section className="mara-panel p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Total spend to date</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Full invoice value vs due now / paid. The difference is retainage still owed.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => set(['spend_items'], [...draft.spend_items, { label: '', full: 0, paid: 0, note: '' }])}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+          ><Plus className="w-3.5 h-3.5" /> Add line</button>
+        </div>
+        <div className="space-y-2">
+          {draft.spend_items.map((row: any, i: number) => (
+            <div key={i} className="grid grid-cols-12 gap-2 items-end">
+              <label className="col-span-12 md:col-span-5">
+                <span className="text-xs text-gray-500">Item</span>
+                <input value={row.label} onChange={(e) => set(['spend_items', i, 'label'], e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-900/60 px-2.5 py-1.5 text-sm" />
+              </label>
+              <div className="col-span-5 md:col-span-2"><Field label="Full value" value={row.full} onChange={(v) => set(['spend_items', i, 'full'], v ?? 0)} /></div>
+              <div className="col-span-5 md:col-span-2"><Field label="Paid / due now" value={row.paid} onChange={(v) => set(['spend_items', i, 'paid'], v ?? 0)} /></div>
+              <label className="col-span-10 md:col-span-2">
+                <span className="text-xs text-gray-500">Note</span>
+                <input value={row.note} onChange={(e) => set(['spend_items', i, 'note'], e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-900/60 px-2.5 py-1.5 text-sm" />
+              </label>
+              <button type="button" aria-label="Remove line" onClick={() => set(['spend_items'], draft.spend_items.filter((_: any, j: number) => j !== i))}
+                className="col-span-2 md:col-span-1 p-2 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <Card title="Bailing paper on hand — override (sheets)" note="Leave empty to use live inventory stock. Enter a confirmed warehouse count to override.">
+        {['0.5L', '1L', '1.5L', '5L'].map((s) => F(`On hand ${s}`, ['bailing_on_hand', s], { nullable: true, placeholder: 'live stock' }))}
+      </Card>
+
+      <Card title="Supply planning (drives Operations reorder alerts)" note="Lead times are business days (Mon–Fri). The trip cash target is bottles + caps incl. 16% VAT + transport unless you override it.">
+        {F('Lead time — bottles (Intripet trip)', ['supply', 'lead_business_days', 'bottles'], { suffix: 'bd' })}
+        {F('Lead time — labels', ['supply', 'lead_business_days', 'labels'], { suffix: 'bd' })}
+        {F('Lead time — bailing paper', ['supply', 'lead_business_days', 'bailing'], { suffix: 'bd' })}
+        {F('Lead time — seals', ['supply', 'lead_business_days', 'seals'], { suffix: 'bd' })}
+        {F('MOQ labels 0.5L', ['supply', 'moq', 'label_0.5L'], { suffix: 'pcs' })}
+        {F('MOQ labels 1L', ['supply', 'moq', 'label_1L'], { suffix: 'pcs' })}
+        {F('MOQ labels 1.5L', ['supply', 'moq', 'label_1.5L'], { suffix: 'pcs' })}
+        {F('MOQ seals', ['supply', 'moq', 'seal'], { suffix: 'pcs' })}
+        {F('Safety days', ['supply', 'safety_days'], { suffix: 'days' })}
+        {F('Target cover after an order', ['supply', 'target_cover_days'], { suffix: 'days' })}
+        {F('Planned trips / month (forecast prior)', ['supply', 'trips_per_month'])}
+        {F('Operating days / month', ['supply', 'operating_days_per_month'])}
+        {F('Opening cash (at tracking start)', ['supply', 'opening_cash'], { suffix: 'KES' })}
+        <label className="block">
+          <span className="text-xs text-gray-500">Cash tracking starts</span>
+          <input type="date" value={draft.supply.cash_tracking_start || ''} onChange={(e) => set(['supply', 'cash_tracking_start'], e.target.value || null)}
+            className="mt-1 w-full rounded-lg border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-900/60 px-2.5 py-1.5 text-sm" />
+          <span className="text-[11px] text-gray-400">Empty = 1st of this month</span>
+        </label>
+        {F('Bottle-trip cash target override', ['supply', 'trip_cash_target_override'], { nullable: true, placeholder: 'auto', suffix: 'KES' })}
+      </Card>
+    </div>
+  );
+
+  /* ───────────────────────── Cost Build ───────────────────────── */
+  const costTab = (
+    <section className="mara-panel p-5 space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Cost Build — per bottle</h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Transport/bottle = {money(draft.transport_per_trip)} ÷ {Number(c.cost_build.trip_bottles_total).toLocaleString()} bottles brought = KES {dec(c.cost_build.transport_per_bottle, 4)}.
+          Purchase-side VAT is part of cost (cannot be reclaimed below the VAT threshold).
+        </p>
+      </div>
+      <Table>
+        <thead><tr>
+          <TH right={false}>Size</TH><TH>Bottle+cap</TH><TH>Label</TH><TH>Bailing paper</TH><TH>Seal</TH>
+          <TH className="bg-sky-50 dark:bg-sky-900/20">Materials cost/btl</TH><TH>Wage</TH><TH>Transport/btl</TH>
+          <TH className="bg-emerald-50 dark:bg-emerald-900/20">Cost of production/btl</TH>
+        </tr></thead>
+        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+          {c.cost_build.rows.map((r: any) => (
+            <tr key={r.size}>
+              <TD right={false} className="font-semibold">{r.size}</TD>
+              <TD>{dec(r.bottle_cap, 3)}</TD><TD>{dec(r.label, 3)}</TD><TD>{dec(r.bailing_paper, 3)}</TD><TD>{dec(r.seal, 3)}</TD>
+              <TD className="bg-sky-50/60 dark:bg-sky-900/10 font-semibold">{dec(r.materials, 3)}</TD>
+              <TD>{dec(r.wage, 3)}</TD><TD>{dec(r.transport, 3)}</TD>
+              <TD className="bg-emerald-50/60 dark:bg-emerald-900/10 font-bold text-emerald-800 dark:text-emerald-200">{dec(r.cop, 3)}</TD>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+      <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
+        <strong>Note:</strong> {c.cost_build.note}
+      </p>
+      <p className="text-xs text-gray-500">
+        5L / 10L / 20L bottle+cap is the Blowplast quote; their label uses the historical flat rate (no current quote). Wage and transport allocation apply to the sizes actually on the trip (0.5L / 1L / 1.5L).
+      </p>
+    </section>
+  );
+
+  /* ───────────────────────── SKU Margins ───────────────────────── */
+  const marginsTab = (
+    <section className="mara-panel p-5 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">SKU prices &amp; margins — application prices</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Cost/bottle is materials only (as in the Excel). “After full cost” also deducts wage + transport share.</p>
+        </div>
+        <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 p-0.5 text-xs">
+          {([['both', 'Both'], ['vat', 'VAT-registered'], ['nonvat', 'Non-VAT (now)']] as const).map(([k, l]) => (
+            <button key={k} type="button" onClick={() => setMarginView(k)}
+              className={`px-3 py-1 rounded-md font-medium ${marginView === k ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300'}`}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <Table>
+        <thead><tr>
+          <TH right={false}>SKU</TH><TH right={false}>Sold as</TH><TH>Cost/bottle</TH><TH>Price/bottle</TH><TH>Gross margin/btl</TH>
+          {marginView !== 'nonvat' && <><TH>VAT/btl (16%, if registered)</TH><TH>Net margin/btl — VAT-registered</TH></>}
+          {marginView !== 'vat' && <><TH>Net margin/btl — non-VAT (now)</TH><TH>Net % — non-VAT</TH></>}
+          <TH>Margin after full cost</TH>
+        </tr></thead>
+        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+          {c.sku_margins.map((r: any) => (
+            <tr key={r.code}>
+              <TD right={false} className="font-medium">{r.sku}</TD>
+              <TD right={false}>{r.sold_as}</TD>
+              <TD>{dec(r.cost_per_bottle)}</TD><TD>{dec(r.price_per_bottle)}</TD>
+              <TD className={`font-semibold ${neg(r.gross_margin)}`}>{dec(r.gross_margin)}</TD>
+              {marginView !== 'nonvat' && <><TD>{dec(r.vat_per_bottle)}</TD><TD className={neg(r.net_margin_vat)}>{dec(r.net_margin_vat)}</TD></>}
+              {marginView !== 'vat' && <><TD className={neg(r.net_margin_non_vat)}>{dec(r.net_margin_non_vat)}</TD><TD>{pct(r.net_pct_non_vat)}</TD></>}
+              <TD className={neg(r.margin_after_full_cost)}>{dec(r.margin_after_full_cost)}</TD>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+      <p className="text-xs text-gray-500">
+        VAT-registered applies Kenya’s 16% VAT to the selling side only (net = gross margin − VAT fraction of it). Non-VAT is the current position below the registration threshold. Purchase-side VAT is already inside cost/bottle.
+      </p>
+    </section>
+  );
+
+  /* ───────────────────────── Trip P&L ───────────────────────── */
+  const A = trip.a;
+  const monthlyRows: [string, string, string?][] = [
+    ['Bottled revenue', 'bottled_revenue'], ['Total revenue', 'total_revenue'],
+    ['Cost of production (materials+wage+transport)', 'cost_of_production'], ['Gross trading margin', 'gross_margin', 'bold'],
+    ['VAT payable, if registered', 'vat_payable'], ['Gross profit after VAT', 'gross_profit_after_vat'],
+    ['Jim’s stipend (by trip tier)', 'jim_stipend'], ['Fixed payroll, LOW (driver+sales base)', 'fixed_payroll_low'],
+    ['Fixed payroll, HIGH (driver+sales with bonus)', 'fixed_payroll_high'], ['Overheads', 'overheads'],
+    ['NET PROFIT — VAT scenario, LOW payroll', 'net_vat_low', 'bold'], ['NET PROFIT — VAT scenario, HIGH payroll', 'net_vat_high', 'bold'],
+    ['NET PROFIT — non-VAT, LOW payroll (current reality)', 'net_non_vat_low', 'key'], ['NET PROFIT — non-VAT, HIGH payroll (current reality)', 'net_non_vat_high', 'key'],
+  ];
+  const tripTab = (
+    <div className="space-y-4">
+      <section className="mara-panel p-5 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">A. Cost of production per bottle &amp; revenue — one trip</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Prices are the application’s Premium retail prices (per bottle = bale price ÷ bottles per bale).</p>
+        </div>
+        <Table>
+          <thead><tr>
+            <TH right={false}>SKU</TH><TH>Qty</TH><TH>Bottle+cap</TH><TH>Label</TH><TH>Bailing</TH><TH>Seal</TH><TH>Wage</TH><TH>Transport/btl</TH>
+            <TH>Cost/btl</TH><TH>Price/btl</TH><TH>Revenue</TH><TH>Cost total</TH><TH>Gross margin</TH>
+          </tr></thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            {A.lines.map((l: any) => (
+              <tr key={l.size}>
+                <TD right={false} className="font-medium">{l.sku}</TD><TD>{Number(l.qty).toLocaleString()}</TD>
+                <TD>{dec(l.bottle_cap, 3)}</TD><TD>{dec(l.label, 3)}</TD><TD>{dec(l.bailing_paper, 3)}</TD><TD>{dec(l.seal, 3)}</TD>
+                <TD>{dec(l.wage, 3)}</TD><TD>{dec(l.transport, 3)}</TD>
+                <TD className="font-semibold">{dec(l.cost_per_bottle, 3)}</TD><TD>{dec(l.price_per_bottle, 3)}</TD>
+                <TD>{money(l.revenue)}</TD><TD>{money(l.cost_total)}</TD><TD className={`font-semibold ${neg(l.gross_margin)}`}>{money(l.gross_margin)}</TD>
+              </tr>
+            ))}
+            <tr className="bg-gray-50 dark:bg-gray-800/60 font-semibold">
+              <TD right={false}>BOTTLED, SUBTOTAL</TD><TD>{Number(A.qty_total).toLocaleString()}</TD>
+              <TD>{''}</TD><TD>{''}</TD><TD>{''}</TD><TD>{''}</TD><TD>{''}</TD><TD>{''}</TD><TD>{''}</TD><TD>{''}</TD>
+              <TD>{money(A.revenue)}</TD><TD>{money(A.cost_total)}</TD><TD>{money(A.gross_margin)}</TD>
+            </tr>
+          </tbody>
+        </Table>
+        <div className="grid sm:grid-cols-3 gap-3 text-sm">
+          <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500">VAT payable, if registered (×0.16/1.16)</p><p className={`font-semibold ${neg(A.vat_payable)}`}>{money(A.vat_payable)}</p></div>
+          <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3"><p className="text-xs text-gray-500">Gross profit after VAT — VAT-registered</p><p className="font-semibold">{money(A.gross_profit_after_vat)}</p></div>
+          <div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/20 p-3"><p className="text-xs text-gray-500">Gross profit — non-VAT, current reality</p><p className="font-bold text-emerald-800 dark:text-emerald-200">{money(A.gross_profit_non_vat)}</p></div>
+        </div>
+      </section>
+
+      <section className="mara-panel p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">B. Monthly P&amp;L by trip count (same SKU mix repeated)</h3>
+        <Table>
+          <thead><tr><TH right={false}>Line item</TH>{trip.b.map((m: any) => <TH key={m.trips}>{m.trips} trip{m.trips > 1 ? 's' : ''}</TH>)}</tr></thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            {monthlyRows.map(([label, key, style]) => (
+              <tr key={key} className={style === 'key' ? 'bg-emerald-50/60 dark:bg-emerald-900/10' : style === 'bold' ? 'bg-gray-50 dark:bg-gray-800/40' : ''}>
+                <TD right={false} className={style ? 'font-semibold' : ''}>{label}</TD>
+                {trip.b.map((m: any) => <TD key={m.trips} className={`${style ? 'font-semibold' : ''} ${neg(m[key])}`}>{money(m[key])}</TD>)}
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+        <p className="text-xs text-gray-500">
+          NET PROFIT rows use non-VAT (no VAT charged on sales — current reality) as the primary basis for Profit Split and Funding; VAT rows are the Kenya-law comparison. Overheads here include electricity.
+        </p>
+      </section>
+    </div>
+  );
+
+  /* ───────────────────────── Profit Split ───────────────────────── */
+  const splitBlock = (title: string, key: string, withNet: boolean) => (
+    <section className="mara-panel p-5 space-y-3" key={key}>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+      <Table>
+        <thead><tr><TH right={false}>Partner</TH>{[1, 2, 3, 4, 5].map((t) => <TH key={t}>{t} trip{t > 1 ? 's' : ''}</TH>)}</tr></thead>
+        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+          {withNet && (
+            <tr className="bg-gray-50 dark:bg-gray-800/40 font-semibold">
+              <TD right={false}>Net profit / month</TD>
+              {split.net_profit.map((v: number, i: number) => <TD key={i} className={neg(v)}>{money(v)}</TD>)}
+            </tr>
+          )}
+          {split.partners.map((p: string) => (
+            <tr key={p}>
+              <TD right={false} className="font-medium">{p}</TD>
+              {split[key][p].map((v: number, i: number) => <TD key={i} className={neg(v)}>{money(v)}</TD>)}
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+    </section>
+  );
+  const d = split.derrick;
+  const splitTab = (
+    <div className="space-y-4">
+      <p className="text-xs text-gray-500">
+        Basis: <strong>{split.basis_label}</strong>. Phase 1 at exactly 1 trip: Jim {pct(draft.profit_split.phase1_one.Jim, 0)} / Derrick {pct(draft.profit_split.phase1_one.Derrick, 0)} / Diana {pct(draft.profit_split.phase1_one.Diana, 0)} / Onroy {pct(draft.profit_split.phase1_one.Onroy, 0)} / Company {pct(draft.profit_split.phase1_one.Company, 0)};
+        at 2–5 trips: Jim {pct(draft.profit_split.phase1_multi.Jim, 0)} / Derrick {pct(draft.profit_split.phase1_multi.Derrick, 0)} / Diana {pct(draft.profit_split.phase1_multi.Diana, 0)} / Onroy {pct(draft.profit_split.phase1_multi.Onroy, 0)} / Company {pct(draft.profit_split.phase1_multi.Company, 0)}.
+        Edit percentages on the Assumptions tab.
+      </p>
+      {(['phase1_one', 'phase1_multi', 'phase2'] as const).some((k) => Math.abs(split.split_sums[k] - 1) > 0.0001) && (
+        <p className="flex items-center gap-2 text-sm text-red-700 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
+          <AlertTriangle className="w-4 h-4" /> One of the splits doesn’t add up to 100% — fix it on the Assumptions tab.
+        </p>
+      )}
+      {splitBlock('A. Phase 1 monthly distribution (Nov–Dec)', 'phase1_monthly', true)}
+      {splitBlock('B. Phase 1, 2-month cumulative (Nov + Dec)', 'phase1_two_month', false)}
+      <section className="mara-panel p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">C. Derrick’s {money(d.total_committed)} capital — recovery after Nov + Dec</h3>
+        <Table>
+          <thead><tr><TH right={false}>Measure</TH>{[1, 2, 3, 4, 5].map((t) => <TH key={t}>{t} trip{t > 1 ? 's' : ''}</TH>)}</tr></thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            <tr><TD right={false}>Derrick received, Nov + Dec</TD>{d.received_nov_dec.map((v: number, i: number) => <TD key={i}>{money(v)}</TD>)}</tr>
+            <tr><TD right={false}>% of capital recovered</TD>{d.pct_recovered.map((v: number, i: number) => <TD key={i}>{pct(v)}</TD>)}</tr>
+          </tbody>
+        </Table>
+      </section>
+      {splitBlock('D. Phase 2 (Jan 2027 onward) monthly — same split regardless of trip count', 'phase2_monthly', true)}
+      <section className="mara-panel p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">E. Months needed from January to fully recover Derrick’s remaining balance</h3>
+        <Table>
+          <thead><tr><TH right={false}>Measure</TH>{[1, 2, 3, 4, 5].map((t) => <TH key={t}>{t} trip{t > 1 ? 's' : ''}</TH>)}</tr></thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            <tr><TD right={false}>Remaining after Nov + Dec</TD>{d.remaining_after_nov_dec.map((v: number, i: number) => <TD key={i} className={neg(v)}>{money(v)}</TD>)}</tr>
+            <tr><TD right={false}>Months needed at Phase 2 rate</TD>{d.months_needed_phase2.map((v: number | null, i: number) => <TD key={i}>{v == null ? 'n/a' : dec(v, 1)}</TD>)}</tr>
+          </tbody>
+        </Table>
+      </section>
+    </div>
+  );
+
+  /* ───────────────────────── Funding & Startup ───────────────────────── */
+  const fundingTab = (
+    <div className="space-y-4">
+      <section className="mara-panel p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">A. Total spend to date</h3>
+        <Table>
+          <thead><tr><TH right={false}>Item</TH><TH>Full value</TH><TH>Due now / paid</TH><TH right={false}>Note</TH></tr></thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            {fund.spend_items.map((r: any, i: number) => (
+              <tr key={i}><TD right={false}>{r.label}</TD><TD>{money(r.full)}</TD><TD>{money(r.paid)}</TD><TD right={false} className="text-gray-500">{r.note}</TD></tr>
+            ))}
+            <tr className="bg-gray-50 dark:bg-gray-800/60 font-semibold"><TD right={false}>TOTAL</TD><TD>{money(fund.spend_full)}</TD><TD>{money(fund.spend_paid)}</TD><TD right={false}>{`Retainage still owed ${money(fund.retainage_pending)}`}</TD></tr>
+          </tbody>
+        </Table>
+      </section>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        <section className="mara-panel p-5 space-y-2">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">B. Loan — elder brother</h3>
+          <dl className="text-sm divide-y divide-gray-100 dark:divide-gray-700">
+            {[['Principal', money(fund.loan.principal)], ['Interest rate (flat)', pct(fund.loan.rate, 0)], ['Interest amount', money(fund.loan.interest)], ['TOTAL REPAYMENT', money(fund.loan.total_repayment)], ['Repayment due', fund.loan.due]].map(([k, v]) => (
+              <div key={k} className="flex justify-between py-1.5"><dt className="text-gray-500">{k}</dt><dd className="font-semibold tabular-nums">{v}</dd></div>
+            ))}
+          </dl>
+        </section>
+        <section className="mara-panel p-5 space-y-2">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">C. Funding reconciliation</h3>
+          <dl className="text-sm divide-y divide-gray-100 dark:divide-gray-700">
+            {[['Partner capital received to date', money(fund.reconciliation.capital_received)], ['Partner capital pending (Derrick)', money(fund.reconciliation.capital_pending)], ['Loan from elder brother', money(fund.reconciliation.loan)], ['TOTAL FUNDING LINED UP', money(fund.reconciliation.total_funding)], ['less: TOTAL SPEND TO DATE (full)', money(-fund.reconciliation.total_spend)]].map(([k, v]) => (
+              <div key={k} className="flex justify-between py-1.5"><dt className="text-gray-500">{k}</dt><dd className="font-semibold tabular-nums">{v}</dd></div>
+            ))}
+            <div className="flex justify-between py-1.5"><dt className="font-semibold">BUFFER REMAINING</dt><dd className={`font-bold tabular-nums ${neg(fund.reconciliation.buffer)}`}>{money(fund.reconciliation.buffer)}</dd></div>
+          </dl>
+        </section>
+      </div>
+
+      <section className="mara-panel p-5 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">D. Bailing paper — one trip minus what’s in the warehouse</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Need = bottles on the trip ÷ bottles per bale (one sheet per bale). On hand = live inventory unless overridden on Assumptions. Bags of {draft.sheets_per_bag} sheets, priced at the listed per-sheet rate.</p>
+        </div>
+        <Table>
+          <thead><tr><TH right={false}>SKU</TH><TH>Need (sheets)</TH><TH>On hand</TH><TH>Deficit</TH><TH>Bags needed</TH><TH>Rate/sheet</TH><TH>Cost (KES)</TH></tr></thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            {fund.bailing_paper.rows.map((r: any) => (
+              <tr key={r.size}>
+                <TD right={false} className="font-medium">{r.size}</TD><TD>{Number(r.need_sheets).toLocaleString()}</TD>
+                <TD>{Number(r.on_hand_sheets).toLocaleString()} <span className="text-[10px] text-gray-400">{r.on_hand_source}</span></TD>
+                <TD>{Number(r.deficit_sheets).toLocaleString()}</TD><TD>{r.bags_needed}</TD><TD>{dec(r.rate_per_sheet)}</TD><TD className="font-semibold">{money(r.cost)}</TD>
+              </tr>
+            ))}
+            <tr className="bg-gray-50 dark:bg-gray-800/60 font-semibold"><TD right={false}>TOTAL</TD><TD>{''}</TD><TD>{''}</TD><TD>{''}</TD><TD>{''}</TD><TD>{''}</TD><TD>{money(fund.bailing_paper.total)}</TD></tr>
+          </tbody>
+        </Table>
+      </section>
+
+      <section className="mara-panel p-5 space-y-2">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">E. Bare-minimum cash needed to fully start operations</h3>
+        <dl className="text-sm divide-y divide-gray-100 dark:divide-gray-700">
+          {[['Bailing paper deficit (block D)', fund.startup.bailing_deficit], ['Buffer remaining after spend to date (block C)', fund.startup.buffer_remaining]].map(([k, v]: any) => (
+            <div key={k} className="flex justify-between py-1.5"><dt className="text-gray-500">{k}</dt><dd className="font-semibold tabular-nums">{money(v)}</dd></div>
+          ))}
+          <div className="flex justify-between py-1.5"><dt className="font-semibold">SHORTFALL / (surplus) after buying bailing paper</dt><dd className={`font-bold tabular-nums ${neg(fund.startup.shortfall_or_surplus)}`}>{money(fund.startup.shortfall_or_surplus)}</dd></div>
+          {[['Reference: 1 full month fixed cost, low payroll', fund.startup.month_fixed_low], ['Reference: 1 full month fixed cost, high payroll', fund.startup.month_fixed_high]].map(([k, v]: any) => (
+            <div key={k} className="flex justify-between py-1.5"><dt className="text-gray-500">{k}</dt><dd className="font-semibold tabular-nums">{money(v)}</dd></div>
+          ))}
+        </dl>
+        <p className="text-xs text-gray-500">The old production-rate / conveyor block was removed for this model.</p>
+      </section>
+    </div>
+  );
 
   return (
     <PageShell>
       <PageHero
-        eyebrow="What-if"
-        title="Planning"
-        description="Restart plan assumptions and forecasts."
         tone="ink"
+        eyebrow="Admin · Feasibility model"
+        title="Planning"
+        description="MARA WATER Hypothesis Model — live, using the application’s own selling prices."
+        actions={
+          <>
+            <Link to="/operations" className="inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-semibold bg-white/15 text-white border border-white/30 hover:bg-white/25">
+              <ArrowLeft className="w-4 h-4 mr-2" /> Operations
+            </Link>
+            <button type="button" onClick={download} className="inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-semibold bg-white/15 text-white border border-white/30 hover:bg-white/25">
+              <Download className="w-4 h-4 mr-2" /> Excel
+            </button>
+            <button type="button" onClick={reset} disabled={saving} className="inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-semibold bg-white/15 text-white border border-white/30 hover:bg-white/25 disabled:opacity-50">
+              <RefreshCw className="w-4 h-4 mr-2" /> Reset
+            </button>
+            <button type="button" onClick={save} disabled={saving || !dirty}
+              className="inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-semibold bg-white text-slate-900 hover:bg-slate-100 disabled:opacity-50">
+              {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />} Save &amp; recalculate
+            </button>
+          </>
+        }
+        stats={[
+          { label: 'Trip revenue', value: money(A.revenue) },
+          { label: 'Trip gross margin', value: money(A.gross_profit_non_vat) },
+          { label: 'Net / mo @ 2 trips', value: money(trip.b[1][split.basis]) },
+          { label: 'Funding buffer', value: money(fund.reconciliation.buffer) },
+        ]}
       />
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-        <div>
-          <Link to="/operations" className="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 mb-2">
-            <ArrowLeft className="w-4 h-4 mr-1" /> Operations overview
-          </Link>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-            <Calculator className="w-7 h-7 text-blue-600" />
-            Director planning — restart foresight
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1 max-w-3xl">
-            Operations what-if for the Premium restart. Change staff costs, overheads, cash on hand, or restocks —
-            see what happens to operating profit, cash buffer, daily sales target, and capacity.
-          </p>
-          <p className="text-xs text-amber-700 dark:text-amber-300 mt-2 flex items-start gap-1">
-            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-            Blue fields are inputs. Forecasts recalculate when you Save. This is a planning tool — live P&amp;L still comes from trips/inventory.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={downloadHypothesis}
-            className="inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm">
-            Download Hypothesis Excel
-          </button>
-          <button type="button" onClick={reset} disabled={saving}
-            className="inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm">
-            <RefreshCw className="w-4 h-4 mr-1.5" /> Reset defaults
-          </button>
-          <button type="button" onClick={save} disabled={saving}
-            className="inline-flex items-center px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-            {saving ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Save className="w-4 h-4 mr-1.5" />}
-            Save &amp; recalculate
-          </button>
-        </div>
-      </div>
 
-      <div className="flex flex-wrap gap-2">
-        {tabs.map((x) => (
-          <button key={x.id} type="button" onClick={() => setTab(x.id as any)}
-            className={`px-3 py-1.5 rounded-full text-sm ${tab === x.id
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
-            {x.label}
+      {dirty && (
+        <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-2">
+          You have unsaved assumption changes — press <strong>Save &amp; recalculate</strong> to update the sheets and Operations alerts.
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-1.5">
+        {TABS.map((t) => (
+          <button key={t.id} type="button" onClick={() => setTab(t.id)}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${tab === t.id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+            {t.label}
           </button>
         ))}
       </div>
 
-      {tab === 'hypothesis' && hypothesis && (
-        <div className="space-y-6">
-          <div className="mara-panel p-5">
-            <h3 className="font-semibold text-gray-900 dark:text-gray-100">Intripet trip + suggested prices</h3>
-            <p className="text-sm text-gray-500 mt-1">
-              Supplier {hypothesis.trip?.supplier}. Transport {money(hypothesis.trip?.transport_per_trip)}.
-              Capacity {Number(hypothesis.capacity?.bottles_per_day || 0).toLocaleString()} btl/day
-              ({hypothesis.capacity?.bottles_per_hour}/hr × {hypothesis.capacity?.hours_per_day}h) ·
-              ~{hypothesis.capacity?.days_to_fill_trip ?? '—'} days to fill trip.
-              Revenue {money(hypothesis.trip?.revenue)} · COGS {money(hypothesis.trip?.cost_total)} ·
-              Gross {money(hypothesis.trip?.gross_margin)}.
-            </p>
-            <div className="overflow-x-auto mt-4">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-gray-500 uppercase">
-                    <th className="pr-3 py-1">SKU</th><th className="pr-3 py-1">Bottles</th>
-                    <th className="pr-3 py-1">COP/btl</th><th className="pr-3 py-1">Price/btl</th>
-                    <th className="pr-3 py-1">Revenue</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {(hypothesis.trip?.lines || []).map((l: any) => (
-                    <tr key={l.sku}>
-                      <td className="pr-3 py-1.5">{l.sku}</td>
-                      <td className="pr-3 py-1.5">{Number(l.qty_bottles).toLocaleString()}</td>
-                      <td className="pr-3 py-1.5">{Number(l.cost_per_bottle).toFixed(2)}</td>
-                      <td className="pr-3 py-1.5">{Number(l.price_per_bottle).toFixed(2)}</td>
-                      <td className="pr-3 py-1.5">{money(l.revenue)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div className="mara-panel p-5">
-            <h3 className="font-semibold text-gray-900 dark:text-gray-100">Monthly net by trip count</h3>
-            <p className="text-xs text-gray-500 mt-1">
-              Payroll Excel: accountant 24.5k · driver 20–25k · sales 15–25k · Finalis 15k · Jim stipend by trips · overheads ~66k.
-            </p>
-            <div className="overflow-x-auto mt-4">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-gray-500 uppercase">
-                    <th className="pr-3 py-1">Trips</th><th className="pr-3 py-1">Jim</th>
-                    <th className="pr-3 py-1">Net low</th><th className="pr-3 py-1">Net high</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {(hypothesis.monthly || []).map((m: any) => (
-                    <tr key={m.trips}>
-                      <td className="pr-3 py-1.5">{m.trips}</td>
-                      <td className="pr-3 py-1.5">{money(m.jim_stipend)}</td>
-                      <td className="pr-3 py-1.5">{money(m.net_low)}</td>
-                      <td className="pr-3 py-1.5">{money(m.net_high)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          {(hypothesis.profit_split?.rows || []).length > 0 && (
-            <div className="mara-panel p-5">
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100">
-                Profit split — {(hypothesis.profit_split?.phase || '').replace(/_/g, ' ')}
-              </h3>
-              <div className="overflow-x-auto mt-4">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs text-gray-500 uppercase">
-                      <th className="pr-3 py-1">Partner</th>
-                      <th className="pr-3 py-1">%</th>
-                      <th className="pr-3 py-1">KES @ 1-trip net high</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {hypothesis.profit_split.rows.map((p: any) => (
-                      <tr key={p.name}>
-                        <td className="pr-3 py-1.5">{p.name}</td>
-                        <td className="pr-3 py-1.5">{p.pct}%</td>
-                        <td className="pr-3 py-1.5">{money(p.amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === 'dashboard' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            {[
-              { label: `Operating profit @ ${computed.chosen_restocks} restocks/mo`, value: money(k.net_profit_at_chosen_restocks), hint: 'After staff, overheads, materials, VAT, transport' },
-              { label: 'Cash buffer after first lorry', value: money(k.cash_buffer_at_start), hint: `Cash on hand ${money(t.operating_cash)}` },
-              { label: 'Breakeven restocks', value: String(k.breakeven_restocks ?? '—'), hint: 'Full lorries / month' },
-              { label: 'Weekly pace gap vs full lorry', value: k.pace_gap_weekly_full_lorry ? `${k.pace_gap_weekly_full_lorry}×` : '—', hint: 'Need vs Sept proven week' },
-            ].map((card) => (
-              <div key={card.label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                <p className="text-xs uppercase tracking-wide text-gray-500">{card.label}</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{card.value}</p>
-                <p className="text-xs text-gray-500 mt-1">{card.hint}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-              <h2 className="font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4" /> Restock frequency → net profit
-              </h2>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
-                      <th className="py-2 pr-3">Restocks</th>
-                      <th className="py-2 pr-3">Revenue</th>
-                      <th className="py-2">Operating profit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {computed.restock_scenarios.map((r: any) => (
-                      <tr key={r.restocks} className={`border-b border-gray-100 dark:border-gray-700/60 ${r.restocks === computed.chosen_restocks ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
-                        <td className="py-2 pr-3 font-medium">{r.restocks}/mo</td>
-                        <td className="py-2 pr-3">{money(r.revenue)}</td>
-                        <td className={`py-2 ${r.net_profit < 0 ? 'text-red-600' : 'text-emerald-700 dark:text-emerald-400'}`}>{money(r.net_profit)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <label className="block mt-4 text-sm text-gray-600 dark:text-gray-300">
-                Chosen restocks / month
-                <input type="number" min={1} max={8} value={assumptions.restocks_per_month}
-                  onChange={(e) => setAssumptions({ ...assumptions, restocks_per_month: Number(e.target.value) })}
-                  className="mt-1 block w-32 rounded-lg border border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-gray-900 px-3 py-2 text-sm" />
-              </label>
-            </div>
-
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-              <h2 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Daily sales needed for profit goals</h2>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
-                      <th className="py-2 pr-3">Goal</th>
-                      <th className="py-2 pr-3">Daily sales</th>
-                      <th className="py-2 pr-3">vs Sept</th>
-                      <th className="py-2">Min lorries</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {computed.targets.map((row: any, i: number) => (
-                      <tr key={i} className="border-b border-gray-100 dark:border-gray-700/60">
-                        <td className="py-2 pr-3">{money(row.profit_target)}</td>
-                        <td className="py-2 pr-3 font-medium">{money(row.required_daily_sales)}</td>
-                        <td className="py-2 pr-3">{row.vs_sept_daily_pace ? `${row.vs_sept_daily_pace}×` : '—'}</td>
-                        <td className="py-2">{row.min_restock_orders}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-xs text-gray-500 mt-3">
-                Sept proven daily pace ≈ {money(assumptions.sept_daily_pace)}. Capacity: 6 ladies ≈ {computed.capacity.projected_monthly_bottles?.toLocaleString()} bottles/mo
-                ({pct(computed.capacity.capacity_vs_kept_demand_pct)} of kept-mix demand).
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'costs' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-3">
-            <h2 className="font-semibold">A. Payroll</h2>
-            {Object.entries(assumptions.payroll).map(([key, row]) => (
-              <div key={key} className="grid grid-cols-3 gap-2 items-end">
-                <div className="col-span-3 sm:col-span-1 text-sm text-gray-700 dark:text-gray-300">{row.label}</div>
-                <label className="text-xs text-gray-500">People
-                  <input type="number" min={0} value={row.count} onChange={(e) => setPayroll(key, 'count', Number(e.target.value))}
-                    className="mt-1 w-full rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-2 py-1.5 text-sm" />
-                </label>
-                <label className="text-xs text-gray-500">Pay each
-                  <input type="number" min={0} step={500} value={row.pay_each} onChange={(e) => setPayroll(key, 'pay_each', Number(e.target.value))}
-                    className="mt-1 w-full rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-2 py-1.5 text-sm" />
-                </label>
-              </div>
-            ))}
-            <p className="text-sm font-medium pt-2 border-t border-gray-200 dark:border-gray-700">Payroll total: {money(t.payroll)}</p>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-3">
-            <h2 className="font-semibold">B. Overheads + transport</h2>
-            {Object.entries(assumptions.overheads).map(([key, val]) => (
-              <label key={key} className="flex items-center justify-between gap-3 text-sm">
-                <span className="capitalize text-gray-600 dark:text-gray-300">{key.replace(/_/g, ' ')}</span>
-                <input type="number" min={0} value={val} onChange={(e) => setOverhead(key, Number(e.target.value))}
-                  className="w-36 rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-2 py-1.5 text-sm text-right" />
-              </label>
-            ))}
-            <label className="flex items-center justify-between gap-3 text-sm pt-2 border-t border-gray-200 dark:border-gray-700">
-              <span>Transport / trip (Nairobi→Rongo)</span>
-              <input type="number" min={0} value={assumptions.transport_per_trip}
-                onChange={(e) => setAssumptions({ ...assumptions, transport_per_trip: Number(e.target.value) })}
-                className="w-36 rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-2 py-1.5 text-sm text-right" />
-            </label>
-            <p className="text-sm font-medium pt-2 border-t border-gray-200 dark:border-gray-700">
-              Monthly operating cost (payroll + overheads): {money(t.monthly_operating_cost ?? t.fixed_monthly)}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {tab === 'restock' && (
-        <div className="space-y-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <label className="text-sm">Lorry materials cost
-              <input type="number" value={assumptions.lorry_materials_cost}
-                onChange={(e) => setAssumptions({ ...assumptions, lorry_materials_cost: Number(e.target.value) })}
-                className="mt-1 w-full rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-3 py-2 text-sm" />
-            </label>
-            <label className="text-sm">Lorry projected revenue (full sell-through)
-              <input type="number" value={assumptions.lorry_projected_revenue}
-                onChange={(e) => setAssumptions({ ...assumptions, lorry_projected_revenue: Number(e.target.value) })}
-                className="mt-1 w-full rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-3 py-2 text-sm" />
-            </label>
-            <label className="text-sm">Sept weekly pace (proven)
-              <input type="number" value={assumptions.sept_weekly_pace}
-                onChange={(e) => setAssumptions({ ...assumptions, sept_weekly_pace: Number(e.target.value) })}
-                className="mt-1 w-full rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-3 py-2 text-sm" />
-            </label>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 overflow-x-auto">
-            <h2 className="font-semibold mb-3">If we restock N times this month (full lorry each time)</h2>
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 border-b">
-                  <th className="py-2 pr-2">N</th>
-                  <th className="py-2 pr-2">Revenue</th>
-                  <th className="py-2 pr-2">Materials</th>
-                  <th className="py-2 pr-2">After VAT</th>
-                  <th className="py-2 pr-2">Transport</th>
-                  <th className="py-2 pr-2">Operating profit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {computed.restock_scenarios.map((r: any) => (
-                  <tr key={r.restocks} className="border-b border-gray-100 dark:border-gray-700/50">
-                    <td className="py-2 pr-2">{r.restocks}</td>
-                    <td className="py-2 pr-2">{money(r.revenue)}</td>
-                    <td className="py-2 pr-2">{money(r.materials)}</td>
-                    <td className="py-2 pr-2">{money(r.gross_after_vat)}</td>
-                    <td className="py-2 pr-2">{money(r.transport)}</td>
-                    <td className={`py-2 pr-2 font-medium ${r.net_profit < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{money(r.net_profit)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="text-xs text-gray-500 mt-3">
-              Contribution per KES revenue (after materials, VAT, per-lorry transport): <strong>{t.contrib_per_revenue}</strong>.
-              Days to process one lorry with 6 ladies: <strong>{computed.capacity.days_to_process_lorry ?? '—'}</strong> ·
-              Days to sell at Sept pace: <strong>{computed.capacity.days_to_sell_lorry_at_sept_pace ?? '—'}</strong>.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {tab === 'cash' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-3">
-            <h2 className="font-semibold">Cash on hand</h2>
-            <label className="text-sm block">Operating cash available to start
-              <input type="number" min={0} value={assumptions.operating_cash}
-                onChange={(e) => setAssumptions({ ...assumptions, operating_cash: Number(e.target.value) })}
-                className="mt-1 w-full rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-3 py-2 text-sm" />
-            </label>
-            <p className="text-sm">First outlay (materials + transport): <strong>{money(t.first_outlay)}</strong></p>
-            <p className={`text-sm font-medium ${t.cash_buffer_at_start < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
-              Cash buffer at start: {money(t.cash_buffer_at_start)}
-            </p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 overflow-x-auto">
-            <h2 className="font-semibold mb-3">Weekly cash if we order full lorries at Sept pace</h2>
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 border-b">
-                  <th className="py-2 pr-2">Week</th>
-                  <th className="py-2 pr-2">Outlay</th>
-                  <th className="py-2 pr-2">Sales</th>
-                  <th className="py-2">Cash position</th>
-                </tr>
-              </thead>
-              <tbody>
-                {computed.weekly_cash.map((w: any) => (
-                  <tr key={w.week} className="border-b border-gray-100 dark:border-gray-700/50">
-                    <td className="py-2 pr-2">{w.week}</td>
-                    <td className="py-2 pr-2 text-red-600">{money(w.lorry_outlay)}</td>
-                    <td className="py-2 pr-2">{money(w.sales_at_sept_pace)}</td>
-                    <td className={`py-2 font-medium ${w.running_cash < 0 ? 'text-red-600' : ''}`}>{money(w.running_cash)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {tab === 'timeline' && (
-        <div className="space-y-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-            <h2 className="font-semibold mb-3">Dated start plan (editable)</h2>
-            <div className="space-y-3">
-              {assumptions.timeline.map((row, idx) => (
-                <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <input value={row.when}
-                    onChange={(e) => {
-                      const timeline = [...assumptions.timeline];
-                      timeline[idx] = { ...timeline[idx], when: e.target.value };
-                      setAssumptions({ ...assumptions, timeline });
-                    }}
-                    className="rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-3 py-2 text-sm" />
-                  <input value={row.action}
-                    onChange={(e) => {
-                      const timeline = [...assumptions.timeline];
-                      timeline[idx] = { ...timeline[idx], action: e.target.value };
-                      setAssumptions({ ...assumptions, timeline });
-                    }}
-                    className="md:col-span-2 rounded border border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-gray-900 px-3 py-2 text-sm" />
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-3">
-            <label className="text-sm block">Plan name
-              <input value={name} onChange={(e) => setName(e.target.value)}
-                className="mt-1 w-full rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-900 px-3 py-2 text-sm" />
-            </label>
-            <label className="text-sm block">Notes
-              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4}
-                className="mt-1 w-full rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-900 px-3 py-2 text-sm" />
-            </label>
-            <p className="text-xs text-gray-500">{assumptions.sku_mix_note}</p>
-          </div>
-        </div>
-      )}
+      {tab === 'assumptions' && assumptionsTab}
+      {tab === 'cost' && costTab}
+      {tab === 'margins' && marginsTab}
+      {tab === 'trip' && tripTab}
+      {tab === 'split' && splitTab}
+      {tab === 'funding' && fundingTab}
     </PageShell>
   );
 };

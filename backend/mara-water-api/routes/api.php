@@ -127,9 +127,19 @@ Route::prefix('v1')->group(function () {
             Route::put('/restart-plan', [\App\Http\Controllers\Api\DirectorRestartPlanController::class, 'update']);
             Route::post('/restart-plan/reset', [\App\Http\Controllers\Api\DirectorRestartPlanController::class, 'reset']);
 
-            // Hypothesis Model (Intripet / wages / transport / payroll) + Excel download.
-            Route::get('/hypothesis', [\App\Http\Controllers\Api\HypothesisModelController::class, 'show']);
-            Route::get('/hypothesis/export', [\App\Http\Controllers\Api\HypothesisModelController::class, 'export']);
+            // MARA WATER Hypothesis Model (Assumptions / Cost Build / SKU Margins / Trip P&L /
+            // Profit Split / Funding & Startup) — application prices, admin-only.
+            Route::get('/model', [\App\Http\Controllers\Api\OperationsModelController::class, 'show']);
+            Route::put('/model', [\App\Http\Controllers\Api\OperationsModelController::class, 'update']);
+            Route::post('/model/reset', [\App\Http\Controllers\Api\OperationsModelController::class, 'reset']);
+            Route::get('/model/export', [\App\Http\Controllers\Api\OperationsModelController::class, 'export']);
+
+            // Reorder alerts + auto-advice + bottle-trip cash trigger, and the supply orders ledger.
+            Route::get('/advisor', [\App\Http\Controllers\Api\OperationsModelController::class, 'advisor']);
+            Route::get('/supply-orders', [\App\Http\Controllers\Api\SupplyOrderController::class, 'index']);
+            Route::post('/supply-orders', [\App\Http\Controllers\Api\SupplyOrderController::class, 'store']);
+            Route::patch('/supply-orders/{id}', [\App\Http\Controllers\Api\SupplyOrderController::class, 'update']);
+            Route::delete('/supply-orders/{id}', [\App\Http\Controllers\Api\SupplyOrderController::class, 'destroy']);
         });
 
         Route::middleware('tier:driver,manager,director')->prefix('payments')->group(function () {

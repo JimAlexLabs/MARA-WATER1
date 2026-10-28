@@ -191,7 +191,6 @@ class OperationsOverviewController extends Controller
             ],
             'conversions' => $conversions,
             'default_conversions' => $cfg['default_conversions'] ?? [],
-            'automation_ideas' => $this->automationIdeas(),
             'exports' => [
                 ['key' => 'payroll', 'label' => 'Payroll (Finalis-style)', 'path' => '/hr/payroll/runs/{id}/payroll-export', 'needs' => 'payroll_run_id'],
                 ['key' => 'inventory_control', 'label' => 'Inventory Control Sheet', 'path' => '/operations/exports/inventory-control'],
@@ -211,7 +210,7 @@ class OperationsOverviewController extends Controller
     {
         try {
             $d = $this->buildOverviewPayload();
-            unset($d['salary_bands'], $d['payroll'], $d['conversions'], $d['exports'], $d['automation_ideas']);
+            unset($d['salary_bands'], $d['payroll'], $d['conversions'], $d['exports']);
             $d['note'] = 'High-level supply-chain snapshot. No payroll or staff detail.';
             return response()->json(['success' => true, 'data' => $d]);
         } catch (\Throwable $e) {
@@ -320,21 +319,5 @@ class OperationsOverviewController extends Controller
             return 'BLOWPLAST';
         }
         return 'OTHER';
-    }
-
-    private function automationIdeas(): array
-    {
-        return [
-            ['title' => 'Auto returns = dispatched − sold', 'detail' => 'Already computed on this overview; write qty_returned_bales on trip close so warehouse stock cards stay accurate without hand entry.'],
-            ['title' => 'Low-bag reorder alerts', 'detail' => 'When FineLine/Blowplast bag stock falls below days-of-cover threshold, notify Director + Accountant with suggested order qty + KES 45,000 transport.'],
-            ['title' => 'Production target → ladies pay', 'detail' => 'Link daily packaging targets to the 6 production staff pay band (max 12,500): auto-suggest commission/bonus lines on payroll draft.'],
-            ['title' => 'Driver performance band', 'detail' => 'Scale Driver/Sales base 20k→25k from trip completion rate, fuel efficiency (km/L), and cash variance — feed Finalis Other Allowance automatically.'],
-            ['title' => 'Nightly Excel pack', 'detail' => 'One scheduled job: Inventory Control + Production + Warehouse + Driver Work Sheet + Sales Control + Debtors into a dated zip (matches BackupService).'],
-            ['title' => 'Consignment → conversion wizard', 'detail' => 'On GRN from FineLine/Blowplast, force supplier_code + bag qty; apply sku_package_conversions so production never mixes bag counts with bale targets.'],
-            ['title' => 'Fuel & mileage anomalies', 'detail' => 'Extend Discrepancies: flag trips where KM vs fuel drawn exceeds fleet average by >20%.'],
-            ['title' => 'Refill vs new-bottle mix', 'detail' => 'Auto-split in-house sales into refill SKUs vs sealed — powers REFILS.xlsx without a second ledger.'],
-            ['title' => 'WhatsApp / SMS digests', 'detail' => 'Daily 6pm: production bales, bags left, returns, cash+M-Pesa collected — Director + Investor (Investor without payroll).'],
-            ['title' => 'Android offline trip kit', 'detail' => 'Next: driver app caches prices + dispatched bales; sync sales photos/GPS when back online — same APIs as this web app.'],
-        ];
     }
 }
