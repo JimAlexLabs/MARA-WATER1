@@ -37,7 +37,6 @@ import {
   AlertTriangle,
   Clock,
   GitBranch,
-  Smartphone,
 } from 'lucide-react';
 
 interface SearchResult {
@@ -255,12 +254,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       href: '/discrepancies',
       icon: AlertTriangle,
       description: 'Flagged cash, stock, and mileage anomalies'
-    },
-    {
-      name: 'M-Pesa Payments',
-      href: '/mpesa-payments',
-      icon: Smartphone,
-      description: 'STK push monitoring, retries, and unmatched payments'
     },
     {
       name: 'Users',
