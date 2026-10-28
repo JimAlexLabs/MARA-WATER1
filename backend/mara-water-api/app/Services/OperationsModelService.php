@@ -274,7 +274,8 @@ class OperationsModelService
 
     public static function sizeLabel(float $liters): ?string
     {
-        foreach ([0.5 => '0.5L', 1.0 => '1L', 1.5 => '1.5L', 5.0 => '5L', 10.0 => '10L', 20.0 => '20L'] as $v => $label) {
+        // List of pairs on purpose: float array keys would be cast to ints and collide (1.0 / 1.5).
+        foreach ([[0.5, '0.5L'], [1.0, '1L'], [1.5, '1.5L'], [5.0, '5L'], [10.0, '10L'], [20.0, '20L']] as [$v, $label]) {
             if (abs($liters - $v) < 0.011) {
                 return $label;
             }
