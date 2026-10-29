@@ -87,7 +87,7 @@ class PaymentSettlementService
 
             if ($payload['status'] === 'success') {
                 if ($payment->channel === 'field_trip') {
-                    $this->createDeferredTripSale($payment);
+                    $this->fulfillPendingFieldTripSale($payment);
                 } else {
                     $this->confirmOrderPayment($payment);
                 }
@@ -112,8 +112,17 @@ class PaymentSettlementService
      * as a stock discrepancy instead, same philosophy as
      * DriverTripController::end()'s own oversold-after-correction case.
      */
-    private function createDeferredTripSale(MpesaPayment $payment): void
+    /**
+     * Create the DriverTripSale after a successful field_trip STK that was
+     * initiated with only a pending_sale_snapshot (driver Log a Sale page).
+     * Also used by MpesaStkService when the AfriGig/Daraja webhook settles.
+     */
+    public function fulfillPendingFieldTripSale(MpesaPayment $payment): void
     {
+        if ($payment->driver_trip_sale_id) {
+            return;
+        }
+
         $snapshot = $payment->pending_sale_snapshot;
         if (!$snapshot) {
             Log::error('PaymentSettlementService: success with no pending_sale_snapshot', ['id' => $payment->id]);
@@ -129,6 +138,7 @@ class PaymentSettlementService
         $sale = $trip->sales()->create([
             'customer_id' => $snapshot['customer_id'],
             'payment_method' => 'mpesa',
+            'payment_status' => 'paid',
             'amount' => $snapshot['amount'],
             'mpesa_reference' => $payment->mpesa_receipt,
             'physical_receipt_no' => $snapshot['physical_receipt_no'] ?? null,

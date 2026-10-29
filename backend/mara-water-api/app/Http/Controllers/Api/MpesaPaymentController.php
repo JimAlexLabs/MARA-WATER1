@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\DriverTrip;
 use App\Models\DriverTripSale;
+use App\Models\DriverTripSaleItem;
 use App\Models\MpesaPayment;
 use App\Models\Order;
 use App\Services\MpesaStkService;
@@ -33,14 +35,31 @@ class MpesaPaymentController extends Controller
             'phone' => 'required|string|max:20',
             'order_id' => 'nullable|uuid',
             'driver_trip_sale_id' => 'nullable|uuid',
-            'channel' => 'nullable|in:warehouse,refill,admin',
+            // field_trip is the driver Log-a-Sale channel; warehouse/refill/admin are outlet flows.
+            'channel' => 'nullable|in:field_trip,warehouse,refill,admin',
+            'driver_trip_id' => 'required_if:channel,field_trip|nullable|uuid|exists:driver_trips,id',
+            'customer_id' => 'required_if:channel,field_trip|nullable|uuid|exists:customers,id',
+            'items' => 'required_if:channel,field_trip|nullable|array|min:1',
+            'items.*.sku_id' => 'required_with:items|uuid|exists:skus,id',
+            'items.*.qty_bales' => 'required_with:items|numeric|min:0.01',
+            'items.*.unit_price' => 'required_with:items|numeric|min:0',
+            'physical_receipt_no' => 'nullable|string|max:50',
+            'physical_delivery_note_no' => 'nullable|string|max:50',
+            'photo_url' => 'nullable|string|max:500',
         ]);
-        if (empty($data['order_id']) && empty($data['driver_trip_sale_id'])) {
+
+        $isPendingFieldTrip = ($data['channel'] ?? null) === 'field_trip'
+            && ! empty($data['driver_trip_id'])
+            && empty($data['driver_trip_sale_id']);
+
+        if (! $isPendingFieldTrip && empty($data['order_id']) && empty($data['driver_trip_sale_id'])) {
             return response()->json(['success' => false, 'message' => 'A sale is required.'], 422);
         }
 
         try {
-            if (! empty($data['driver_trip_sale_id'])) {
+            if ($isPendingFieldTrip) {
+                $payment = $this->startPendingFieldTripStk($request, $stk, $data);
+            } elseif (! empty($data['driver_trip_sale_id'])) {
                 $sale = DriverTripSale::with('trip')->findOrFail($data['driver_trip_sale_id']);
                 if ($deny = $this->denyTrip($request, $sale)) {
                     return $deny;
@@ -56,7 +75,61 @@ class MpesaPaymentController extends Controller
             return response()->json(['success' => false, 'message' => $e->getMessage()], 502);
         }
 
-        return response()->json(['success' => true, 'data' => $this->present($payment, $stk)]);
+        return response()->json(['success' => true, 'data' => $this->present($payment, $stk)], 201);
+    }
+
+    /**
+     * Driver Log a Sale: STK first, create the trip sale only after M-Pesa confirms.
+     * Same AfriGig/Daraja path managers use — previously field_trip was rejected by validation.
+     */
+    private function startPendingFieldTripStk(Request $request, MpesaStkService $stk, array $data): MpesaPayment
+    {
+        $trip = DriverTrip::with(['items.sku', 'location'])->findOrFail($data['driver_trip_id']);
+        if ($request->user()->hasAccessTier('driver') && $trip->driver_id !== $request->user()->id) {
+            throw new \InvalidArgumentException('You do not have access to this trip.');
+        }
+        if ($trip->status !== 'in_transit') {
+            throw new \InvalidArgumentException('Sales can only be recorded on a trip that is in transit.');
+        }
+
+        $confirmedSold = DriverTripSaleItem::whereHas('sale', fn ($q) => $q->where('driver_trip_id', $trip->id)->whereNull('deleted_at'))
+            ->selectRaw('sku_id, SUM(qty_bales) as sold')->groupBy('sku_id')->pluck('sold', 'sku_id');
+        $reservedBySku = [];
+        foreach (MpesaPayment::where('trip_id', $trip->id)->where('channel', 'field_trip')->where('status', 'pending')->get() as $pending) {
+            foreach (($pending->pending_sale_snapshot['items'] ?? []) as $line) {
+                $reservedBySku[$line['sku_id']] = ($reservedBySku[$line['sku_id']] ?? 0) + (float) $line['qty_bales'];
+            }
+        }
+
+        foreach ($data['items'] as $line) {
+            $tripItem = $trip->items->firstWhere('sku_id', $line['sku_id']);
+            if (! $tripItem) {
+                throw new \InvalidArgumentException('That item was not dispatched on this trip.');
+            }
+            $available = (float) $tripItem->qty_carried_bales
+                - (float) ($confirmedSold[$line['sku_id']] ?? 0)
+                - (float) ($reservedBySku[$line['sku_id']] ?? 0);
+            if ((float) $line['qty_bales'] > $available + 0.001) {
+                $skuName = $tripItem->sku->name ?? 'that item';
+                throw new \InvalidArgumentException("Only {$available} bales of {$skuName} remain available on this trip.");
+            }
+        }
+
+        $amount = round(collect($data['items'])->sum(fn ($l) => (float) $l['qty_bales'] * (float) $l['unit_price']), 2);
+        $location = $trip->location?->code ?? $trip->location?->name;
+
+        return $stk->startPendingFieldTrip([
+            'phone' => $data['phone'],
+            'amount' => $amount,
+            'trip_id' => $trip->id,
+            'location' => $location,
+            'location_id' => $trip->location_id,
+            'customer_id' => $data['customer_id'],
+            'items' => $data['items'],
+            'physical_receipt_no' => $data['physical_receipt_no'] ?? null,
+            'physical_delivery_note_no' => $data['physical_delivery_note_no'] ?? null,
+            'photo_url' => $data['photo_url'] ?? null,
+        ], $request->user());
     }
 
     public function status(Request $request, string $id, MpesaStkService $stk)

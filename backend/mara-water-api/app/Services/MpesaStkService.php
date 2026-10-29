@@ -70,6 +70,59 @@ class MpesaStkService
         ], $user);
     }
 
+    /**
+     * Driver Log a Sale: push STK before a DriverTripSale exists. The sale is
+     * created from pending_sale_snapshot when the payment succeeds.
+     */
+    public function startPendingFieldTrip(array $input, User $user): MpesaPayment
+    {
+        $phone = self::normalizePhone($input['phone']);
+        $amount = (int) round((float) $input['amount']);
+        if ($amount < 1) {
+            throw new \InvalidArgumentException('Amount must be at least KES 1.');
+        }
+
+        $reference = 'MARA-'.Str::upper(Str::random(7));
+        $idempotencyKey = (string) Str::uuid();
+
+        $payment = MpesaPayment::create([
+            'order_id' => null,
+            'driver_trip_sale_id' => null,
+            'reference' => substr($reference, 0, 12),
+            'phone' => $phone,
+            'amount' => $amount,
+            'status' => 'pending',
+            'initiated_by' => $user->id,
+            'channel' => 'field_trip',
+            'trip_id' => $input['trip_id'] ?? null,
+            'location' => isset($input['location']) ? substr((string) $input['location'], 0, 40) : null,
+            'location_id' => $input['location_id'] ?? null,
+            'idempotency_key' => $idempotencyKey,
+            'pending_sale_snapshot' => [
+                'driver_trip_id' => $input['trip_id'],
+                'customer_id' => $input['customer_id'],
+                'items' => $input['items'],
+                'amount' => (float) $input['amount'],
+                'physical_receipt_no' => $input['physical_receipt_no'] ?? null,
+                'physical_delivery_note_no' => $input['physical_delivery_note_no'] ?? null,
+                'photo_url' => $input['photo_url'] ?? null,
+                'created_by' => $user->id,
+            ],
+        ]);
+
+        try {
+            $this->dispatch($payment, 'Field sale');
+        } catch (\Throwable $e) {
+            $payment->update([
+                'status' => 'failed',
+                'result_desc' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+
+        return $payment->fresh();
+    }
+
     public function startForOrder(Order $order, string $phone, User $user, string $channel = 'warehouse'): MpesaPayment
     {
         $order->loadMissing(['location', 'customer']);
@@ -519,6 +572,9 @@ class MpesaStkService
                 'payment_status' => 'paid',
                 'mpesa_reference' => $payment->mpesa_receipt,
             ]);
+        } elseif ($payment->channel === 'field_trip' && $payment->pending_sale_snapshot) {
+            // Driver Log a Sale: create the trip sale only after M-Pesa confirms.
+            app(PaymentSettlementService::class)->fulfillPendingFieldTripSale($payment);
         }
     }
 
