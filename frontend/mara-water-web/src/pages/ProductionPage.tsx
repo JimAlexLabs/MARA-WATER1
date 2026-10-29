@@ -14,7 +14,7 @@ import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 import { usePermissions } from '../contexts/AuthContext';
 import { PageShell, PageHero, HeroButton } from '../components/PageShell';
-import { CONTACT_ADMIN_MSG } from '../utils/managerLocks';
+import { CONTACT_ADMIN_MSG, locksFromSettingsPayload } from '../utils/managerLocks';
 
 interface Sku {
   id: string;
@@ -125,9 +125,9 @@ const ProductionPage: React.FC = () => {
       setCanEditProduction(true);
       return;
     }
-    api.get('/settings')
+    api.get('/settings/ui-locks')
       .then((res) => {
-        const locks = res.data?.data?.manager_ui_locks || {};
+        const locks = locksFromSettingsPayload(res.data?.data);
         setCanEditProduction(locks.manager_edit_production === false);
       })
       .catch(() => setCanEditProduction(false));
@@ -146,6 +146,10 @@ const ProductionPage: React.FC = () => {
   const [capacityRows, setCapacityRows] = useState<CapacityRow[]>([]);
   const [capacityAlerts, setCapacityAlerts] = useState<CapacityAlert[]>([]);
   const [capacitySummary, setCapacitySummary] = useState<{ total_bales_possible?: number; sizes_blocked?: number; rules?: Record<string, string> } | null>(null);
+  const [showDeletedBatches, setShowDeletedBatches] = useState(false);
+  const [trashedBatches, setTrashedBatches] = useState<Array<{ id: string; code?: string; planned_qty?: number; manufacture_date?: string; sku?: { name?: string } }>>([]);
+  const [loadingTrashedBatches, setLoadingTrashedBatches] = useState(false);
+  const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
 
   const [batchForm, setBatchForm] = useState({
     sku_id: '',
@@ -207,6 +211,66 @@ const ProductionPage: React.FC = () => {
       setDayDetail(null);
     } finally {
       setDayLoading(false);
+    }
+  };
+
+  const loadTrashedBatches = async () => {
+    setLoadingTrashedBatches(true);
+    try {
+      const res = await api.get('/qa/batches/trashed');
+      setTrashedBatches(res.data?.data || []);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to load deleted batches');
+    } finally {
+      setLoadingTrashedBatches(false);
+    }
+  };
+
+  const restoreBatch = async (id: string) => {
+    try {
+      await api.post(`/qa/batches/${id}/restore`);
+      toast.success('Batch restored');
+      await fetchDaily();
+      await fetchCapacity();
+      if (selectedDate) await openDay(selectedDate);
+      if (showDeletedBatches) loadTrashedBatches();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to restore batch');
+    }
+  };
+
+  const deleteBatch = async (batch: { id: string; code?: string }) => {
+    if (!director) return;
+    if (!window.confirm(`Delete batch ${batch.code || batch.id}? You can restore it from Deleted batches.`)) return;
+    setDeletingBatchId(batch.id);
+    try {
+      await api.delete(`/qa/batches/${batch.id}`);
+      toast.success(
+        (t) => (
+          <span className="flex items-center gap-3">
+            Batch deleted
+            <button
+              type="button"
+              className="underline font-medium"
+              onClick={() => {
+                toast.dismiss(t.id);
+                restoreBatch(batch.id);
+              }}
+            >
+              Undo
+            </button>
+          </span>
+        ),
+        { duration: 8000 },
+      );
+      await fetchDaily();
+      await fetchCapacity();
+      if (selectedDate) await openDay(selectedDate);
+      if (showDeletedBatches) loadTrashedBatches();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to delete batch');
+    } finally {
+      setDeletingBatchId(null);
     }
   };
 
@@ -527,6 +591,47 @@ const ProductionPage: React.FC = () => {
                   )}
                 </tbody>
               </table>
+              {director && (
+                <div className="mt-4 px-2 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !showDeletedBatches;
+                      setShowDeletedBatches(next);
+                      if (next) loadTrashedBatches();
+                    }}
+                    className="text-sm font-medium text-amber-700 hover:text-amber-900"
+                  >
+                    {showDeletedBatches ? 'Hide deleted batches' : 'Deleted batches'}
+                  </button>
+                  {showDeletedBatches && (
+                    <div className="mt-3 border border-amber-200 dark:border-amber-800 rounded-lg p-4 bg-amber-50/50 dark:bg-amber-900/10">
+                      {loadingTrashedBatches ? (
+                        <p className="text-sm text-gray-500">Loading…</p>
+                      ) : trashedBatches.length === 0 ? (
+                        <p className="text-sm text-gray-500">No deleted batches.</p>
+                      ) : (
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {trashedBatches.map((b) => (
+                            <div key={b.id} className="flex items-center justify-between gap-3 text-sm bg-white dark:bg-gray-800 rounded-md px-3 py-2 border border-gray-200 dark:border-gray-700">
+                              <div>
+                                <span className="font-medium text-gray-900 dark:text-gray-100">{b.code || b.id.slice(0, 8)}</span>
+                                <span className="text-gray-500 dark:text-gray-400 ml-2">
+                                  {b.sku?.name || ''}{b.planned_qty != null ? ` · ${b.planned_qty} bales` : ''}
+                                  {b.manufacture_date ? ` · ${String(b.manufacture_date).slice(0, 10)}` : ''}
+                                </span>
+                              </div>
+                              <button type="button" onClick={() => restoreBatch(b.id)} className="text-xs font-medium text-blue-600 hover:text-blue-800">
+                                Undo
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -572,6 +677,9 @@ const ProductionPage: React.FC = () => {
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">SKU</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Batches</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Bales</th>
+                          {director && (
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -584,14 +692,30 @@ const ProductionPage: React.FC = () => {
                               <div className="text-sm text-gray-500 dark:text-gray-400">
                                 {row.sku_code}{row.size_liters != null ? ` · ${row.size_liters}L` : ''}
                               </div>
-                              <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                                {row.batches.map(b => b.code).join(', ')}
+                              <div className="text-xs text-gray-400 dark:text-gray-500 mt-1 space-y-1">
+                                {row.batches.map((b) => (
+                                  <div key={b.id} className="flex items-center gap-2">
+                                    <span>{b.code}</span>
+                                    {director && (
+                                      <button
+                                        type="button"
+                                        onClick={() => deleteBatch(b)}
+                                        disabled={deletingBatchId === b.id}
+                                        className="text-red-600 hover:text-red-800 disabled:opacity-40"
+                                        title="Delete batch"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{row.batch_count}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-gray-100">
                               {Number(row.qty_bales || 0).toLocaleString()}
                             </td>
+                            {director && <td className="px-6 py-4" />}
                           </tr>
                         ))}
                       </tbody>
@@ -601,10 +725,56 @@ const ProductionPage: React.FC = () => {
                           <td className="px-6 py-3 text-sm font-bold text-gray-900 dark:text-gray-100">
                             {Number(dayDetail.total_bales || 0).toLocaleString()}
                           </td>
+                          {director && <td />}
                         </tr>
                       </tfoot>
                     </table>
                   </div>
+                  {director && (
+                    <div className="mt-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !showDeletedBatches;
+                          setShowDeletedBatches(next);
+                          if (next) loadTrashedBatches();
+                        }}
+                        className="text-sm font-medium text-amber-700 hover:text-amber-900"
+                      >
+                        {showDeletedBatches ? 'Hide deleted batches' : 'Deleted batches'}
+                      </button>
+                      {showDeletedBatches && (
+                        <div className="mt-3 border border-amber-200 dark:border-amber-800 rounded-lg p-4 bg-amber-50/50 dark:bg-amber-900/10">
+                          {loadingTrashedBatches ? (
+                            <p className="text-sm text-gray-500">Loading…</p>
+                          ) : trashedBatches.length === 0 ? (
+                            <p className="text-sm text-gray-500">No deleted batches.</p>
+                          ) : (
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                              {trashedBatches.map((b) => (
+                                <div key={b.id} className="flex items-center justify-between gap-3 text-sm bg-white dark:bg-gray-800 rounded-md px-3 py-2 border border-gray-200 dark:border-gray-700">
+                                  <div>
+                                    <span className="font-medium text-gray-900 dark:text-gray-100">{b.code || b.id.slice(0, 8)}</span>
+                                    <span className="text-gray-500 dark:text-gray-400 ml-2">
+                                      {b.sku?.name || ''}{b.planned_qty != null ? ` · ${b.planned_qty} bales` : ''}
+                                      {b.manufacture_date ? ` · ${String(b.manufacture_date).slice(0, 10)}` : ''}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => restoreBatch(b.id)}
+                                    className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                                  >
+                                    Undo
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>

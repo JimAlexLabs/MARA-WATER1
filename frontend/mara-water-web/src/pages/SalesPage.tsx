@@ -25,9 +25,8 @@ import {
   DEFAULT_MANAGER_LOCKS,
   isLocked,
   isWithinPastWeek,
-  mergeManagerLocks,
+  locksFromSettingsPayload,
   pickMainWarehouse,
-  type ManagerLockKey,
 } from '../utils/managerLocks';
 import MpesaStkDialog, { StkPayment } from '../components/MpesaStkDialog';
 
@@ -201,6 +200,14 @@ const SalesPage: React.FC = () => {
   const [showCustomerForm, setShowCustomerForm] = useState(false);
   const [showSaleForm, setShowSaleForm] = useState(false);
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
+  const [openingOrderId, setOpeningOrderId] = useState<string | null>(null);
+  const [showDeletedSales, setShowDeletedSales] = useState(false);
+  const [trashedOrders, setTrashedOrders] = useState<Order[]>([]);
+  const [trashedFieldSales, setTrashedFieldSales] = useState<Order[]>([]);
+  const [loadingTrashedSales, setLoadingTrashedSales] = useState(false);
+  const [showDeletedCustomers, setShowDeletedCustomers] = useState(false);
+  const [trashedCustomers, setTrashedCustomers] = useState<Customer[]>([]);
+  const [loadingTrashedCustomers, setLoadingTrashedCustomers] = useState(false);
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const [routes, setRoutes] = useState<{ id: string; name: string }[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -217,15 +224,19 @@ const SalesPage: React.FC = () => {
   const [saleForm, setSaleForm] = useState(EMPTY_SALE_FORM);
 
   useEffect(() => {
-    api.get('/settings')
+    const endpoint = director ? '/settings' : '/settings/ui-locks';
+    api.get(endpoint)
       .then((res) => {
-        const locks = mergeManagerLocks(res.data?.data?.manager_ui_locks as Partial<Record<ManagerLockKey, boolean>>);
+        const locks = locksFromSettingsPayload(res.data?.data);
         setManagerLocks(locks);
         if (!director && isLocked(locks, 'manager_cash_payment')) {
           setSaleForm((f) => (f.payment_method === 'cash' ? { ...f, payment_method: 'mpesa' } : f));
         }
       })
       .catch(() => {});
+  }, [director]);
+
+  useEffect(() => {
     fetchData();
     api.get('/fleet/routes').then(res => setRoutes(res.data.data)).catch(() => {});
     api.get('/inventory/warehouses').then(res => {
@@ -340,10 +351,104 @@ const SalesPage: React.FC = () => {
     if (!window.confirm(`Remove customer ${c.name}?`)) return;
     try {
       await api.delete(`/sales/customers/${c.id}`);
-      toast.success('Customer removed');
+      toast.success(
+        (t) => (
+          <span className="flex items-center gap-3">
+            Customer removed
+            <button
+              type="button"
+              className="underline font-medium"
+              onClick={() => {
+                toast.dismiss(t.id);
+                restoreCustomer(c.id);
+              }}
+            >
+              Undo
+            </button>
+          </span>
+        ),
+        { duration: 8000 },
+      );
       fetchData();
+      if (showDeletedCustomers) loadTrashedCustomers();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to remove customer');
+    }
+  };
+
+  const outletLabel = (order: Order) =>
+    order.warehouse?.name
+    || (order.source === 'field' ? 'Field' : 'Main Warehouse');
+
+  const openViewOrder = async (order: Order) => {
+    setEditingSale(false);
+    const needsFetch = !(order.items && order.items.length) && order.source !== 'field';
+    if (!needsFetch) {
+      setViewingOrder(order);
+      return;
+    }
+    setOpeningOrderId(order.id);
+    setViewingOrder(order);
+    try {
+      const res = await api.get(`/sales/orders/${order.id}`);
+      const full = res.data?.data?.order || res.data?.data;
+      if (full?.id) setViewingOrder(full);
+    } catch {
+      toast.error('Could not load line items');
+    } finally {
+      setOpeningOrderId(null);
+    }
+  };
+
+  const loadTrashedSales = async () => {
+    setLoadingTrashedSales(true);
+    try {
+      const res = await api.get('/sales/orders/trashed');
+      const data = res.data?.data || {};
+      setTrashedOrders(data.orders || []);
+      setTrashedFieldSales(data.field_sales || []);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to load deleted sales');
+    } finally {
+      setLoadingTrashedSales(false);
+    }
+  };
+
+  const loadTrashedCustomers = async () => {
+    setLoadingTrashedCustomers(true);
+    try {
+      const res = await api.get('/sales/customers/trashed');
+      setTrashedCustomers(res.data?.data || []);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to load deleted customers');
+    } finally {
+      setLoadingTrashedCustomers(false);
+    }
+  };
+
+  const restoreSale = async (order: Order) => {
+    try {
+      if (order.source === 'field') {
+        await api.post(`/sales/field-sales/${order.id}/restore`);
+      } else {
+        await api.post(`/sales/orders/${order.id}/restore`);
+      }
+      toast.success('Sale restored');
+      fetchData();
+      loadTrashedSales();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to restore sale');
+    }
+  };
+
+  const restoreCustomer = async (id: string) => {
+    try {
+      await api.post(`/sales/customers/${id}/restore`);
+      toast.success('Customer restored');
+      fetchData();
+      if (showDeletedCustomers) loadTrashedCustomers();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to restore customer');
     }
   };
 
@@ -465,7 +570,7 @@ const SalesPage: React.FC = () => {
     const label = order.source === 'field'
       ? `field sale for ${order.customer?.name || 'walk-in'} (KES ${Number(order.total_amount).toLocaleString()})`
       : `sale ${order.order_no}`;
-    if (!window.confirm(`Delete ${label}? Use this for test entries. This cannot be undone from the list.`)) return;
+    if (!window.confirm(`Delete ${label}? You can restore it from Deleted sales.`)) return;
     setDeletingSaleId(order.id);
     try {
       if (order.source === 'field') {
@@ -473,12 +578,30 @@ const SalesPage: React.FC = () => {
       } else {
         await api.delete(`/sales/orders/${order.id}`);
       }
-      toast.success('Sale deleted');
+      toast.success(
+        (t) => (
+          <span className="flex items-center gap-3">
+            Sale deleted
+            <button
+              type="button"
+              className="underline font-medium"
+              onClick={() => {
+                toast.dismiss(t.id);
+                restoreSale(order);
+              }}
+            >
+              Undo
+            </button>
+          </span>
+        ),
+        { duration: 8000 },
+      );
       if (viewingOrder?.id === order.id) {
         setViewingOrder(null);
         setEditingSale(false);
       }
       fetchData();
+      if (showDeletedSales) loadTrashedSales();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to delete sale');
     } finally {
@@ -677,6 +800,40 @@ const SalesPage: React.FC = () => {
             >
               Customers ({customers.length})
             </button>
+            {director && activeTab === 'orders' && (
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !showDeletedSales;
+                  setShowDeletedSales(next);
+                  if (next) loadTrashedSales();
+                }}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ml-auto ${
+                  showDeletedSales
+                    ? 'border-amber-500 text-amber-700'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                }`}
+              >
+                Deleted sales
+              </button>
+            )}
+            {director && activeTab === 'customers' && (
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !showDeletedCustomers;
+                  setShowDeletedCustomers(next);
+                  if (next) loadTrashedCustomers();
+                }}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ml-auto ${
+                  showDeletedCustomers
+                    ? 'border-amber-500 text-amber-700'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                }`}
+              >
+                Deleted customers
+              </button>
+            )}
           </nav>
         </div>
 
@@ -766,11 +923,17 @@ const SalesPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                        {order.warehouse?.name || '—'}
+                        {outletLabel(order)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{order.customer?.name || 'Walk-in'}</div>
+                          <button
+                            type="button"
+                            onClick={() => openViewOrder(order)}
+                            className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline text-left"
+                          >
+                            {order.customer?.name || 'Walk-in'}
+                          </button>
                           <div className="text-sm text-gray-500 dark:text-gray-400">{order.customer?.code || ''}</div>
                         </div>
                       </td>
@@ -798,7 +961,7 @@ const SalesPage: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center space-x-2">
-                          <button onClick={() => { setEditingSale(false); setViewingOrder(order); }} className="text-blue-600 hover:text-blue-900" title="View">
+                          <button onClick={() => openViewOrder(order)} className="text-blue-600 hover:text-blue-900" title="View" disabled={openingOrderId === order.id}>
                             <Eye className="w-4 h-4" />
                           </button>
                           {(director || canManagerEditSale(order)) && (
@@ -826,6 +989,42 @@ const SalesPage: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+              {director && showDeletedSales && (
+                <div className="border-t border-gray-200 dark:border-gray-700 mt-4 p-4 bg-amber-50/50 dark:bg-amber-900/10">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Deleted sales</h4>
+                    <button type="button" onClick={loadTrashedSales} className="text-xs text-blue-600 hover:underline">Refresh</button>
+                  </div>
+                  {loadingTrashedSales ? (
+                    <p className="text-sm text-gray-500">Loading…</p>
+                  ) : (trashedOrders.length + trashedFieldSales.length) === 0 ? (
+                    <p className="text-sm text-gray-500">No deleted sales.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-56 overflow-y-auto">
+                      {[
+                        ...trashedOrders.map((o) => ({ ...o, source: (o.source || 'outlet') as Order['source'] })),
+                        ...trashedFieldSales.map((o) => ({ ...o, source: 'field' as const })),
+                      ].map((order) => (
+                        <div key={`${order.source}-${order.id}`} className="flex items-center justify-between gap-3 text-sm bg-white dark:bg-gray-800 rounded-md px-3 py-2 border border-gray-200 dark:border-gray-700">
+                          <div>
+                            <span className="font-medium text-gray-900 dark:text-gray-100">{order.order_no || 'Field sale'}</span>
+                            <span className="text-gray-500 dark:text-gray-400 ml-2">
+                              {order.customer?.name || 'Walk-in'} · KES {Number(order.total_amount).toLocaleString()}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => restoreSale(order)}
+                            className="text-xs font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                          >
+                            Undo
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -904,6 +1103,37 @@ const SalesPage: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+              {director && showDeletedCustomers && (
+                <div className="border-t border-gray-200 dark:border-gray-700 mt-4 p-4 bg-amber-50/50 dark:bg-amber-900/10">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Deleted customers</h4>
+                    <button type="button" onClick={loadTrashedCustomers} className="text-xs text-blue-600 hover:underline">Refresh</button>
+                  </div>
+                  {loadingTrashedCustomers ? (
+                    <p className="text-sm text-gray-500">Loading…</p>
+                  ) : trashedCustomers.length === 0 ? (
+                    <p className="text-sm text-gray-500">No deleted customers.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-56 overflow-y-auto">
+                      {trashedCustomers.map((c) => (
+                        <div key={c.id} className="flex items-center justify-between gap-3 text-sm bg-white dark:bg-gray-800 rounded-md px-3 py-2 border border-gray-200 dark:border-gray-700">
+                          <div>
+                            <span className="font-medium text-gray-900 dark:text-gray-100">{c.name}</span>
+                            <span className="text-gray-500 dark:text-gray-400 ml-2">{c.code} · {c.phone}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => restoreCustomer(c.id)}
+                            className="text-xs font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                          >
+                            Undo
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1386,7 +1616,7 @@ const SalesPage: React.FC = () => {
             ) : (
               <>
                 <div className="space-y-1 text-sm text-gray-700 dark:text-gray-300 mb-4">
-                  <p><span className="text-gray-500 dark:text-gray-400">Outlet:</span> {viewingOrder.warehouse?.name || '—'}</p>
+                  <p><span className="text-gray-500 dark:text-gray-400">Outlet:</span> {outletLabel(viewingOrder)}</p>
                   <p><span className="text-gray-500 dark:text-gray-400">Customer:</span> {viewingOrder.customer?.name || 'Walk-in'}</p>
                   <p><span className="text-gray-500 dark:text-gray-400">Payment:</span> {viewingOrder.payment_method ? (PAYMENT_METHOD_LABELS[viewingOrder.payment_method] || viewingOrder.payment_method) : '—'}
                     {viewingOrder.payment_reference ? ` (${viewingOrder.payment_reference})` : ''}</p>
@@ -1399,22 +1629,30 @@ const SalesPage: React.FC = () => {
                   <thead>
                     <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase">
                       <th className="pb-2">Product</th>
-                      <th className="pb-2">Dispatched</th>
+                      <th className="pb-2">Qty</th>
                       <th className="pb-2">Returned</th>
                       <th className="pb-2">Unit Price</th>
                       <th className="pb-2 text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {(viewingOrder.items || []).map((item: any) => (
-                      <tr key={item.id || item.sku_name}>
-                        <td className="py-1.5">{item.sku?.name || item.sku_name}</td>
-                        <td className="py-1.5">{item.qty}</td>
-                        <td className="py-1.5">{item.qty_returned ?? '—'}</td>
-                        <td className="py-1.5">{item.unit_price != null ? Number(item.unit_price).toLocaleString() : '—'}</td>
-                        <td className="py-1.5 text-right">{item.line_total != null ? Number(item.line_total).toLocaleString() : '—'}</td>
+                    {!(viewingOrder.items && viewingOrder.items.length) ? (
+                      <tr>
+                        <td colSpan={5} className="py-3 text-sm text-gray-400 dark:text-gray-500">
+                          {openingOrderId === viewingOrder.id ? 'Loading line items…' : 'No line items'}
+                        </td>
                       </tr>
-                    ))}
+                    ) : (
+                      (viewingOrder.items || []).map((item: any) => (
+                        <tr key={item.id || item.sku_name || item.sku?.id}>
+                          <td className="py-1.5">{item.sku?.name || item.sku_name || '—'}</td>
+                          <td className="py-1.5">{item.qty ?? '—'}</td>
+                          <td className="py-1.5">{item.qty_returned ?? '—'}</td>
+                          <td className="py-1.5">{item.unit_price != null ? Number(item.unit_price).toLocaleString() : '—'}</td>
+                          <td className="py-1.5 text-right">{item.line_total != null ? Number(item.line_total).toLocaleString() : '—'}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
                 <div className="flex justify-end mt-4 pt-3 border-t border-gray-200 dark:border-gray-700 text-lg font-semibold text-gray-900 dark:text-gray-100">

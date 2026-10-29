@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS = {
   sms_notifications: false,
   session_timeout: 30,
   manager_ui_locks: DEFAULT_MANAGER_LOCKS as Record<ManagerLockKey, boolean>,
+  manager_ui_locks_by_user: {} as Record<string, Partial<Record<ManagerLockKey, boolean>>>,
   driver_allow_cash: true,
 };
 
@@ -53,6 +54,8 @@ const SettingsPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const { user, updateProfile, theme, toggleTheme } = useAuth();
   const isAdmin = user?.role?.code === 'ADMIN';
+  const [managers, setManagers] = useState<Array<{ id: string; first_name: string; last_name: string; email?: string | null }>>([]);
+  const [selectedManagerId, setSelectedManagerId] = useState<string>('');
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -67,6 +70,9 @@ const SettingsPage: React.FC = () => {
           ...prev,
           ...saved,
           manager_ui_locks: mergeManagerLocks(saved.manager_ui_locks),
+          manager_ui_locks_by_user: (saved.manager_ui_locks_by_user && typeof saved.manager_ui_locks_by_user === 'object')
+            ? saved.manager_ui_locks_by_user
+            : {},
         }));
       })
       .catch(() => {
@@ -74,6 +80,22 @@ const SettingsPage: React.FC = () => {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin || activeTab !== 'manager_locks') return;
+    api.get('/users')
+      .then((res) => {
+        const list = (res.data?.data || []) as Array<{
+          id: string;
+          first_name: string;
+          last_name: string;
+          email?: string | null;
+          role?: { access_tier?: string };
+        }>;
+        setManagers(list.filter((u) => u.role?.access_tier === 'manager'));
+      })
+      .catch(() => setManagers([]));
+  }, [isAdmin, activeTab]);
 
   const handleSettingChange = (key: string, value: any) => {
     setSettings(prev => ({ ...prev, [key]: value }));
@@ -286,12 +308,39 @@ const SettingsPage: React.FC = () => {
   ];
 
   const locks = mergeManagerLocks((settings as any).manager_ui_locks);
+  const byUser = ((settings as any).manager_ui_locks_by_user || {}) as Record<string, Partial<Record<ManagerLockKey, boolean>>>;
+  const selectedOverrides = selectedManagerId ? (byUser[selectedManagerId] || {}) : {};
+
   const toggleLock = (key: ManagerLockKey) => {
     const next = { ...locks, [key]: !locks[key] };
     handleSettingChange('manager_ui_locks', next);
     if (key === 'driver_cash_payment') {
       handleSettingChange('driver_allow_cash', !next.driver_cash_payment);
     }
+  };
+
+  /** Effective display value for per-manager checkbox (override or inherit default). */
+  const effectiveForManager = (key: ManagerLockKey): boolean => {
+    if (selectedManagerId && key in selectedOverrides) {
+      return Boolean(selectedOverrides[key]);
+    }
+    return !!locks[key];
+  };
+
+  const setManagerOverride = (key: ManagerLockKey, locked: boolean) => {
+    if (!selectedManagerId) return;
+    const nextMap = { ...(byUser[selectedManagerId] || {}), [key]: locked };
+    handleSettingChange('manager_ui_locks_by_user', {
+      ...byUser,
+      [selectedManagerId]: nextMap,
+    });
+  };
+
+  const clearManagerOverrides = () => {
+    if (!selectedManagerId) return;
+    const next = { ...byUser };
+    delete next[selectedManagerId];
+    handleSettingChange('manager_ui_locks_by_user', next);
   };
 
   return (
@@ -616,34 +665,106 @@ const SettingsPage: React.FC = () => {
               )}
 
               {activeTab === 'manager_locks' && isAdmin && (
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Manager dashboard locks</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Locked features stay hidden for managers until you unlock them here. Managers see “Contact Admin” on anything locked.
-                    Includes cash (manager + driver), petty cash, payables, and Admin-approved edit windows (sales ≤7 days, inventory, production).
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {(Object.keys(DEFAULT_MANAGER_LOCKS) as ManagerLockKey[]).map((key) => (
-                      <label
-                        key={key}
-                        className="flex items-start gap-3 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40"
-                      >
-                        <input
-                          type="checkbox"
-                          className="mt-1"
-                          checked={!!locks[key]}
-                          onChange={() => toggleLock(key)}
-                        />
-                        <span>
-                          <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
-                            {MANAGER_LOCK_LABELS[key]}
+                <div className="space-y-8">
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Default locks (all managers)</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Locked features stay hidden for managers until you unlock them here. Managers see “Contact Admin” on anything locked.
+                      Includes cash (manager + driver), petty cash, payables, and Admin-approved edit windows (sales ≤7 days, inventory, production).
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(Object.keys(DEFAULT_MANAGER_LOCKS) as ManagerLockKey[]).map((key) => (
+                        <label
+                          key={key}
+                          className="flex items-start gap-3 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={!!locks[key]}
+                            onChange={() => toggleLock(key)}
+                          />
+                          <span>
+                            <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                              {MANAGER_LOCK_LABELS[key]}
+                            </span>
+                            <span className="block text-xs text-gray-500 mt-0.5">
+                              {locks[key] ? 'Locked for manager' : 'Visible to manager'}
+                            </span>
                           </span>
-                          <span className="block text-xs text-gray-500 mt-0.5">
-                            {locks[key] ? 'Locked for manager' : 'Visible to manager'}
-                          </span>
-                        </span>
-                      </label>
-                    ))}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-6 space-y-4">
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Per-manager overrides</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Optional overrides for one manager. Unset keys inherit the defaults above.
+                    </p>
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="min-w-[220px]">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Manager</label>
+                        <select
+                          value={selectedManagerId}
+                          onChange={(e) => setSelectedManagerId(e.target.value)}
+                          className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
+                        >
+                          <option value="">Select a manager…</option>
+                          {managers.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.first_name} {m.last_name}{m.email ? ` (${m.email})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {selectedManagerId && (
+                        <button
+                          type="button"
+                          onClick={clearManagerOverrides}
+                          className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                        >
+                          Reset this manager to defaults
+                        </button>
+                      )}
+                    </div>
+                    {selectedManagerId && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {(Object.keys(DEFAULT_MANAGER_LOCKS) as ManagerLockKey[]).map((key) => {
+                          const overridden = key in selectedOverrides;
+                          return (
+                            <label
+                              key={key}
+                              className={`flex items-start gap-3 rounded-lg border px-3 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 ${
+                                overridden
+                                  ? 'border-blue-300 dark:border-blue-600 bg-blue-50/40 dark:bg-blue-900/20'
+                                  : 'border-gray-200 dark:border-gray-600'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                className="mt-1"
+                                checked={effectiveForManager(key)}
+                                onChange={(e) => setManagerOverride(key, e.target.checked)}
+                              />
+                              <span>
+                                <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                                  {MANAGER_LOCK_LABELS[key]}
+                                </span>
+                                <span className="block text-xs text-gray-500 mt-0.5">
+                                  {overridden
+                                    ? (effectiveForManager(key) ? 'Override: locked' : 'Override: unlocked')
+                                    : (locks[key] ? 'Inherits: locked' : 'Inherits: visible')}
+                                </span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {managers.length === 0 && (
+                      <p className="text-sm text-gray-500">No manager-tier users found.</p>
+                    )}
                   </div>
                   <p className="text-xs text-gray-500">Remember to click Save Settings after toggling.</p>
                 </div>

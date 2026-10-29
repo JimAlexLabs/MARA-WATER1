@@ -23,7 +23,7 @@ import { usePermissions } from '../contexts/AuthContext';
 import {
   DEFAULT_MANAGER_LOCKS,
   isLocked,
-  mergeManagerLocks,
+  locksFromSettingsPayload,
   type ManagerLockKey,
 } from '../utils/managerLocks';
 
@@ -146,13 +146,14 @@ const FinancePage: React.FC = () => {
   }, [searchParams]);
 
   useEffect(() => {
-    api.get('/settings')
+    const endpoint = director ? '/settings' : '/settings/ui-locks';
+    api.get(endpoint)
       .then((res) => {
-        const locks = mergeManagerLocks(res.data?.data?.manager_ui_locks);
+        const locks = locksFromSettingsPayload(res.data?.data);
         setManagerLocks(locks);
       })
       .catch(() => {});
-  }, []);
+  }, [director]);
 
   const [filterStatus, setFilterStatus] = useState('all');
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
@@ -940,9 +941,20 @@ const FinancePage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
-                  <input required type="date" value={pettyCashForm.entry_date}
+                  <input
+                    required
+                    type="date"
+                    value={pettyCashForm.entry_date}
+                    min={director ? undefined : new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' })}
+                    max={new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' })}
                     onChange={(e) => setPettyCashForm({...pettyCashForm, entry_date: e.target.value})}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  {director && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Admin can backdate forgotten entries (up to 365 days).
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">M-Pesa Reference</label>

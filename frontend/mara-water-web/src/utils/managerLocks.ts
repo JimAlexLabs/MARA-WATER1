@@ -109,6 +109,11 @@ export function mergeManagerLocks(
   return { ...DEFAULT_MANAGER_LOCKS, ...(raw || {}) };
 }
 
+/** Prefer effective locks (per-manager overrides merged), else global defaults. */
+export function locksFromSettingsPayload(data: any): Record<ManagerLockKey, boolean> {
+  return mergeManagerLocks(data?.manager_ui_locks_effective ?? data?.manager_ui_locks);
+}
+
 /** Prefer the sole warehouse, else name/code matching /main/i, else first. */
 export function pickMainWarehouse<T extends { id: string; name?: string | null; code?: string | null }>(
   warehouses: T[],

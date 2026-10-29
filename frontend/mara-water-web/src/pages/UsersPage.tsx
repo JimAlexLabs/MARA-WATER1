@@ -42,6 +42,7 @@ interface User {
   bank_branch?: string | null;
   bank_account_number?: string | null;
   bank_code?: string | null;
+  admin_password_note?: string | null;
   role: Role;
   department: Department;
   status: 'active' | 'inactive' | 'suspended';
@@ -79,8 +80,10 @@ const UsersPage: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [userForm, setUserForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [bulkText, setBulkText] = useState('');
@@ -122,12 +125,14 @@ const UsersPage: React.FC = () => {
 
   const openNewForm = () => {
     setEditingId(null);
+    setEditingUser(null);
     setUserForm(EMPTY_FORM);
     setShowUserForm(true);
   };
 
   const openEditForm = (u: User) => {
     setEditingId(u.id);
+    setEditingUser(u);
     setUserForm({
       first_name: u.first_name, last_name: u.last_name, phone: u.phone, email: u.email || '',
       id_number: u.id_number || '', staff_number: u.staff_number || '', address: u.address || '',
@@ -146,6 +151,32 @@ const UsersPage: React.FC = () => {
     setShowUserForm(true);
   };
 
+  const handleAdminResetPassword = async () => {
+    if (!editingId) return;
+    if (!userForm.password || userForm.password.length < 8) {
+      toast.error('Enter a new password (at least 8 characters)');
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      const res = await api.post(`/users/${editingId}/admin-reset-password`, {
+        new_password: userForm.password,
+        confirm_password: userForm.password,
+      });
+      const note = res.data?.data?.admin_password_note || userForm.password;
+      toast.success('Password reset');
+      setEditingUser((prev) => (prev ? { ...prev, admin_password_note: note } : prev));
+      setUserForm((f) => ({ ...f, password: '' }));
+      fetchData();
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error((Array.isArray(firstError) ? firstError[0] : firstError) || error.response?.data?.message || 'Failed to reset password');
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+
   const handleUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -153,8 +184,12 @@ const UsersPage: React.FC = () => {
     if (!payload.password) delete payload.password;
     try {
       if (editingId) {
-        await api.put(`/users/${editingId}`, payload);
+        const res = await api.put(`/users/${editingId}`, payload);
         toast.success('Employee updated');
+        const note = res.data?.data?.admin_password_note;
+        if (payload.password && note) {
+          setEditingUser((prev) => (prev ? { ...prev, admin_password_note: note } : prev));
+        }
       } else {
         await api.post('/users', payload);
         toast.success('Employee created');
@@ -647,16 +682,35 @@ const UsersPage: React.FC = () => {
 
               <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Only needed if this person should be able to log into the app.</p>
+                {editingId && (
+                  <div className="mb-3 rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/40 px-3 py-2">
+                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Login password</p>
+                    <p className="text-sm text-gray-900 dark:text-gray-100 font-mono mt-0.5">
+                      {editingUser?.admin_password_note
+                        || 'Not set / unknown (set before this feature)'}
+                    </p>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email (optional)</label>
                     <input type="email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{editingId ? 'Reset password (optional)' : 'Password (optional)'}</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{editingId ? 'New password (optional)' : 'Password (optional)'}</label>
                     <input type="password" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
+                {editingId && (
+                  <button
+                    type="button"
+                    onClick={handleAdminResetPassword}
+                    disabled={resettingPassword || !userForm.password}
+                    className="mt-3 px-3 py-1.5 text-sm border border-amber-300 text-amber-800 rounded-md hover:bg-amber-50 disabled:opacity-40"
+                  >
+                    {resettingPassword ? 'Resetting…' : 'Reset password'}
+                  </button>
+                )}
               </div>
 
               <div className="flex justify-end space-x-3">

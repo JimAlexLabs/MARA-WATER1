@@ -196,6 +196,11 @@ Route::prefix('v1')->group(function () {
         // System settings -- Director only, per the spec's own suggested
         // default (flagged in the Phase 11 report if Manager should get
         // this too).
+        // Managers need effective UI locks without full settings access.
+        Route::middleware('tier:manager,director')->group(function () {
+            Route::get('/settings/ui-locks', [SettingsController::class, 'uiLocks']);
+        });
+
         Route::middleware('tier:director')->group(function () {
             Route::get('/settings', [SettingsController::class, 'index']);
             Route::put('/settings', [SettingsController::class, 'update']);
@@ -228,6 +233,7 @@ Route::prefix('v1')->group(function () {
                 Route::put('/{id}', [UserController::class, 'update']);
                 Route::delete('/{id}', [UserController::class, 'destroy']);
                 Route::post('/{id}/change-password', [UserController::class, 'changePassword']);
+                Route::post('/{id}/admin-reset-password', [UserController::class, 'adminResetPassword']);
                 Route::put('/{id}/status', [UserController::class, 'updateStatus']);
             });
         });
@@ -249,8 +255,10 @@ Route::prefix('v1')->group(function () {
             Route::get('/batches/statistics', [BatchController::class, 'statistics']);
             Route::get('/batches/daily', [BatchController::class, 'daily']);
             Route::get('/batches/sku/{skuId}', [BatchController::class, 'bySku']);
+            Route::get('/batches/trashed', [BatchController::class, 'trashed']);
             Route::get('/batches', [BatchController::class, 'index']);
             Route::post('/batches', [BatchController::class, 'store']);
+            Route::post('/batches/{id}/restore', [BatchController::class, 'restore']);
             Route::get('/batches/{id}', [BatchController::class, 'show']);
             Route::put('/batches/{id}', [BatchController::class, 'update']);
             Route::delete('/batches/{id}', [BatchController::class, 'destroy']);
@@ -281,8 +289,10 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/packaging-runs/statistics', [PackagingRunController::class, 'statistics']);
             Route::get('/packaging-runs/batch/{batchId}', [PackagingRunController::class, 'byBatch']);
+            Route::get('/packaging-runs/trashed', [PackagingRunController::class, 'trashed']);
             Route::get('/packaging-runs', [PackagingRunController::class, 'index']);
             Route::post('/packaging-runs', [PackagingRunController::class, 'store']);
+            Route::post('/packaging-runs/{id}/restore', [PackagingRunController::class, 'restore']);
             Route::get('/packaging-runs/{id}', [PackagingRunController::class, 'show']);
             Route::put('/packaging-runs/{id}', [PackagingRunController::class, 'update']);
             Route::delete('/packaging-runs/{id}', [PackagingRunController::class, 'destroy']);
@@ -344,13 +354,16 @@ Route::prefix('v1')->group(function () {
         Route::middleware('tier:manager,director')->prefix('sales')->group(function () {
             Route::get('/orders/statistics', [OrderController::class, 'statistics']);
             Route::get('/orders/customer/{customerId}', [OrderController::class, 'byCustomer']);
+            Route::get('/orders/trashed', [OrderController::class, 'trashed']);
             Route::post('/orders/log-sale', [OrderController::class, 'logSale']);
             Route::get('/orders', [OrderController::class, 'index']);
             Route::get('/field-sales', [OrderController::class, 'fieldSales']);
             Route::post('/orders', [OrderController::class, 'store']);
+            Route::post('/orders/{id}/restore', [OrderController::class, 'restore']);
             Route::get('/orders/{id}', [OrderController::class, 'show']);
             Route::put('/orders/{id}', [OrderController::class, 'update']);
             Route::delete('/orders/{id}', [OrderController::class, 'destroy']);
+            Route::post('/field-sales/{id}/restore', [OrderController::class, 'restoreFieldSale']);
             Route::put('/field-sales/{id}', [OrderController::class, 'updateFieldSale']);
             Route::delete('/field-sales/{id}', [OrderController::class, 'destroyFieldSale']);
             Route::put('/orders/{id}/status', [OrderController::class, 'updateStatus']);
@@ -372,6 +385,7 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/customers/statistics', [CustomerController::class, 'statistics']);
             Route::get('/customers/route/{routeId}', [CustomerController::class, 'byRoute']);
+            Route::get('/customers/trashed', [CustomerController::class, 'trashed']);
             Route::post('/customers/bulk-assign-route', [CustomerController::class, 'bulkAssignRoute']);
             Route::get('/customers', [CustomerController::class, 'index']);
         });
@@ -402,6 +416,7 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::middleware('tier:manager,director')->prefix('sales')->group(function () {
+            Route::post('/customers/{id}/restore', [CustomerController::class, 'restore']);
             Route::get('/customers/{id}', [CustomerController::class, 'show']);
             Route::get('/customers/{id}/purchase-history', [CustomerController::class, 'purchaseHistory']);
             Route::put('/customers/{id}', [CustomerController::class, 'update']);

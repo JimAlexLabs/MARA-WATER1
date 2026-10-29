@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import Layout from './components/Layout';
+import OpsPinGate from './components/OpsPinGate';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import './index.css';
 
@@ -154,14 +155,18 @@ function App() {
             <Route path="/operations" element={
               <ProtectedRoute tiers={['director']}>
                 <Layout>
-                  <OperationsPage />
+                  <OpsPinGate>
+                    <OperationsPage />
+                  </OpsPinGate>
                 </Layout>
               </ProtectedRoute>
             } />
             <Route path="/operations/planning" element={
               <ProtectedRoute tiers={['director']}>
                 <Layout>
-                  <DirectorPlanningPage />
+                  <OpsPinGate>
+                    <DirectorPlanningPage />
+                  </OpsPinGate>
                 </Layout>
               </ProtectedRoute>
             } />

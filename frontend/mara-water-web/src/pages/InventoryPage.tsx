@@ -20,6 +20,7 @@ import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 import { usePermissions } from '../contexts/AuthContext';
+import { locksFromSettingsPayload } from '../utils/managerLocks';
 
 interface StockItem {
   id?: string;
@@ -108,9 +109,9 @@ const InventoryPage: React.FC = () => {
       setCanAlterInventory(true);
       return;
     }
-    api.get('/settings')
+    api.get('/settings/ui-locks')
       .then((res) => {
-        const locks = res.data?.data?.manager_ui_locks || {};
+        const locks = locksFromSettingsPayload(res.data?.data);
         // Unlock manager_edit_inventory = Admin approved alters
         setCanAlterInventory(locks.manager_edit_inventory === false);
       })

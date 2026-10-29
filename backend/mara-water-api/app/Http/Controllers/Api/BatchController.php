@@ -389,6 +389,48 @@ class BatchController extends Controller
         }
     }
 
+    /** Soft-deleted production batches (director trash / undo). */
+    public function trashed(Request $request)
+    {
+        $tier = $request->user()?->role?->access_tier;
+        if ($tier !== 'director' && $request->user()?->role?->code !== 'ADMIN') {
+            return response()->json(['success' => false, 'message' => 'Only a Director can view deleted batches.'], 403);
+        }
+
+        $rows = Batch::withTrashed()
+            ->whereNotNull('deleted_at')
+            ->with(['sku', 'openedBy'])
+            ->orderByDesc('deleted_at')
+            ->limit(50)
+            ->get();
+
+        return response()->json(['success' => true, 'data' => $rows]);
+    }
+
+    /** Restore a soft-deleted production batch. */
+    public function restore(Request $request, $id)
+    {
+        $tier = $request->user()?->role?->access_tier;
+        if ($tier !== 'director' && $request->user()?->role?->code !== 'ADMIN') {
+            return response()->json(['success' => false, 'message' => 'Only a Director can restore a deleted batch.'], 403);
+        }
+
+        $batch = Batch::withTrashed()->find($id);
+        if (! $batch || ! $batch->trashed()) {
+            return response()->json(['success' => false, 'message' => 'Deleted batch not found'], 404);
+        }
+
+        $batch->restore();
+        $batch->update(['updated_by' => Auth::id()]);
+        $batch->load(['sku', 'openedBy', 'closedBy']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Batch restored.',
+            'data' => $batch,
+        ]);
+    }
+
     /**
      * Update batch status
      */

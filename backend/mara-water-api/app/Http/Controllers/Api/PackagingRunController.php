@@ -290,6 +290,64 @@ class PackagingRunController extends Controller
         }
     }
 
+    /**
+     * Director-only: list soft-deleted packaging runs.
+     */
+    public function trashed(Request $request)
+    {
+        $tier = $request->user()?->role?->access_tier;
+        $isDirector = $tier === 'director' || ($request->user()?->role?->code === 'ADMIN') || (bool) $request->user()?->isDirector();
+        if (! $isDirector) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a Director can view deleted packaging runs.',
+            ], 403);
+        }
+
+        $runs = PackagingRun::withTrashed()
+            ->whereNotNull('deleted_at')
+            ->with(['batch', 'sku', 'runBy'])
+            ->orderByDesc('deleted_at')
+            ->limit(50)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $runs,
+        ]);
+    }
+
+    /**
+     * Director-only: restore a soft-deleted packaging run.
+     */
+    public function restore(Request $request, $id)
+    {
+        $tier = $request->user()?->role?->access_tier;
+        $isDirector = $tier === 'director' || ($request->user()?->role?->code === 'ADMIN') || (bool) $request->user()?->isDirector();
+        if (! $isDirector) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a Director can restore a deleted packaging run.',
+            ], 403);
+        }
+
+        $packagingRun = PackagingRun::withTrashed()->find($id);
+        if (! $packagingRun || ! $packagingRun->trashed()) {
+            return response()->json(['success' => false, 'message' => 'Deleted packaging run not found'], 404);
+        }
+
+        $packagingRun->restore();
+        $packagingRun->update(['updated_by' => Auth::id()]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Packaging run restored.',
+            'data' => [
+                'packaging_run' => $packagingRun->load(['batch', 'sku', 'warehouse', 'runBy']),
+            ],
+        ]);
+    }
+
     public function complete(Request $request, $id)
     {
         try {

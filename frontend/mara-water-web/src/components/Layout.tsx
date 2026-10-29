@@ -7,7 +7,7 @@ import {
   DEFAULT_MANAGER_LOCKS,
   getFieldworkModeLocal,
   isLocked,
-  mergeManagerLocks,
+  locksFromSettingsPayload,
   setFieldworkModeLocal,
   type ManagerLockKey,
 } from '../utils/managerLocks';
@@ -69,12 +69,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [fieldworkMode, setFieldworkMode] = useState(getFieldworkModeLocal);
 
   useEffect(() => {
-    api.get('/settings')
+    const tier = user?.role?.access_tier;
+    const endpoint = tier === 'director' ? '/settings' : '/settings/ui-locks';
+    api.get(endpoint)
       .then((res) => {
         const data = res.data?.data || {};
-        const locks = mergeManagerLocks(data.manager_ui_locks as Partial<Record<ManagerLockKey, boolean>> | undefined);
+        const locks = locksFromSettingsPayload(data);
         setManagerLocks(locks);
-        if (user?.role?.access_tier === 'manager' && locks.manager_fieldwork_mode && !getFieldworkModeLocal()) {
+        if (tier === 'manager' && locks.manager_fieldwork_mode && !getFieldworkModeLocal()) {
           setFieldworkModeLocal(true);
           setFieldworkMode(true);
         }

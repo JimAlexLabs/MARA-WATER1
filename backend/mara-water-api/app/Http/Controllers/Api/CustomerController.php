@@ -246,6 +246,63 @@ class CustomerController extends Controller
     }
 
     /**
+     * Director-only: list soft-deleted customers.
+     */
+    public function trashed(Request $request)
+    {
+        $tier = $request->user()?->role?->access_tier;
+        $isDirector = $tier === 'director' || ($request->user()?->role?->code === 'ADMIN') || (bool) $request->user()?->isDirector();
+        if (! $isDirector) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a Director can view deleted customers.',
+            ], 403);
+        }
+
+        $customers = Customer::withTrashed()
+            ->whereNotNull('deleted_at')
+            ->with(['route'])
+            ->orderByDesc('deleted_at')
+            ->limit(50)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $customers,
+        ]);
+    }
+
+    /**
+     * Director-only: restore a soft-deleted customer.
+     */
+    public function restore(Request $request, $id)
+    {
+        $tier = $request->user()?->role?->access_tier;
+        $isDirector = $tier === 'director' || ($request->user()?->role?->code === 'ADMIN') || (bool) $request->user()?->isDirector();
+        if (! $isDirector) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a Director can restore a deleted customer.',
+            ], 403);
+        }
+
+        $customer = Customer::withTrashed()->find($id);
+        if (! $customer || ! $customer->trashed()) {
+            return response()->json(['success' => false, 'message' => 'Deleted customer not found'], 404);
+        }
+
+        $customer->restore();
+        $customer->update(['updated_by' => Auth::id()]);
+        $customer->load(['route']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Customer restored.',
+            'data' => ['customer' => $customer],
+        ]);
+    }
+
+    /**
      * Remove the specified customer
      */
     public function destroy($id)

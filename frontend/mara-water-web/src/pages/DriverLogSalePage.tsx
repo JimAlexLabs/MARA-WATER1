@@ -7,8 +7,7 @@ import {
   CONTACT_ADMIN_MSG,
   DEFAULT_MANAGER_LOCKS,
   isLocked,
-  mergeManagerLocks,
-  type ManagerLockKey,
+  locksFromSettingsPayload,
 } from '../utils/managerLocks';
 
 // Round 4 Phase 0/4: "New standalone Log a Sale entity, connected to
@@ -63,9 +62,9 @@ const DriverLogSalePage: React.FC = () => {
   const [saleForm, setSaleForm] = useState(EMPTY_SALE_FORM);
 
   useEffect(() => {
-    api.get('/settings')
+    api.get('/settings/ui-locks')
       .then((res) => {
-        const locks = mergeManagerLocks(res.data?.data?.manager_ui_locks as Partial<Record<ManagerLockKey, boolean>> | undefined);
+        const locks = locksFromSettingsPayload(res.data?.data);
         const locked = isLocked(locks, 'driver_cash_payment');
         setCashLocked(locked);
         if (locked) {

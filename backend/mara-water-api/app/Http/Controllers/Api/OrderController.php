@@ -24,7 +24,7 @@ class OrderController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Order::with(['customer', 'salesOfficer'])
+            $query = Order::with(['customer', 'salesOfficer', 'warehouse', 'items.sku'])
                 ->whereNull('deleted_at');
 
             // Apply filters
@@ -810,8 +810,10 @@ class OrderController extends Controller
                 $invoice->delete();
             }
 
+            // Soft-delete items/order but keep original status so restore
+            // can bring the sale back as-was (do not force 'cancelled').
             $order->items()->delete();
-            $order->update(['updated_by' => Auth::id(), 'status' => 'cancelled']);
+            $order->update(['updated_by' => Auth::id()]);
             $order->delete();
 
             DB::commit();
@@ -936,7 +938,8 @@ class OrderController extends Controller
                     }
                 }
 
-                $sale->items()->delete();
+                // Leave sale items intact — DriverTripSaleItem has no SoftDeletes;
+                // hard-deleting them would make restore incomplete.
                 $sale->delete();
             });
 
@@ -951,6 +954,215 @@ class OrderController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Director-only: soft-deleted outlet orders + field sales for the trash UI.
+     */
+    public function trashed(Request $request)
+    {
+        if (! $this->requesterIsDirector($request)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a Director can view deleted sales.',
+            ], 403);
+        }
+
+        $orders = Order::withTrashed()
+            ->whereNotNull('deleted_at')
+            ->with([
+                'customer',
+                'warehouse',
+                'items' => fn ($q) => $q->withTrashed()->with('sku'),
+            ])
+            ->orderByDesc('deleted_at')
+            ->limit(50)
+            ->get();
+
+        $fieldSales = \App\Models\DriverTripSale::withTrashed()
+            ->whereNotNull('deleted_at')
+            ->with(['customer', 'trip.driver', 'items.sku'])
+            ->orderByDesc('deleted_at')
+            ->limit(50)
+            ->get()
+            ->map(function ($sale) {
+                $driver = $sale->trip?->driver;
+
+                return [
+                    'id' => $sale->id,
+                    'order_no' => 'Field',
+                    'order_date' => optional($sale->trip)->trip_date,
+                    'status' => 'delivered',
+                    'source' => 'field',
+                    'trashed' => true,
+                    'deleted_at' => $sale->deleted_at,
+                    'total_amount' => (string) $sale->amount,
+                    'payment_method' => $sale->payment_method === 'debt' ? 'credit' : $sale->payment_method,
+                    'payment_reference' => $sale->mpesa_reference,
+                    'customer' => $sale->customer ? [
+                        'id' => $sale->customer->id,
+                        'name' => $sale->customer->name,
+                        'code' => $sale->customer->code,
+                    ] : null,
+                    'warehouse' => ['name' => $sale->trip?->route ?: 'Field trip'],
+                    'sales_officer' => [
+                        'first_name' => $driver->first_name ?? 'Driver',
+                        'last_name' => $driver->last_name ?? '',
+                    ],
+                    'items' => $sale->items->map(fn ($line) => [
+                        'sku_name' => $line->sku->name ?? 'Item',
+                        'qty' => (float) $line->qty_bales,
+                    ])->values(),
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'orders' => $orders,
+                'field_sales' => $fieldSales,
+            ],
+        ]);
+    }
+
+    /**
+     * Director-only: restore a soft-deleted outlet order and re-post stock when needed.
+     */
+    public function restore(Request $request, $id)
+    {
+        if (! $this->requesterIsDirector($request)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a Director can restore a deleted sale.',
+            ], 403);
+        }
+
+        $order = Order::withTrashed()
+            ->with(['items' => fn ($q) => $q->withTrashed()->with('sku')])
+            ->find($id);
+
+        if (! $order || ! $order->trashed()) {
+            return response()->json(['success' => false, 'message' => 'Deleted order not found'], 404);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $order->restore();
+            \App\Models\OrderItem::withTrashed()->where('order_id', $order->id)->restore();
+
+            $invoice = Invoice::withTrashed()->where('order_id', $order->id)->first();
+            if ($invoice) {
+                $invoice->restore();
+                Debt::withTrashed()->where('invoice_id', $invoice->id)->get()->each(function ($debt) {
+                    $debt->restore();
+                    \App\Models\DebtorLedgerEntry::withTrashed()->where('debt_id', $debt->id)->restore();
+                });
+            }
+
+            // MpesaPayment has no SoftDeletes today — deletes were hard; skip restore.
+            if (in_array(\Illuminate\Database\Eloquent\SoftDeletes::class, class_uses_recursive(\App\Models\MpesaPayment::class), true)) {
+                \App\Models\MpesaPayment::withTrashed()->where('order_id', $order->id)->restore();
+            }
+
+            $order->refresh()->load(['items.sku']);
+
+            $shouldRepost = ! $order->stock_posted
+                && in_array($order->status, ['delivered', 'dispatched', 'partially_returned', 'confirmed', 'awaiting_payment'], true);
+
+            if ($shouldRepost) {
+                $inventory = new InventoryController();
+                foreach ($order->items as $item) {
+                    $sku = $item->sku ?: Sku::find($item->sku_id);
+                    $netQtySold = (int) $item->qty - (int) ($item->qty_returned ?? 0);
+                    if ($netQtySold > 0 && $order->warehouse_id) {
+                        $inventory->deductStock(
+                            $item->sku_id,
+                            $sku,
+                            $order->warehouse_id,
+                            $netQtySold,
+                            'order',
+                            $order->id
+                        );
+                    }
+                }
+                $order->update(['stock_posted' => true, 'updated_by' => Auth::id()]);
+            } else {
+                $order->update(['updated_by' => Auth::id()]);
+            }
+
+            DB::commit();
+
+            $order->load(['customer', 'salesOfficer', 'warehouse', 'items.sku']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Sale restored.',
+                'data' => ['order' => $order],
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to restore sale',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Director-only: restore a soft-deleted field/trip sale (+ debt if soft-deleted).
+     */
+    public function restoreFieldSale(Request $request, $id)
+    {
+        if (! $this->requesterIsDirector($request)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a Director can restore a deleted field sale.',
+            ], 403);
+        }
+
+        $sale = \App\Models\DriverTripSale::withTrashed()->find($id);
+        if (! $sale || ! $sale->trashed()) {
+            return response()->json(['success' => false, 'message' => 'Deleted field sale not found'], 404);
+        }
+
+        try {
+            DB::transaction(function () use ($sale) {
+                $sale->restore();
+
+                if ($sale->debt_id) {
+                    $debt = Debt::withTrashed()->find($sale->debt_id);
+                    if ($debt && $debt->trashed()) {
+                        $debt->restore();
+                        \App\Models\DebtorLedgerEntry::withTrashed()->where('debt_id', $debt->id)->restore();
+                    }
+                }
+            });
+
+            $sale->refresh()->load(['customer', 'trip.driver', 'items.sku', 'debt']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Field sale restored.',
+                'data' => $sale,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to restore field sale',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    private function requesterIsDirector(Request $request): bool
+    {
+        $user = $request->user();
+        $tier = $user?->role?->access_tier;
+
+        return $tier === 'director' || ($user?->role?->code === 'ADMIN') || (bool) $user?->isDirector();
     }
 
     private function reverseOrderStock(Order $order): void

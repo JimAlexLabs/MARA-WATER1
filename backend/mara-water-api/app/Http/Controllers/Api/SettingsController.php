@@ -22,6 +22,8 @@ class SettingsController extends Controller
         'danger_zone_unlocked',
         // Director toggles: lock manager-facing pages/sections (data stays live).
         'manager_ui_locks',
+        // Per-manager overrides keyed by user id (partial lock bool maps).
+        'manager_ui_locks_by_user',
         'driver_allow_cash',
     ];
 
@@ -65,20 +67,29 @@ class SettingsController extends Controller
     {
     }
 
-    public function index()
+    public function index(Request $request)
     {
-        $data = Setting::allAsMap();
-        $locks = is_array($data['manager_ui_locks'] ?? null)
-            ? array_merge(self::defaultManagerUiLocks(), $data['manager_ui_locks'])
-            : self::defaultManagerUiLocks();
-        $data['manager_ui_locks'] = $locks;
-        if (! array_key_exists('driver_allow_cash', $data)) {
-            $data['driver_allow_cash'] = ! ($locks['driver_cash_payment'] ?? false);
-        }
+        return response()->json([
+            'success' => true,
+            'data' => $this->settingsPayload($request),
+        ]);
+    }
+
+    /**
+     * Manager-readable locks only (global defaults + this user's overrides).
+     * Full /settings stays director-only.
+     */
+    public function uiLocks(Request $request)
+    {
+        $payload = $this->settingsPayload($request);
 
         return response()->json([
             'success' => true,
-            'data' => $data,
+            'data' => [
+                'manager_ui_locks' => $payload['manager_ui_locks_effective'] ?? $payload['manager_ui_locks'],
+                'manager_ui_locks_effective' => $payload['manager_ui_locks_effective'] ?? $payload['manager_ui_locks'],
+                'driver_allow_cash' => $payload['driver_allow_cash'] ?? false,
+            ],
         ]);
     }
 
@@ -103,6 +114,12 @@ class SettingsController extends Controller
             );
         }
 
+        if (array_key_exists('manager_ui_locks_by_user', $values)) {
+            $values['manager_ui_locks_by_user'] = $this->sanitizeManagerUiLocksByUser(
+                $values['manager_ui_locks_by_user']
+            );
+        }
+
         // Round 5B Phase 8: unlocking Danger Zone requires a fresh backup
         // first — force one if missing, then allow unlock.
         if (array_key_exists('danger_zone_unlocked', $values)
@@ -115,7 +132,7 @@ class SettingsController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'No fresh backup existed — one was created automatically, then Danger Zone was unlocked.',
-                'data' => Setting::allAsMap(),
+                'data' => $this->settingsPayload($request),
                 'forced_backup' => [
                     'id' => $backup->id,
                     'created_at' => $backup->created_at,
@@ -128,7 +145,76 @@ class SettingsController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Settings saved successfully',
-            'data' => Setting::allAsMap(),
+            'data' => $this->settingsPayload($request),
         ]);
+    }
+
+    /**
+     * Build the settings map with merged global locks, per-user lock map,
+     * and the effective locks for the authenticated requester.
+     */
+    private function settingsPayload(Request $request): array
+    {
+        $data = Setting::allAsMap();
+        $defaults = self::defaultManagerUiLocks();
+        $locks = is_array($data['manager_ui_locks'] ?? null)
+            ? array_merge($defaults, array_intersect_key($data['manager_ui_locks'], $defaults))
+            : $defaults;
+        $data['manager_ui_locks'] = $locks;
+
+        $byUser = is_array($data['manager_ui_locks_by_user'] ?? null)
+            ? $data['manager_ui_locks_by_user']
+            : [];
+        $data['manager_ui_locks_by_user'] = $byUser;
+
+        $user = $request->user();
+        $isDirector = (bool) ($user?->isDirector() || $user?->role?->access_tier === 'director');
+
+        if ($isDirector) {
+            $data['manager_ui_locks_effective'] = $locks;
+        } else {
+            $userId = (string) ($user?->id ?? '');
+            $userLocks = is_array($byUser[$userId] ?? null)
+                ? $byUser[$userId]
+                : (is_array($byUser[$user?->id] ?? null) ? $byUser[$user->id] : []);
+            $data['manager_ui_locks_effective'] = array_merge(
+                $locks,
+                array_intersect_key($userLocks, $defaults)
+            );
+        }
+
+        if (! array_key_exists('driver_allow_cash', $data)) {
+            $data['driver_allow_cash'] = ! ($locks['driver_cash_payment'] ?? false);
+        }
+
+        return $data;
+    }
+
+    /**
+     * Sanitize per-user lock overrides: map of userId => partial lock bools
+     * (only known default keys kept).
+     */
+    private function sanitizeManagerUiLocksByUser(mixed $raw): array
+    {
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $defaults = self::defaultManagerUiLocks();
+        $sanitized = [];
+
+        foreach ($raw as $userId => $partial) {
+            if (! is_array($partial)) {
+                continue;
+            }
+            $filtered = array_intersect_key($partial, $defaults);
+            $bools = [];
+            foreach ($filtered as $key => $value) {
+                $bools[$key] = (bool) $value;
+            }
+            $sanitized[(string) $userId] = $bools;
+        }
+
+        return $sanitized;
     }
 }

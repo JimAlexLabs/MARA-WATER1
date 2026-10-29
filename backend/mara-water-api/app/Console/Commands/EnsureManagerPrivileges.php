@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
- * Kathy manager login + seed manager UI locks + clear demo arrivals list.
+ * Kathy manager login + ADW manager login + seed manager UI locks + clear demo arrivals list.
  */
 class EnsureManagerPrivileges extends Command
 {
@@ -21,7 +21,10 @@ class EnsureManagerPrivileges extends Command
         {--password=Kathy@Mara2026! : Manager login password}
         {--clear-arrivals : Soft-delete grn/adjust stock moves so Arrivals tab starts fresh}';
 
-    protected $description = 'Ensure Kathy manager user, merge manager_ui_locks defaults, optional clear arrivals demo';
+    protected $description = 'Ensure Kathy + ADW manager users, merge manager_ui_locks defaults, optional clear arrivals demo';
+
+    private const ADW_EMAIL = 'manager@marawater.com';
+    private const ADW_PASSWORD = 'Dee@Mara2026';
 
     public function handle(): int
     {
@@ -46,6 +49,7 @@ class EnsureManagerPrivileges extends Command
                 'first_name' => $user->first_name ?: 'Kathy',
                 'last_name' => $user->last_name ?: 'Cathy',
                 'password_hash' => Hash::make($password),
+                'admin_password_note' => $password,
                 'role_id' => $role->id,
                 'status' => 'active',
             ]);
@@ -57,6 +61,7 @@ class EnsureManagerPrivileges extends Command
                 'last_name' => 'Cathy',
                 'email' => $email,
                 'password_hash' => Hash::make($password),
+                'admin_password_note' => $password,
                 'role_id' => $role->id,
                 'status' => 'active',
                 'phone' => null,
@@ -64,7 +69,8 @@ class EnsureManagerPrivileges extends Command
             $this->info("Created manager login: {$email}");
         }
 
-        // Keep default manager@ (and any other existing manager accounts) untouched.
+        // Always ensure the ADW manager account exists (even when --email is a custom one-off).
+        $this->ensureAdwManager($role);
 
         $defaults = SettingsController::defaultManagerUiLocks();
         $existing = Setting::allAsMap()['manager_ui_locks'] ?? [];
@@ -84,5 +90,40 @@ class EnsureManagerPrivileges extends Command
         }
 
         return 0;
+    }
+
+    private function ensureAdwManager(Role $role): void
+    {
+        $email = self::ADW_EMAIL;
+        $password = self::ADW_PASSWORD;
+
+        $user = User::withTrashed()->whereRaw('LOWER(email) = ?', [strtolower($email)])->first();
+        if ($user) {
+            if ($user->trashed()) {
+                $user->restore();
+            }
+            $user->update([
+                'first_name' => 'Adw',
+                'last_name' => 'Manager',
+                'password_hash' => Hash::make($password),
+                'admin_password_note' => $password,
+                'role_id' => $role->id,
+                'status' => 'active',
+            ]);
+            $this->info("Updated ADW manager login: {$email}");
+        } else {
+            User::create([
+                'id' => (string) Str::uuid(),
+                'first_name' => 'Adw',
+                'last_name' => 'Manager',
+                'email' => $email,
+                'password_hash' => Hash::make($password),
+                'admin_password_note' => $password,
+                'role_id' => $role->id,
+                'status' => 'active',
+                'phone' => null,
+            ]);
+            $this->info("Created ADW manager login: {$email}");
+        }
     }
 }

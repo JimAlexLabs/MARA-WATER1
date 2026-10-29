@@ -103,8 +103,39 @@ class PettyCashController extends Controller
             ], 422);
         }
 
+        $entryDate = \Carbon\Carbon::parse($request->entry_date, 'Africa/Nairobi')->startOfDay();
+        $todayNairobi = now('Africa/Nairobi')->startOfDay();
+        $user = $request->user();
+        $isDirector = (bool) ($user?->isDirector()
+            || $user?->role?->access_tier === 'director'
+            || $user?->role?->code === 'ADMIN');
+
+        if ($entryDate->gt($todayNairobi)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Petty cash date cannot be in the future',
+                'errors' => ['entry_date' => ['Cannot be after today']],
+            ], 422);
+        }
+
+        if ($entryDate->lt($todayNairobi)) {
+            if (! $isDirector) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only a Director can backdate a petty cash entry.',
+                ], 403);
+            }
+            if ($entryDate->lt($todayNairobi->copy()->subDays(365))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Petty cash date cannot be more than 365 days ago',
+                    'errors' => ['entry_date' => ['Choose a date within the last 365 days']],
+                ], 422);
+            }
+        }
+
         $entry = PettyCashEntry::create([
-            'entry_date' => $request->entry_date,
+            'entry_date' => $entryDate->toDateString(),
             'mpesa_reference' => $request->mpesa_reference,
             'account_id' => $request->account_id,
             'description' => $request->description,

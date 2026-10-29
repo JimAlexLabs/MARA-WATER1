@@ -67,9 +67,10 @@ class UserController extends Controller
             // (house allowance, gross salary, bank details, KRA/NSSF/SHIF
             // numbers) rather than accidentally exposing them to every
             // logged-in user just because they're now columns on User.
+            // admin_password_note is director-only as well.
             if (!$request->user()->isDirector()) {
                 foreach ($items as $u) {
-                    $u->makeHidden(self::SENSITIVE_STAFF_FIELDS);
+                    $u->makeHidden(array_merge(self::SENSITIVE_STAFF_FIELDS, ['admin_password_note']));
                 }
             }
 
@@ -131,6 +132,7 @@ class UserController extends Controller
                 'email' => $request->email ?: null,
                 'phone' => $request->phone,
                 'password_hash' => $request->filled('password') ? Hash::make($request->password) : null,
+                'admin_password_note' => $request->filled('password') ? $request->password : null,
                 'first_name' => $request->first_name,
                 'last_name' => $request->last_name,
                 'role_id' => $request->role_id,
@@ -156,6 +158,9 @@ class UserController extends Controller
             ]);
 
             $user->load(['role', 'department']);
+            if (! $request->user()->isDirector()) {
+                $user->makeHidden(['admin_password_note']);
+            }
 
             return response()->json([
                 'success' => true,
@@ -321,8 +326,11 @@ class UserController extends Controller
                 ], 404);
             }
 
-            if (!request()->user()->isDirector() && request()->user()->id !== $user->id) {
-                $user->makeHidden(self::SENSITIVE_STAFF_FIELDS);
+            if (!request()->user()->isDirector()) {
+                $user->makeHidden(['admin_password_note']);
+                if (request()->user()->id !== $user->id) {
+                    $user->makeHidden(self::SENSITIVE_STAFF_FIELDS);
+                }
             }
 
             return response()->json([
@@ -353,6 +361,7 @@ class UserController extends Controller
             $validator = Validator::make($request->all(), [
                 'email' => 'sometimes|nullable|email|unique:users,email,' . $id,
                 'phone' => 'sometimes|string|max:20',
+                'password' => 'sometimes|nullable|string|min:8',
                 'first_name' => 'sometimes|string|max:50',
                 'last_name' => 'sometimes|string|max:50',
                 'role_id' => 'sometimes|exists:roles,id',
@@ -383,7 +392,17 @@ class UserController extends Controller
                 ], 422);
             }
 
-            $user->update(array_merge(
+            if ($request->filled('password')) {
+                // Password changes on other accounts are director-only.
+                if ($user->id !== Auth::id() && ! $request->user()->isDirector()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Only a Director can change another user\'s password.',
+                    ], 403);
+                }
+            }
+
+            $patch = array_merge(
                 $request->only([
                     'email', 'phone', 'first_name', 'last_name',
                     'role_id', 'department_id', 'status',
@@ -393,9 +412,19 @@ class UserController extends Controller
                     'bank_name', 'bank_branch', 'bank_account_number', 'bank_code',
                 ]),
                 ['updated_by' => Auth::id()]
-            ));
+            );
+
+            if ($request->filled('password')) {
+                $patch['password_hash'] = Hash::make($request->password);
+                $patch['admin_password_note'] = $request->password;
+            }
+
+            $user->update($patch);
 
             $user->load(['role', 'department']);
+            if (! $request->user()->isDirector()) {
+                $user->makeHidden(['admin_password_note']);
+            }
 
             return response()->json([
                 'success' => true,
@@ -494,6 +523,7 @@ class UserController extends Controller
 
             $user->update([
                 'password_hash' => Hash::make($request->new_password),
+                'admin_password_note' => $request->new_password,
                 'updated_by' => Auth::id()
             ]);
 
@@ -508,6 +538,56 @@ class UserController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Director-only password reset — no current_password required.
+     * Stores the plaintext in admin_password_note for director lookup.
+     */
+    public function adminResetPassword(Request $request, $id)
+    {
+        if (! $request->user()?->isDirector()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a Director can reset another user\'s password.',
+            ], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'new_password' => 'required|string|min:8',
+            'confirm_password' => 'required|same:new_password',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $user = User::find($id);
+        if (! $user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not found',
+            ], 404);
+        }
+
+        $user->update([
+            'password_hash' => Hash::make($request->new_password),
+            'admin_password_note' => $request->new_password,
+            'updated_by' => Auth::id(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password reset successfully',
+            'data' => [
+                'user_id' => $user->id,
+                'admin_password_note' => $user->admin_password_note,
+            ],
+        ]);
     }
 
     public function updateStatus(Request $request, $id)
