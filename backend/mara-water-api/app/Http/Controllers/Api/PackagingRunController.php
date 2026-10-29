@@ -596,14 +596,20 @@ class PackagingRunController extends Controller
         $inventory = new InventoryController();
 
         if ($packagingRun->good_qty > 0) {
+            // Premium Custom (etc.) is made from the same physical bottles —
+            // finished-goods stock lands on the linked PREM-0.5L inventory.
+            $sellable = $packagingRun->sku ?: \App\Models\Sku::find($packagingRun->sku_id);
+            $stockSku = \App\Services\SkuStockAliasService::stockSkuFor($sellable);
+            $stockSkuId = $stockSku?->id ?: $packagingRun->sku_id;
+
             $inventory->recordMove([
                 'move_type' => 'produce',
                 'item_type' => 'sku',
-                'sku_id' => $packagingRun->sku_id,
+                'sku_id' => $stockSkuId,
                 'batch_id' => $packagingRun->batch_id,
                 'warehouse_to_id' => $warehouseId,
                 'qty' => $packagingRun->good_qty,
-                'uom' => $packagingRun->sku->unit ?? 'BOTTLE',
+                'uom' => $stockSku->unit ?? $packagingRun->sku->unit ?? 'BOTTLE',
                 'ref_entity' => 'packaging_run',
                 'ref_id' => $packagingRun->id,
             ]);
@@ -611,7 +617,14 @@ class PackagingRunController extends Controller
 
         $warnings = [];
         if ($packagingRun->good_qty > 0) {
-            $bomItems = BomItem::with('material')->where('sku_id', $packagingRun->sku_id)->whereNull('deleted_at')->get();
+            // BOM for custom runs follows the physical stock SKU (same materials).
+            $sellable = $packagingRun->sku ?: \App\Models\Sku::find($packagingRun->sku_id);
+            $stockSku = \App\Services\SkuStockAliasService::stockSkuFor($sellable);
+            $bomSkuId = $stockSku?->id ?: $packagingRun->sku_id;
+            $bomItems = BomItem::with('material')->where('sku_id', $bomSkuId)->whereNull('deleted_at')->get();
+            if ($bomItems->isEmpty() && $bomSkuId !== $packagingRun->sku_id) {
+                $bomItems = BomItem::with('material')->where('sku_id', $packagingRun->sku_id)->whereNull('deleted_at')->get();
+            }
 
             foreach ($bomItems as $bomItem) {
                 $qtyNeeded = (float) $bomItem->qty_per_unit * $packagingRun->good_qty;

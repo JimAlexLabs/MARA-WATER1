@@ -1301,8 +1301,11 @@ class DriverTripController extends Controller
                 if (!in_array($size, $allowedSizes, true)) {
                     return false;
                 }
-                // Hide custom SKUs from the main driver grid; standard sizes only.
-                if (stripos((string) $sku->code, 'CUSTOM') !== false) {
+                // Premium Custom 0.5L is a real sellable (KES 500) that draws
+                // PREM-0.5L stock — keep it on Sales / Production / trips.
+                // Other CUSTOM codes stay hidden from this catalog.
+                $code = (string) $sku->code;
+                if (stripos($code, 'CUSTOM') !== false && strtoupper($code) !== 'PREM-CUSTOM-0.5L') {
                     return false;
                 }
                 if (stripos((string) $sku->brand, 'Mara') !== false) {

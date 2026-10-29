@@ -830,7 +830,12 @@ const ProductionPage: React.FC = () => {
                   className="mt-1 block w-full max-w-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select a product to view/edit its recipe</option>
-                  {skus.map(s => <option key={s.id} value={s.id}>{s.brand ? `${s.brand} -- ` : ''}{s.name}</option>)}
+                  {skus.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.brand ? `${s.brand} — ` : ''}{s.name}
+                      {/CUSTOM/i.test(s.code || '') ? ' (stock → Premium 0.5L)' : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -926,8 +931,11 @@ const ProductionPage: React.FC = () => {
                   className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select SKU</option>
-                  {skus.map(s => (
-                    <option key={s.id} value={s.id}>{s.brand ? `${s.brand} -- ` : ''}{s.name}</option>
+                  {skus.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.brand ? `${s.brand} — ` : ''}{s.name}
+                      {/CUSTOM/i.test(s.code || '') ? ' (stock → Premium 0.5L)' : ''}
+                    </option>
                   ))}
                 </select>
               </div>

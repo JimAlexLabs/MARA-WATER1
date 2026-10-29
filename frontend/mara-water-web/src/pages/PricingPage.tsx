@@ -33,7 +33,10 @@ const sizeLabel = (v: string | number) => {
 
 const isOperationalSku = (sku: Sku) => {
   if (!ALLOWED_SIZES.includes(sizeNum(sku.size_liters))) return false;
-  if (/CUSTOM/i.test(sku.code) || /CUSTOM/i.test(sku.name)) return false;
+  // Premium Custom 0.5L (KES 500) is operational — draws PREM-0.5L stock.
+  const code = (sku.code || '').toUpperCase();
+  if (/CUSTOM/i.test(code) && code !== 'PREM-CUSTOM-0.5L') return false;
+  if (/CUSTOM/i.test(sku.name || '') && code !== 'PREM-CUSTOM-0.5L') return false;
   if (/Mara\s*Water/i.test(sku.brand || '') || /^WATER-/i.test(sku.code)) return false;
   return true;
 };

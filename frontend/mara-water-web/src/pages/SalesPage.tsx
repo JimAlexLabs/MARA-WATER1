@@ -71,6 +71,8 @@ interface Sku {
   name: string;
   size_liters: string;
   unit: string;
+  current_price?: number | null;
+  brand?: string | null;
 }
 
 interface Warehouse {
@@ -1446,7 +1448,20 @@ const SalesPage: React.FC = () => {
                             className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
                             <option value="">Select product</option>
-                            {skus.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            {skus.map((s) => {
+                              const price = s.current_price != null
+                                ? Number(s.current_price)
+                                : (listPriceFor(s.id) ? Number(listPriceFor(s.id)) : null);
+                              const priceBit = price != null && !Number.isNaN(price)
+                                ? ` — KES ${price.toLocaleString()}`
+                                : '';
+                              const customBit = /CUSTOM/i.test(s.code || '') ? ' (uses 0.5L stock)' : '';
+                              return (
+                                <option key={s.id} value={s.id}>
+                                  {s.name}{priceBit}{customBit}
+                                </option>
+                              );
+                            })}
                           </select>
                         </div>
                         <div className="col-span-2">
