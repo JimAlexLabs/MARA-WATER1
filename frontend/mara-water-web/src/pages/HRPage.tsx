@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import ProductionWagesPanel from '../components/ProductionWagesPanel';
 import { PageShell, PageHero } from '../components/PageShell';
 import { usePermissions } from '../contexts/AuthContext';
 import { clearHrUnlock, getHrUnlock, isHrUnlocked, setHrUnlock } from '../utils/hrUnlock';
@@ -108,6 +109,7 @@ interface SalaryTemplate {
 const ALL_TABS = [
   { id: 'attendance', name: 'Attendance', icon: Clock },
   { id: 'payroll', name: 'Payroll', icon: DollarSign },
+  { id: 'production-wages', name: 'Production wages', icon: Users },
   { id: 'profit', name: 'Profit', icon: TrendingUp },
   { id: 'loans', name: 'Loans & Advances', icon: Users },
   { id: 'templates', name: 'Salary Templates', icon: Edit },
@@ -119,8 +121,8 @@ const ALL_TABS = [
 // enforcement is the `tier:director` middleware on those routes now, not
 // this list.
 // Ops brief §9: payroll / profit / loans / templates also need password re-auth.
-const DIRECTOR_ONLY_TAB_IDS = ['payroll', 'profit', 'loans', 'templates'];
-const SECURE_TAB_IDS = ['payroll', 'profit', 'loans', 'templates'];
+const DIRECTOR_ONLY_TAB_IDS = ['payroll', 'production-wages', 'profit', 'loans', 'templates'];
+const SECURE_TAB_IDS = ['payroll', 'production-wages', 'profit', 'loans', 'templates'];
 
 const LOAN_TYPE_LABELS: Record<string, string> = {
   advance: 'Staff Advance', loan: 'Loan', sacco_loan: 'Sacco Loan', sacco_advance: 'Sacco Advance',
@@ -743,7 +745,7 @@ const HRPage: React.FC = () => {
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Hours</p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                    {attendances.reduce((sum, a) => sum + (a.total_hours ?? 0), 0).toFixed(1)}
+                    {attendances.reduce((sum, a) => sum + Number(a.total_hours ?? 0), 0).toFixed(1)}
                   </p>
                 </div>
               </div>
@@ -754,7 +756,7 @@ const HRPage: React.FC = () => {
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Overtime Hours</p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                    {attendances.reduce((sum, a) => sum + (a.overtime_hours ?? 0), 0).toFixed(1)}
+                    {attendances.reduce((sum, a) => sum + Number(a.overtime_hours ?? 0), 0).toFixed(1)}
                   </p>
                 </div>
               </div>
@@ -1090,6 +1092,14 @@ const HRPage: React.FC = () => {
             </table>
           </div>
         </div>
+        )
+      )}
+
+      {activeTabState === 'production-wages' && (
+        !hrUnlocked ? (
+          <SecureGatePrompt onUnlock={() => { setPendingSecureTab('production-wages'); setShowUnlockModal(true); }} />
+        ) : (
+          <ProductionWagesPanel />
         )
       )}
 

@@ -29,7 +29,7 @@ interface MoneyFlow {
 
 interface ProdVsSalesPoint { period: string; production_liters: number; sales_liters: number; }
 interface ProdVsSalesByBrand { brand: string; produced_qty: number; sold_qty: number; variance: number; }
-interface ProductionVsSales { trend: ProdVsSalesPoint[]; total_production_liters: number; total_sales_liters: number; by_brand: ProdVsSalesByBrand[]; }
+interface ProductionVsSales { trend: ProdVsSalesPoint[]; total_production_bales?: number; total_production_liters: number; total_sales_liters: number; by_brand: ProdVsSalesByBrand[]; }
 
 interface TopDebtor { customer_id: string; customer: string; balance: number; }
 interface Debtors { total_balance: number; total_debts: number; overdue_count: number; overdue_total: number; top_debtors: TopDebtor[]; }
@@ -186,12 +186,12 @@ const AnalyticsPage: React.FC = () => {
       />
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         <KpiCard icon={<DollarSign className="w-6 h-6 text-violet-600" />} label="Revenue (period)" value={money(overview.sales.total_revenue)} />
         <KpiCard icon={<TrendingUp className="w-6 h-6 text-green-600" />} label="Cash + M-Pesa Collected" value={money(overview.money_flow.collected.total)} />
         <KpiCard icon={<AlertTriangle className="w-6 h-6 text-red-600" />} label="Outstanding Debt" value={money(overview.money_flow.outstanding_debt.total_balance)} sub={`${overview.money_flow.outstanding_debt.overdue_count} overdue`} />
-        <KpiCard icon={<Package className="w-6 h-6 text-blue-600" />} label="Production (period)" value={`${overview.production_vs_sales.total_production_liters.toLocaleString()} L`} />
-        <KpiCard icon={<Truck className="w-6 h-6 text-orange-600" />} label="Fleet KM (period)" value={(fleetStats?.total_km ?? 0).toLocaleString()} sub={`${fleetStats?.total_trips ?? 0} trips`} />
+        <KpiCard icon={<Package className="w-6 h-6 text-blue-600" />} label="Production (period)" value={`${Number(overview.production_vs_sales.total_production_bales || 0).toLocaleString()} bales · ${Number(overview.production_vs_sales.total_production_liters || 0).toLocaleString()} L`} />
+        <KpiCard icon={<Truck className="w-6 h-6 text-orange-600" />} label="Fleet distance (period)" value={`${(fleetStats?.total_km ?? 0).toLocaleString()} km`} sub={`${fleetStats?.total_trips ?? 0} trips`} />
       </div>
 
       {/* Sales */}
@@ -422,11 +422,11 @@ const EmptyChart: React.FC<{ label: string }> = ({ label }) => (
 
 const KpiCard: React.FC<{ icon: React.ReactNode; label: string; value: string | number; sub?: string }> = ({ icon, label, value, sub }) => (
   <div className="mara-stat">
-    <div className="flex items-center gap-3">
+    <div className="flex items-start gap-3">
       {icon}
       <div className="min-w-0">
-        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{label}</p>
-        <p className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">{value}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+        <p className="text-lg font-bold text-gray-900 dark:text-gray-100 break-words">{value}</p>
         {sub && <p className="text-xs text-gray-400 dark:text-gray-500">{sub}</p>}
       </div>
     </div>

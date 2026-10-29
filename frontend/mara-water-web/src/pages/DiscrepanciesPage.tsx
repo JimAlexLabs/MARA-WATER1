@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Download, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { usePermissions } from '../contexts/AuthContext';
 import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 
 // Round 4 Phase 6: dedicated Discrepancies page -- Manager/Director only
@@ -45,6 +46,8 @@ const downloadBlob = (path: string, params: Record<string, string>, filename: st
 };
 
 const DiscrepanciesPage: React.FC = () => {
+  const { isDirector, accessTier } = usePermissions();
+  const director = isDirector() || accessTier() === 'director';
   const [rows, setRows] = useState<DiscrepancyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'cash' | 'stock' | 'mileage'>('all');
@@ -190,8 +193,26 @@ const DiscrepanciesPage: React.FC = () => {
                     <td className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100">{row.amount ? Number(row.amount).toLocaleString() : '—'}</td>
                     <td className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 max-w-xs truncate" title={row.description}>{row.description}</td>
                     <td className="px-4 py-2 text-sm"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[row.status]}`}>{row.status}</span></td>
-                    <td className="px-4 py-2 text-sm text-right">
+                    <td className="px-4 py-2 text-sm text-right space-x-3">
                       <button onClick={() => openReview(row)} className="text-blue-600 hover:text-blue-800 text-sm">Review</button>
+                      {director && (
+                        <button
+                          type="button"
+                          className="text-red-600 hover:text-red-800 text-sm"
+                          onClick={async () => {
+                            if (!window.confirm('Delete this discrepancy log?')) return;
+                            try {
+                              await api.delete(`/fleet/discrepancies/${row.id}`);
+                              toast.success('Discrepancy removed');
+                              fetchData();
+                            } catch (error: any) {
+                              toast.error(error.response?.data?.message || 'Could not delete');
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

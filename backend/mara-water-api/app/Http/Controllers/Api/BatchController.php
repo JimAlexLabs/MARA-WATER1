@@ -209,6 +209,8 @@ class BatchController extends Controller
                     $sku = $group->first()->sku;
                     $qty = (int) $group->sum(fn ($b) => $b->actual_qty ?? $b->planned_qty);
 
+                    $finished = app(\App\Services\FinishedGoodsService::class);
+
                     return [
                         'sku_id' => $sku?->id,
                         'sku_code' => $sku?->code,
@@ -216,6 +218,7 @@ class BatchController extends Controller
                         'brand' => $sku?->brand,
                         'size_liters' => $sku?->size_liters,
                         'qty_bales' => $qty,
+                        'unsold_bales' => $sku ? $finished->unsoldFor($sku->id) : 0,
                         'batch_count' => $group->count(),
                         'batches' => $group->map(fn ($b) => [
                             'id' => $b->id,
@@ -264,6 +267,7 @@ class BatchController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => $days,
+                'unsold' => app(\App\Services\FinishedGoodsService::class)->balances(),
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -360,20 +364,21 @@ class BatchController extends Controller
     public function destroy($id)
     {
         try {
-            $batch = Batch::whereNull('deleted_at')->findOrFail($id);
-            
-            // Only allow deletion if batch is still open
-            if ($batch->status !== 'open') {
+            $user = Auth::user();
+            if (! $user || (! $user->isDirector() && $user->accessTier() !== 'director')) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot delete batch that is not in open status'
-                ], 422);
+                    'message' => 'Only an admin can delete production records.',
+                ], 403);
             }
 
-            // Round 2 Phase 3: deleted_at isn't in $fillable (correctly), so
-            // mass-assigning it here silently did nothing -- see WaterTestController.
+            $batch = Batch::whereNull('deleted_at')->findOrFail($id);
+
+            DB::beginTransaction();
+            app(PackagingRunController::class)->reverseAndDeleteForBatch($batch);
             $batch->update(['updated_by' => Auth::id()]);
             $batch->delete();
+            DB::commit();
 
             return response()->json([
                 'success' => true,
@@ -381,11 +386,13 @@ class BatchController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            DB::rollBack();
+
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to delete batch',
+                'message' => $e->getMessage() ?: 'Failed to delete batch',
                 'error' => $e->getMessage()
-            ], 500);
+            ], 422);
         }
     }
 

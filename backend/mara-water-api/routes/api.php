@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\VehicleController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\PayrollController;
+use App\Http\Controllers\Api\ProductionWageController;
 use App\Http\Controllers\Api\StaffLoanController;
 use App\Http\Controllers\Api\SalaryTemplateController;
 use App\Http\Controllers\Api\ReportsController;
@@ -323,6 +324,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/stock-items', [InventoryController::class, 'stockItems']);
             Route::get('/stock-moves', [InventoryController::class, 'stockMoves']);
             Route::post('/stock-moves', [InventoryController::class, 'createStockMove']);
+            Route::get('/corrections', [InventoryController::class, 'corrections']);
+            Route::post('/corrections/{id}/approve', [InventoryController::class, 'approveCorrection']);
+            Route::post('/corrections/{id}/reject', [InventoryController::class, 'rejectCorrection']);
             Route::get('/statistics', [InventoryController::class, 'statistics']);
             Route::get('/warehouse/{warehouseId}/stock', [InventoryController::class, 'stockByWarehouse']);
             Route::get('/low-stock', [InventoryController::class, 'lowStock']);
@@ -445,13 +449,6 @@ Route::prefix('v1')->group(function () {
             Route::post('/accounts', [ChartOfAccountController::class, 'store']);
             Route::put('/accounts/{id}', [ChartOfAccountController::class, 'update']);
 
-            // Petty cash journal (Phase 9). Fixed segments before /{id}.
-            Route::get('/petty-cash/utilization', [PettyCashController::class, 'utilization']);
-            Route::get('/petty-cash/export', [PettyCashController::class, 'export']);
-            Route::get('/petty-cash', [PettyCashController::class, 'index']);
-            Route::post('/petty-cash', [PettyCashController::class, 'store']);
-            Route::delete('/petty-cash/{id}', [PettyCashController::class, 'destroy']);
-
             // Debtors ledger (Phase 9).
             Route::get('/debtors/export', [DebtorLedgerController::class, 'export']);
             Route::get('/debtors/{customerId}/ledger', [DebtorLedgerController::class, 'index']);
@@ -459,18 +456,25 @@ Route::prefix('v1')->group(function () {
             Route::post('/debtors/ledger', [DebtorLedgerController::class, 'store']);
             Route::post('/debtors/debts/{debtId}/pay', [DebtorLedgerController::class, 'recordPayment']);
 
-            // Creditors / payables ledger.
-            Route::get('/payables', [SupplierLedgerController::class, 'summary']);
-            Route::get('/payables/supplier/{supplierName}', [SupplierLedgerController::class, 'bySupplier']);
-            Route::post('/payables', [SupplierLedgerController::class, 'store']);
-            Route::delete('/payables/{id}', [SupplierLedgerController::class, 'destroy']);
-
             // Costing & P&L (Phase 9).
             Route::get('/costing/per-bottle', [CostingController::class, 'perBottleCost']);
             Route::get('/costing/profit-loss', [CostingController::class, 'profitAndLoss']);
 
             // Round 5B Phase 5: shared Manager/Director ledger summary
             Route::get('/ledger-summary', [FinanceController::class, 'ledgerSummary']);
+        });
+
+        // Petty cash and payables are admin-only. Managers must not see the figures.
+        Route::middleware('tier:director')->prefix('finance')->group(function () {
+            Route::get('/petty-cash/utilization', [PettyCashController::class, 'utilization']);
+            Route::get('/petty-cash/export', [PettyCashController::class, 'export']);
+            Route::get('/petty-cash', [PettyCashController::class, 'index']);
+            Route::post('/petty-cash', [PettyCashController::class, 'store']);
+            Route::delete('/petty-cash/{id}', [PettyCashController::class, 'destroy']);
+            Route::get('/payables', [SupplierLedgerController::class, 'summary']);
+            Route::get('/payables/supplier/{supplierName}', [SupplierLedgerController::class, 'bySupplier']);
+            Route::post('/payables', [SupplierLedgerController::class, 'store']);
+            Route::delete('/payables/{id}', [SupplierLedgerController::class, 'destroy']);
         });
 
         // Ops brief §9: Director live profit — tier:director + HR unlock.
@@ -571,6 +575,7 @@ Route::prefix('v1')->group(function () {
         // as every other Director-only route in this file).
         Route::middleware('tier:director')->prefix('fleet')->group(function () {
             Route::post('/trips/{id}/unlock', [DriverTripController::class, 'unlock']);
+            Route::delete('/discrepancies/{id}', [DiscrepancyController::class, 'destroy']);
             Route::delete('/trips/{tripId}/sales/{saleId}', [DriverTripController::class, 'deleteSale']);
         });
 
@@ -631,6 +636,11 @@ Route::prefix('v1')->group(function () {
             Route::delete('/loans/{id}', [StaffLoanController::class, 'destroy']);
 
             // Salary/role templates
+            Route::get('/production-wages/export', [ProductionWageController::class, 'export']);
+            Route::get('/production-wages/month', [ProductionWageController::class, 'month']);
+            Route::get('/production-wages', [ProductionWageController::class, 'day']);
+            Route::put('/production-wages', [ProductionWageController::class, 'save']);
+
             Route::get('/salary-templates', [SalaryTemplateController::class, 'index']);
             Route::post('/salary-templates', [SalaryTemplateController::class, 'store']);
             Route::put('/salary-templates/{id}', [SalaryTemplateController::class, 'update']);

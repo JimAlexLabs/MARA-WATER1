@@ -418,6 +418,25 @@ class OrderController extends Controller
                 $request->merge(['warehouse_id' => $warehouseId]);
             }
 
+            // Finished bales only. Unfinished bottles and labels are not sellable.
+            $finished = app(\App\Services\FinishedGoodsService::class);
+            $needed = [];
+            foreach ($request->items as $item) {
+                $net = (float) $item['qty'] - (float) ($item['qty_returned'] ?? 0);
+                if ($net > 0 && ! empty($item['sku_id'])) {
+                    $needed[$item['sku_id']] = ($needed[$item['sku_id']] ?? 0) + $net;
+                }
+            }
+            try {
+                foreach ($needed as $skuId => $bales) {
+                    $finished->assertCanTake((string) $skuId, (float) $bales, $warehouseId);
+                }
+            } catch (\InvalidArgumentException $e) {
+                DB::rollBack();
+
+                return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+            }
+
             // M-Pesa prompt phone doubles as customer phone.
             if ($request->filled('stk_phone') && ! $request->filled('buyer_phone')) {
                 $request->merge(['buyer_phone' => $request->stk_phone]);
@@ -1130,6 +1149,18 @@ class OrderController extends Controller
                 && in_array($order->status, ['delivered', 'dispatched', 'partially_returned', 'confirmed', 'awaiting_payment'], true);
 
             if ($shouldRepost) {
+                $finished = app(\App\Services\FinishedGoodsService::class);
+                $needed = [];
+                foreach ($order->items as $item) {
+                    $netQtySold = (int) $item->qty - (int) ($item->qty_returned ?? 0);
+                    if ($netQtySold > 0 && $item->sku_id) {
+                        $needed[$item->sku_id] = ($needed[$item->sku_id] ?? 0) + $netQtySold;
+                    }
+                }
+                foreach ($needed as $skuId => $bales) {
+                    $finished->assertCanTake((string) $skuId, (float) $bales, $order->warehouse_id);
+                }
+
                 $inventory = new InventoryController();
                 foreach ($order->items as $item) {
                     $sku = $item->sku ?: Sku::find($item->sku_id);
@@ -1159,6 +1190,10 @@ class OrderController extends Controller
                 'message' => 'Sale restored.',
                 'data' => ['order' => $order],
             ]);
+        } catch (\InvalidArgumentException $e) {
+            DB::rollBack();
+
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         } catch (\Exception $e) {
             DB::rollBack();
 

@@ -83,6 +83,21 @@ class DiscrepancyController extends Controller
         return response()->json(['success' => true, 'data' => $discrepancy->fresh(['trip', 'vehicle', 'driver'])]);
     }
 
+    public function destroy(Request $request, $id)
+    {
+        $user = $request->user();
+        if (! $user || (! $user->isDirector() && $user->accessTier() !== 'director')) {
+            return response()->json(['success' => false, 'message' => 'Only an admin can delete a discrepancy log.'], 403);
+        }
+        $discrepancy = Discrepancy::find($id);
+        if (! $discrepancy) {
+            return response()->json(['success' => false, 'message' => 'Discrepancy not found'], 404);
+        }
+        $discrepancy->delete();
+
+        return response()->json(['success' => true, 'message' => 'Discrepancy removed']);
+    }
+
     public function export(Request $request)
     {
         $validator = Validator::make($request->all(), [

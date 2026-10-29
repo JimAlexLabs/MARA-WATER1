@@ -314,8 +314,14 @@ class AnalyticsController extends Controller
             ];
         })->values();
 
+        $totalBales = (float) PackagingRun::join('skus', 'skus.id', '=', 'packaging_runs.sku_id')
+            ->whereNotNull('packaging_runs.run_end')
+            ->whereBetween('packaging_runs.run_end', [$dateFrom, $dateToEnd])
+            ->sum('packaging_runs.good_qty');
+
         return [
             'trend' => $trend,
+            'total_production_bales' => round($totalBales, 1),
             'total_production_liters' => round((float) $trend->sum('production_liters'), 1),
             'total_sales_liters' => round((float) $trend->sum('sales_liters'), 1),
             'by_brand' => $byBrand,

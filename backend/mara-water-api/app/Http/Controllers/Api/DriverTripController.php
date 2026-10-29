@@ -131,6 +131,12 @@ class DriverTripController extends Controller
             return response()->json(['success' => false, 'message' => 'No Main warehouse configured'], 422);
         }
 
+        try {
+            app(\App\Services\FinishedGoodsService::class)->assertLoads($request->input('items', []), $warehouseId);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
         $trip = DB::transaction(function () use ($request, $warehouseId) {
             $trip = DriverTrip::create([
                 'trip_date' => now()->toDateString(),
@@ -220,6 +226,18 @@ class DriverTripController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        if ($request->has('items')) {
+            try {
+                app(\App\Services\FinishedGoodsService::class)->assertLoads(
+                    $request->input('items', []),
+                    $request->input('warehouse_id') ?: $trip->warehouse_id,
+                    $trip->id
+                );
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+            }
         }
 
         DB::transaction(function () use ($request, $trip) {

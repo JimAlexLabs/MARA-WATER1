@@ -57,6 +57,7 @@ interface DailySkuRow {
   brand?: string | null;
   size_liters?: string | number;
   qty_bales: number;
+  unsold_bales?: number;
   batch_count: number;
   batches: Array<{
     id: string;
@@ -146,6 +147,7 @@ const ProductionPage: React.FC = () => {
   const [capacityRows, setCapacityRows] = useState<CapacityRow[]>([]);
   const [capacityAlerts, setCapacityAlerts] = useState<CapacityAlert[]>([]);
   const [capacitySummary, setCapacitySummary] = useState<{ total_bales_possible?: number; sizes_blocked?: number; rules?: Record<string, string> } | null>(null);
+  const [unsold, setUnsold] = useState<Array<{ sku_id: string; sku_name: string; sku_code?: string; unsold_bales: number }>>([]);
   const [showDeletedBatches, setShowDeletedBatches] = useState(false);
   const [trashedBatches, setTrashedBatches] = useState<Array<{ id: string; code?: string; planned_qty?: number; manufacture_date?: string; sku?: { name?: string } }>>([]);
   const [loadingTrashedBatches, setLoadingTrashedBatches] = useState(false);
@@ -181,6 +183,7 @@ const ProductionPage: React.FC = () => {
       setLoading(true);
       const res = await api.get('/production/daily', { params: { limit: 90 } });
       setDailyDays(res.data.data || []);
+      setUnsold(res.data.unsold || []);
     } catch {
       toast.error('Failed to fetch daily production');
     } finally {
@@ -397,7 +400,7 @@ const ProductionPage: React.FC = () => {
           <div className="flex items-center">
             <Gauge className="w-8 h-8 text-sky-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Bales still possible</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Still producible from materials</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {Number(capacitySummary?.total_bales_possible ?? 0).toLocaleString()}
               </p>
@@ -422,7 +425,7 @@ const ProductionPage: React.FC = () => {
             Stock &amp; production runway
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            Production left until the binding material depletes. Pending orders are not counted until received.
+            Unfinished materials only — how many more bales you can still make. Pending orders are not counted until received. This is not sellable stock.
           </p>
           <ul className="space-y-1.5">
             {capacityAlerts.map((a) => (
@@ -455,7 +458,7 @@ const ProductionPage: React.FC = () => {
         <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex space-x-8 px-6 overflow-x-auto">
             {[
-              { id: 'capacity', label: 'Capacity & stock' },
+              { id: 'capacity', label: 'Unfinished materials' },
               { id: 'daily', label: 'Daily Production' },
               { id: 'materials', label: `Materials (${materials.length})` },
               { id: 'bom', label: 'Bill of Materials' },
@@ -494,9 +497,10 @@ const ProductionPage: React.FC = () => {
           {activeTab === 'capacity' && (
             <div className="space-y-4">
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Based on current on-hand bottles, labels, caps, seals and bailing paper
-                (nothing from pending orders counts until landed). Per bottle: 1 label + 1 cap + 1 seal.
-                Bailing: 1 sheet = 24×0.5L, 12×1L / 1.5L, 4×5L; 10L / 20L not baled.
+                Unfinished materials — bottles, labels, caps, seals and bailing paper still in the store.
+                This is what you can still produce, not what you can sell. Nothing from pending orders counts until it lands.
+                Per bottle: 1 label + 1 cap + 1 seal. Bailing: 1 sheet = 24×0.5L, 12×1L / 1.5L, 4×5L; 10L / 20L not baled.
+                A recorded batch moves these into finished bales. Sales can only take those finished bales.
               </p>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
@@ -509,8 +513,8 @@ const ProductionPage: React.FC = () => {
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Caps</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Seals</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Binding</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bales left</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bottles left</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bales still producible</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bottles still producible</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -553,6 +557,20 @@ const ProductionPage: React.FC = () => {
           )}
 
           {activeTab === 'daily' && !selectedDate && (
+            <div className="space-y-4">
+            {unsold.length > 0 && (
+              <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/20 p-4">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Finished bales still unsold</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Sales and trip loads can only take these. Producing more adds here; selling subtracts here. Raw materials are not sold.</p>
+                <div className="flex flex-wrap gap-2">
+                  {unsold.map((u) => (
+                    <span key={u.sku_id} className="text-xs rounded-full bg-white dark:bg-gray-800 border border-emerald-200 dark:border-emerald-800 px-2 py-1">
+                      {u.sku_name}: <strong>{Number(u.unsold_bales).toLocaleString()}</strong> bales
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-900">
@@ -633,6 +651,7 @@ const ProductionPage: React.FC = () => {
                 </div>
               )}
             </div>
+            </div>
           )}
 
           {activeTab === 'daily' && selectedDate && (
@@ -677,6 +696,7 @@ const ProductionPage: React.FC = () => {
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">SKU</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Batches</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Bales</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Still unsold</th>
                           {director && (
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                           )}
@@ -714,6 +734,9 @@ const ProductionPage: React.FC = () => {
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{row.batch_count}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-gray-100">
                               {Number(row.qty_bales || 0).toLocaleString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                              {Number(row.unsold_bales ?? 0).toLocaleString()} bales
                             </td>
                             {director && <td className="px-6 py-4" />}
                           </tr>
@@ -940,7 +963,7 @@ const ProductionPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity needed today (bales)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity produced today (bales)</label>
                 <input
                   required
                   type="number"

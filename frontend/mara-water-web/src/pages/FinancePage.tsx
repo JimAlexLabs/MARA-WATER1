@@ -180,15 +180,20 @@ const FinancePage: React.FC = () => {
     { key: 'payables', label: 'Payables' },
     { key: 'costing', label: 'Costing & P&L' },
   ];
-  const visibleFinanceTabs = director
-    ? allFinanceTabs
-    : allFinanceTabs.filter((t) => !isLocked(managerLocks, FINANCE_TAB_LOCK[t.key]));
+  const adminOnlyFinance = new Set<FinanceTab>(['pettycash', 'payables']);
+  const visibleFinanceTabs = allFinanceTabs.filter((t) => {
+    if (adminOnlyFinance.has(t.key) && !director) return false;
+    if (!director && isLocked(managerLocks, FINANCE_TAB_LOCK[t.key])) return false;
+    return true;
+  });
   const [activeTab, setActiveTab] = useState<FinanceTab>('invoices');
 
   useEffect(() => {
-    const visible = director
-      ? allFinanceTabs
-      : allFinanceTabs.filter((t) => !isLocked(managerLocks, FINANCE_TAB_LOCK[t.key]));
+    const visible = allFinanceTabs.filter((t) => {
+      if (adminOnlyFinance.has(t.key) && !director) return false;
+      if (!director && isLocked(managerLocks, FINANCE_TAB_LOCK[t.key])) return false;
+      return true;
+    });
     if (visible.length === 0) return;
     if (!visible.some((t) => t.key === activeTab)) {
       setActiveTab(visible[0].key);

@@ -103,6 +103,7 @@ const InventoryPage: React.FC = () => {
   const { isDirector, accessTier } = usePermissions();
   const director = isDirector() || accessTier() === 'director';
   const [canAlterInventory, setCanAlterInventory] = useState(director);
+  const [corrections, setCorrections] = useState<Array<{ id: string; status: string; reason?: string | null; payload?: { qty?: number; item_type?: string; uom?: string }; requester?: { first_name?: string; last_name?: string } | null }>>([]);
 
   useEffect(() => {
     if (director) {
@@ -186,6 +187,9 @@ const InventoryPage: React.FC = () => {
       
       setStockItems(stockResponse.data.data);
       setStockMoves(movesResponse.data.data);
+      api.get('/inventory/corrections', { params: { status: 'pending' } })
+        .then((res) => setCorrections(res.data.data || []))
+        .catch(() => setCorrections([]));
     } catch (error) {
       toast.error('Failed to fetch inventory data');
     } finally {
@@ -261,7 +265,7 @@ const InventoryPage: React.FC = () => {
     }
     const uom = item.item_type === 'material' ? (item.material?.uom || 'pcs') : 'BALE';
     try {
-      await api.post('/inventory/stock-moves', {
+      const zeroRes = await api.post('/inventory/stock-moves', {
         move_type: 'adjust',
         item_type: item.item_type,
         warehouse_from_id: warehouseId,
@@ -273,7 +277,7 @@ const InventoryPage: React.FC = () => {
           ? { material_id: item.material_id }
           : { sku_id: item.sku_id }),
       });
-      toast.success(`${name} set to 0`);
+      toast.success(zeroRes.data?.pending_approval ? 'Zero-out sent to the admin for approval' : `${name} set to 0`);
       fetchData();
     } catch (error: any) {
       toast.error(error.response?.data?.message || error.response?.data?.error || 'Failed to zero stock');
@@ -351,9 +355,11 @@ const InventoryPage: React.FC = () => {
     }
 
     try {
-      await api.post('/inventory/stock-moves', payload);
+      const posted = await api.post('/inventory/stock-moves', payload);
       toast.success(
-        stockForm.purpose === 'arrival'
+        posted.data?.pending_approval
+          ? 'Sent to the admin for approval. Stock stays as it is until approved.'
+          : stockForm.purpose === 'arrival'
           ? 'Arrival recorded into stock'
           : stockForm.purpose === 'correct_add'
           ? 'Found stock added'
@@ -719,6 +725,37 @@ const InventoryPage: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {corrections.length > 0 && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
+              <p className="text-sm font-medium text-amber-900">
+                {director ? 'Stock corrections waiting for your approval' : 'Your corrections waiting for admin approval'}
+              </p>
+              {corrections.map((c) => (
+                <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-sm bg-white rounded-md px-3 py-2 border border-amber-100">
+                  <span>
+                    {(c.requester ? `${c.requester.first_name || ''} ${c.requester.last_name || ''}`.trim() : 'Manager')}
+                    {' · '}{c.payload?.item_type} {c.payload?.qty} {c.payload?.uom}
+                    {c.reason ? ` · ${c.reason}` : ''}
+                  </span>
+                  {director && (
+                    <span className="flex gap-2">
+                      <button type="button" className="text-emerald-700 font-medium" onClick={async () => {
+                        await api.post(`/inventory/corrections/${c.id}/approve`);
+                        toast.success('Correction applied');
+                        fetchData();
+                      }}>Approve</button>
+                      <button type="button" className="text-red-700 font-medium" onClick={async () => {
+                        await api.post(`/inventory/corrections/${c.id}/reject`);
+                        toast.success('Correction rejected');
+                        fetchData();
+                      }}>Reject</button>
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Stock Items Table */}
           {activeTab === 'stock' && (

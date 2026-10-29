@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\StockCorrectionRequest;
 use App\Models\StockItem;
 use App\Models\StockMove;
 use App\Models\Material;
@@ -192,6 +193,29 @@ class InventoryController extends Controller
                     'success' => false,
                     'message' => 'Choose the warehouse that received this stock. Without it, the quantity is not added.',
                 ], 422);
+            }
+
+            $actor = $request->user();
+            $isDirector = $actor && ($actor->isDirector() || $actor->accessTier() === 'director');
+            if ($request->move_type === 'adjust' && ! $isDirector) {
+                $payload = $request->only([
+                    'move_type', 'item_type', 'material_id', 'sku_id', 'batch_id',
+                    'warehouse_from_id', 'warehouse_to_id', 'qty', 'uom', 'unit_cost',
+                    'ref_entity', 'ref_id',
+                ]);
+                $pending = StockCorrectionRequest::create([
+                    'requested_by' => Auth::id(),
+                    'status' => 'pending',
+                    'payload' => $payload,
+                    'reason' => $request->input('ref_id') ?: $request->input('notes'),
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'pending_approval' => true,
+                    'message' => 'Correction sent to the admin for approval. Stock is unchanged until it is approved.',
+                    'data' => ['correction' => $pending],
+                ], 202);
             }
 
             DB::beginTransaction();
@@ -1119,5 +1143,70 @@ class InventoryController extends Controller
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Disposition' => 'attachment; filename="' . $report->filename . '"',
         ]);
+    }
+
+    /** Pending stock corrections. Directors see the queue; managers see their own. */
+    public function corrections(Request $request)
+    {
+        $q = StockCorrectionRequest::with('requester:id,first_name,last_name')->orderByDesc('created_at');
+        $user = $request->user();
+        $isDirector = $user && ($user->isDirector() || $user->accessTier() === 'director');
+        if (! $isDirector) {
+            $q->where('requested_by', Auth::id());
+        }
+        if ($request->filled('status')) {
+            $q->where('status', $request->status);
+        }
+
+        return response()->json(['success' => true, 'data' => $q->limit(100)->get()]);
+    }
+
+    public function approveCorrection(Request $request, string $id)
+    {
+        $user = $request->user();
+        if (! $user || (! $user->isDirector() && $user->accessTier() !== 'director')) {
+            return response()->json(['success' => false, 'message' => 'Only an admin can approve a stock correction.'], 403);
+        }
+        $row = StockCorrectionRequest::where('status', 'pending')->find($id);
+        if (! $row) {
+            return response()->json(['success' => false, 'message' => 'Pending correction not found'], 404);
+        }
+        try {
+            DB::beginTransaction();
+            $move = $this->recordMove($row->payload ?? []);
+            $row->update([
+                'status' => 'approved',
+                'reviewed_by' => Auth::id(),
+                'reviewed_at' => now(),
+                'stock_move_id' => $move->id,
+            ]);
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['success' => true, 'message' => 'Correction applied', 'data' => $row->fresh()]);
+    }
+
+    public function rejectCorrection(Request $request, string $id)
+    {
+        $user = $request->user();
+        if (! $user || (! $user->isDirector() && $user->accessTier() !== 'director')) {
+            return response()->json(['success' => false, 'message' => 'Only an admin can reject a stock correction.'], 403);
+        }
+        $row = StockCorrectionRequest::where('status', 'pending')->find($id);
+        if (! $row) {
+            return response()->json(['success' => false, 'message' => 'Pending correction not found'], 404);
+        }
+        $row->update([
+            'status' => 'rejected',
+            'reviewed_by' => Auth::id(),
+            'reviewed_at' => now(),
+            'reason' => $request->input('reason') ?: $row->reason,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Correction rejected', 'data' => $row]);
     }
 }

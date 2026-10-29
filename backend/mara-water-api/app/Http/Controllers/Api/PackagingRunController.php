@@ -258,6 +258,14 @@ class PackagingRunController extends Controller
     public function destroy($id)
     {
         try {
+            $user = \Illuminate\Support\Facades\Auth::user();
+            if (! $user || (! $user->isDirector() && $user->accessTier() !== 'director')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only an admin can delete production records.',
+                ], 403);
+            }
+
             $packagingRun = PackagingRun::find($id);
 
             if (!$packagingRun) {
@@ -267,26 +275,20 @@ class PackagingRunController extends Controller
                 ], 404);
             }
 
-            // Check if run is completed
-            if ($packagingRun->run_end) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cannot delete completed packaging run'
-                ], 422);
-            }
-
-            $packagingRun->delete();
+            DB::beginTransaction();
+            $this->reverseAndDeleteRun($packagingRun);
+            DB::commit();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Packaging run deleted successfully'
             ]);
         } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to delete packaging run',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => $e->getMessage() ?: 'Failed to delete packaging run',
+            ], 422);
         }
     }
 
@@ -565,6 +567,70 @@ class PackagingRunController extends Controller
             'packaging_run' => $packagingRun->load(['batch', 'sku', 'warehouse', 'runBy']),
             'material_warnings' => $materialWarnings,
         ];
+    }
+
+    /**
+     * Director deleted the production batch. Put finished bales back out of
+     * stock and return the materials the run consumed, then soft-delete the run.
+     */
+    public function reverseAndDeleteForBatch(\App\Models\Batch $batch): void
+    {
+        $runs = PackagingRun::where('batch_id', $batch->id)->whereNull('deleted_at')->get();
+        foreach ($runs as $run) {
+            $this->reverseAndDeleteRun($run);
+        }
+    }
+
+    /**
+     * Take finished bales back out and return the materials this run used.
+     * Refuses if those bales have already been sold (stock would go negative).
+     */
+    public function reverseAndDeleteRun(PackagingRun $run): void
+    {
+        $inventory = new InventoryController();
+        $moves = \App\Models\StockMove::where('ref_entity', 'packaging_run')
+            ->where('ref_id', $run->id)
+            ->whereNull('deleted_at')
+            ->get();
+
+        foreach ($moves as $move) {
+            if ($move->move_type === 'produce' && $move->warehouse_to_id) {
+                $inventory->recordMove([
+                    'move_type' => 'adjust',
+                    'item_type' => 'sku',
+                    'sku_id' => $move->sku_id,
+                    'batch_id' => $move->batch_id,
+                    'warehouse_from_id' => $move->warehouse_to_id,
+                    'qty' => $move->qty,
+                    'uom' => $move->uom ?: 'BALE',
+                    'ref_entity' => 'packaging_run_deleted',
+                    'ref_id' => $run->id,
+                ]);
+            } elseif ($move->move_type === 'issue' && $move->warehouse_from_id && $move->item_type === 'material') {
+                $inventory->recordMove([
+                    'move_type' => 'adjust',
+                    'item_type' => 'material',
+                    'material_id' => $move->material_id,
+                    'warehouse_to_id' => $move->warehouse_from_id,
+                    'qty' => $move->qty,
+                    'uom' => $move->uom ?: 'PCS',
+                    'ref_entity' => 'packaging_run_deleted',
+                    'ref_id' => $run->id,
+                ], true);
+            }
+        }
+
+        $consumptions = \App\Models\MaterialBatchConsumption::where('packaging_run_id', $run->id)->get();
+        foreach ($consumptions as $row) {
+            $mb = \App\Models\MaterialBatch::find($row->material_batch_id);
+            if ($mb) {
+                $mb->qty_remaining = round((float) $mb->qty_remaining + (float) $row->qty_consumed, 3);
+                $mb->save();
+            }
+            $row->delete();
+        }
+
+        $run->delete();
     }
 
     private function updateBatchStatus($batch, $goodQty)
