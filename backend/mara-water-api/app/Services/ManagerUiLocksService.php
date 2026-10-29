@@ -20,19 +20,33 @@ class ManagerUiLocksService
     public static function globalLocks(): array
     {
         $defaults = self::defaults();
-        $raw = Setting::allAsMap()['manager_ui_locks'] ?? [];
-        if (! is_array($raw)) {
-            $raw = [];
-        }
+        $raw = self::asArray(Setting::allAsMap()['manager_ui_locks'] ?? []);
 
         return array_merge($defaults, array_intersect_key($raw, $defaults));
     }
 
     public static function byUserMap(): array
     {
-        $raw = Setting::allAsMap()['manager_ui_locks_by_user'] ?? [];
+        $raw = self::asArray(Setting::allAsMap()['manager_ui_locks_by_user'] ?? []);
+        $out = [];
+        foreach ($raw as $userId => $partial) {
+            $out[(string) $userId] = self::asArray($partial);
+        }
 
-        return is_array($raw) ? $raw : [];
+        return $out;
+    }
+
+    /** @param  mixed  $value */
+    private static function asArray($value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (is_object($value)) {
+            return (array) $value;
+        }
+
+        return [];
     }
 
     /**

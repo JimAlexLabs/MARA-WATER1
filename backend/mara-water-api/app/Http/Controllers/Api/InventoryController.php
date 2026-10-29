@@ -962,7 +962,10 @@ class InventoryController extends Controller
         if ($stockItem) {
             // Update existing stock item
             $newQty = $stockItem->qty + $qtyChange;
-            if ($newQty < 0 && !$allowNegative) {
+            // Only block when this move itself reduces stock below zero.
+            // Putting stock back into an already-negative balance must succeed
+            // (sale delete / undo), otherwise deletes fail with "Insufficient stock".
+            if ($qtyChange < 0 && $newQty < 0 && ! $allowNegative) {
                 throw new \Exception('Insufficient stock for this operation');
             }
 

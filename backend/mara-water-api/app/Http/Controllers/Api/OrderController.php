@@ -821,14 +821,24 @@ class OrderController extends Controller
     {
         try {
             $order = Order::with(['items', 'invoice'])->whereNull('deleted_at')->findOrFail($id);
-            $tier = $request->user()?->role?->access_tier;
-            $isDirector = $tier === 'director' || ($request->user()?->role?->code === 'ADMIN');
+            $user = $request->user();
+            $tier = $user?->role?->access_tier;
+            $isDirector = $tier === 'director' || ($user?->role?->code === 'ADMIN') || (bool) $user?->isDirector();
 
             if ($order->status !== 'draft' && ! $isDirector) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Only a Director can delete a posted sale. Use this for test entries or mistakes.',
-                ], 403);
+                $orderDay = \Carbon\Carbon::parse($order->order_date, 'Africa/Nairobi')->startOfDay();
+                $todayNairobi = now('Africa/Nairobi')->startOfDay();
+                $withinWeek = $orderDay->gte($todayNairobi->copy()->subDays(7)) && $orderDay->lte($todayNairobi);
+                $editUnlocked = ! \App\Services\ManagerUiLocksService::isLocked($user, 'manager_edit_sales_7d')
+                    && ! \App\Services\ManagerUiLocksService::isLocked($user, 'manager_edit_sales');
+                if (! $withinWeek || ! $editUnlocked) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => ! $editUnlocked
+                            ? 'Deleting sales is locked. Contact Admin to unlock manager sale edits (≤7 days).'
+                            : 'Managers can only delete sales from the past 7 days.',
+                    ], 403);
+                }
             }
 
             DB::beginTransaction();
@@ -1223,6 +1233,8 @@ class OrderController extends Controller
             ->get();
 
         foreach ($moves as $move) {
+            // always allowNegative: stock may already be negative; putting a
+            // sale's qty back (or removing a return) must still succeed.
             if ($move->move_type === 'issue' && $move->warehouse_from_id) {
                 $inventory->recordMove([
                     'move_type' => 'adjust',
@@ -1234,7 +1246,7 @@ class OrderController extends Controller
                     'uom' => $move->uom,
                     'ref_entity' => 'order_deleted',
                     'ref_id' => $order->id,
-                ]);
+                ], true);
             } elseif ($move->move_type === 'return' && $move->warehouse_to_id) {
                 $inventory->recordMove([
                     'move_type' => 'adjust',

@@ -53,7 +53,7 @@ const SettingsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const { user, updateProfile, theme, toggleTheme } = useAuth();
-  const isAdmin = user?.role?.code === 'ADMIN';
+  const isAdmin = user?.role?.code === 'ADMIN' || user?.role?.access_tier === 'director';
   const [managers, setManagers] = useState<Array<{ id: string; first_name: string; last_name: string; email?: string | null }>>([]);
   const [selectedManagerId, setSelectedManagerId] = useState<string>('');
 
@@ -104,15 +104,39 @@ const SettingsPage: React.FC = () => {
   const handleSaveSettings = async () => {
     setSaving(true);
     try {
-      const res = await api.put('/settings', settings);
+      // Send only allowed settings keys so locks are not dropped by accidental extras.
+      const payload = {
+        company_name: settings.company_name,
+        company_email: settings.company_email,
+        company_phone: settings.company_phone,
+        company_address: settings.company_address,
+        timezone: settings.timezone,
+        date_format: settings.date_format,
+        time_format: settings.time_format,
+        language: settings.language,
+        notifications_enabled: settings.notifications_enabled,
+        email_notifications: settings.email_notifications,
+        sms_notifications: settings.sms_notifications,
+        session_timeout: settings.session_timeout,
+        manager_ui_locks: mergeManagerLocks((settings as any).manager_ui_locks),
+        manager_ui_locks_by_user: (settings as any).manager_ui_locks_by_user || {},
+        driver_allow_cash: (settings as any).driver_allow_cash,
+      };
+      const res = await api.put('/settings', payload);
       const saved = res.data?.data || {};
-      if (saved.manager_ui_locks) {
-        handleSettingChange('manager_ui_locks', mergeManagerLocks(saved.manager_ui_locks));
-      }
-      if (saved.manager_ui_locks_by_user) {
-        handleSettingChange('manager_ui_locks_by_user', saved.manager_ui_locks_by_user);
-      }
-      toast.success('Settings saved. Managers must refresh (or re-login) for lock changes to apply.');
+      setSettings((prev) => ({
+        ...prev,
+        ...saved,
+        manager_ui_locks: mergeManagerLocks(saved.manager_ui_locks),
+        manager_ui_locks_by_user: (saved.manager_ui_locks_by_user && typeof saved.manager_ui_locks_by_user === 'object')
+          ? saved.manager_ui_locks_by_user
+          : {},
+      }));
+      const cashOpen = saved.manager_ui_locks?.manager_cash_payment === false;
+      const weekOpen = saved.manager_ui_locks?.manager_edit_sales_7d === false;
+      toast.success(
+        `Locks saved. Cash ${cashOpen ? 'UNLOCKED' : 'locked'}; ≤7-day sales ${weekOpen ? 'UNLOCKED' : 'locked'}. Managers: refresh Sales page.`,
+      );
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to save settings');
     } finally {

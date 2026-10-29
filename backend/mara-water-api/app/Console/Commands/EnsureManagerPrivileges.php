@@ -79,13 +79,10 @@ class EnsureManagerPrivileges extends Command
             'label' => 'ADW (auditor / MD oversight)',
         ]);
 
-        $defaults = SettingsController::defaultManagerUiLocks();
-        $existing = Setting::allAsMap()['manager_ui_locks'] ?? [];
-        if (! is_array($existing)) {
-            $existing = [];
-        }
-        Setting::putMany(['manager_ui_locks' => array_merge($defaults, $existing)]);
-        $this->info('manager_ui_locks merged ('.count(array_merge($defaults, $existing)).' keys).');
+        // Merge missing keys only — never wipe Admin unlocks back to defaults.
+        $merged = \App\Services\ManagerUiLocksService::globalLocks();
+        Setting::putMany(['manager_ui_locks' => $merged]);
+        $this->info('manager_ui_locks merged ('.count($merged).' keys; existing unlocks preserved).');
 
         if ($this->option('clear-arrivals')) {
             $n = StockMove::whereIn('move_type', ['grn', 'adjust'])->count();

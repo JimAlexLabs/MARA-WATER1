@@ -305,11 +305,21 @@ class CustomerController extends Controller
     /**
      * Remove the specified customer
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         try {
+            $user = $request->user();
+            $tier = $user?->role?->access_tier;
+            $isDirector = $tier === 'director' || ($user?->role?->code === 'ADMIN') || (bool) $user?->isDirector();
+            if (! $isDirector) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only Admin can delete a customer.',
+                ], 403);
+            }
+
             $customer = Customer::whereNull('deleted_at')->findOrFail($id);
-            
+
             // Check if customer has active orders
             $activeOrders = $customer->orders()
                 ->whereIn('status', ['draft', 'confirmed', 'dispatched'])
@@ -318,27 +328,22 @@ class CustomerController extends Controller
             if ($activeOrders > 0) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot delete customer with active orders'
+                    'message' => 'Cannot delete customer with active orders',
                 ], 422);
             }
 
-            // Round 2 Phase 3: deleted_at isn't in $fillable (correctly),
-            // so mass-assigning it here silently did nothing -- the
-            // Customer model now has SoftDeletes (see that model's
-            // docblock), so delete() does this correctly.
             $customer->update(['updated_by' => Auth::id()]);
             $customer->delete();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Customer deleted successfully'
+                'message' => 'Customer deleted successfully',
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to delete customer',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

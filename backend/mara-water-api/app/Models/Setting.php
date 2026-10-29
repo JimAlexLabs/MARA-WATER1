@@ -18,8 +18,11 @@ class Setting extends Model
      */
     public static function allAsMap(): array
     {
+        // Always decode JSON as associative arrays. Without the `true` flag,
+        // objects like manager_ui_locks become stdClass and callers that
+        // check is_array() silently fall back to defaults (locks stuck on).
         return static::all()->mapWithKeys(function ($row) {
-            return [$row->key => json_decode($row->value)];
+            return [$row->key => json_decode($row->value, true)];
         })->toArray();
     }
 

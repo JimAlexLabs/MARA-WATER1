@@ -369,6 +369,10 @@ const SalesPage: React.FC = () => {
   };
 
   const handleDeleteCustomer = async (c: Customer) => {
+    if (!director) {
+      toast.error('Only Admin can delete a customer.');
+      return;
+    }
     if (!window.confirm(`Remove customer ${c.name}?`)) return;
     try {
       await api.delete(`/sales/customers/${c.id}`);
@@ -584,8 +588,12 @@ const SalesPage: React.FC = () => {
   };
 
   const deleteSale = async (order: Order) => {
-    if (!director) {
-      toast.error('Only a Director can delete a posted sale');
+    if (!director && !canManagerEditSale(order)) {
+      toast.error(director ? 'Cannot delete this sale' : 'Sale delete is locked — Contact Admin to unlock edits (≤7 days), or ask Admin to delete.');
+      return;
+    }
+    if (!director && order.source === 'field') {
+      toast.error('Only Admin can delete field/trip sales.');
       return;
     }
     const label = order.source === 'field'
@@ -624,7 +632,8 @@ const SalesPage: React.FC = () => {
       fetchData();
       if (showDeletedSales) loadTrashedSales();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to delete sale');
+      const detail = error.response?.data?.error || error.response?.data?.message || 'Failed to delete sale';
+      toast.error(detail);
     } finally {
       setDeletingSaleId(null);
     }
@@ -995,12 +1004,12 @@ const SalesPage: React.FC = () => {
                               <Edit className="w-4 h-4" />
                             </button>
                           )}
-                          {director && (
+                          {(director || canManagerEditSale(order)) && order.source !== 'field' && (
                             <button
                               onClick={() => deleteSale(order)}
                               disabled={deletingSaleId === order.id}
                               className="text-red-600 hover:text-red-900 disabled:opacity-40"
-                              title="Delete sale (director)"
+                              title={director ? 'Delete sale' : 'Delete sale (Admin-approved, ≤7 days)'}
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1116,9 +1125,11 @@ const SalesPage: React.FC = () => {
                           <button onClick={() => openEditCustomer(customer)} className="text-green-600 hover:text-green-900">
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button onClick={() => handleDeleteCustomer(customer)} className="text-red-600 hover:text-red-900">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {director && (
+                            <button onClick={() => handleDeleteCustomer(customer)} className="text-red-600 hover:text-red-900" title="Delete customer (Admin only)">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1697,7 +1708,7 @@ const SalesPage: React.FC = () => {
               </>
             )}
             <div className="flex justify-between items-center mt-5 pt-3 border-t border-gray-200 dark:border-gray-700">
-              {director ? (
+              {(director || canManagerEditSale(viewingOrder)) && viewingOrder.source !== 'field' ? (
                 <button
                   type="button"
                   onClick={() => deleteSale(viewingOrder)}
