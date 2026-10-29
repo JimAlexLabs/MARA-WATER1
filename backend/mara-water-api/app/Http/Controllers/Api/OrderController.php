@@ -24,7 +24,7 @@ class OrderController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Order::with(['customer', 'salesOfficer', 'warehouse', 'items.sku'])
+            $query = Order::with(['customer', 'salesOfficer.role', 'warehouse', 'items.sku'])
                 ->whereNull('deleted_at');
 
             // Apply filters
@@ -104,6 +104,8 @@ class OrderController extends Controller
                     'sales_officer' => [
                         'first_name' => $driver->first_name ?? 'Driver',
                         'last_name' => $driver->last_name ?? '',
+                        'email' => $driver->email ?? null,
+                        'role' => ['code' => 'DRV', 'name' => 'Driver (field trip)'],
                     ],
                     'items' => $sale->items->map(fn ($line) => [
                         'sku_name' => $line->sku->name ?? 'Item',
@@ -179,7 +181,7 @@ class OrderController extends Controller
             // Update order with total amount
             $order->update(['total_amount' => $totalAmount]);
 
-            $order->load(['customer', 'salesOfficer', 'items.sku']);
+            $order->load(['customer', 'salesOfficer.role', 'items.sku']);
 
             DB::commit();
 
@@ -611,7 +613,7 @@ class OrderController extends Controller
                 ]);
             }
 
-            $order->load(['customer', 'salesOfficer', 'warehouse', 'priceList', 'items.sku', 'invoice']);
+            $order->load(['customer', 'salesOfficer.role', 'warehouse', 'priceList', 'items.sku', 'invoice']);
 
             DB::commit();
 
@@ -677,7 +679,7 @@ class OrderController extends Controller
     public function show($id)
     {
         try {
-            $order = Order::with(['customer', 'salesOfficer', 'items.sku'])
+            $order = Order::with(['customer', 'salesOfficer.role', 'items.sku'])
                 ->whereNull('deleted_at')
                 ->findOrFail($id);
 
@@ -790,7 +792,7 @@ class OrderController extends Controller
                 $order->update($patch);
             }
 
-            $order->load(['customer', 'salesOfficer', 'items.sku', 'warehouse', 'invoice']);
+            $order->load(['customer', 'salesOfficer.role', 'items.sku', 'warehouse', 'invoice']);
 
             return response()->json([
                 'success' => true,
@@ -1053,6 +1055,8 @@ class OrderController extends Controller
                     'sales_officer' => [
                         'first_name' => $driver->first_name ?? 'Driver',
                         'last_name' => $driver->last_name ?? '',
+                        'email' => $driver->email ?? null,
+                        'role' => ['code' => 'DRV', 'name' => 'Driver (field trip)'],
                     ],
                     'items' => $sale->items->map(fn ($line) => [
                         'sku_name' => $line->sku->name ?? 'Item',
@@ -1138,7 +1142,7 @@ class OrderController extends Controller
 
             DB::commit();
 
-            $order->load(['customer', 'salesOfficer', 'warehouse', 'items.sku']);
+            $order->load(['customer', 'salesOfficer.role', 'warehouse', 'items.sku']);
 
             return response()->json([
                 'success' => true,
@@ -1286,7 +1290,7 @@ class OrderController extends Controller
                 'updated_by' => Auth::id(),
             ]);
 
-            $order->load(['customer', 'salesOfficer', 'items.sku']);
+            $order->load(['customer', 'salesOfficer.role', 'items.sku']);
 
             return response()->json([
                 'success' => true,
@@ -1370,7 +1374,7 @@ class OrderController extends Controller
     public function byCustomer(Request $request, $customerId)
     {
         try {
-            $query = Order::with(['customer', 'salesOfficer', 'items.sku'])
+            $query = Order::with(['customer', 'salesOfficer.role', 'items.sku'])
                 ->where('customer_id', $customerId)
                 ->whereNull('deleted_at');
 

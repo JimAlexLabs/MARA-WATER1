@@ -120,8 +120,18 @@ interface Order {
   sales_officer?: {
     first_name: string;
     last_name: string;
+    email?: string | null;
+    role?: { code?: string; name?: string } | null;
   } | null;
 }
+
+/** Sales Officer label — always the logged-in user who saved the sale. */
+const salesOfficerLabel = (officer?: Order['sales_officer'] | null) => {
+  if (!officer) return '—';
+  const name = `${officer.first_name || ''} ${officer.last_name || ''}`.trim() || 'Unknown';
+  const role = officer.role?.code || officer.role?.name;
+  return role ? `${name} (${role})` : name;
+};
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: 'Cash',
@@ -734,7 +744,7 @@ const SalesPage: React.FC = () => {
       <PageHero
         eyebrow="Customers · orders · field sales"
         title="Sales"
-        description="Manage customers and orders. Field sales from drivers appear here too."
+        description="Entered by = the login that saved the sale (CPA Kathy for day-to-day ops; ADW only if she was logged in). Field trips show the driver."
         actions={(
           <>
             <HeroButton onClick={openNewCustomer}><Plus className="w-4 h-4 mr-2" /> New customer</HeroButton>
@@ -914,8 +924,8 @@ const SalesPage: React.FC = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Sales Officer
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" title="Whoever was logged in when the sale was saved">
+                      Entered by
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Actions
@@ -966,9 +976,10 @@ const SalesPage: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                        {order.sales_officer
-                          ? `${order.sales_officer.first_name} ${order.sales_officer.last_name}`
-                          : '—'}
+                        <div>{salesOfficerLabel(order.sales_officer)}</div>
+                        {order.sales_officer?.email && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400">{order.sales_officer.email}</div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center space-x-2">
