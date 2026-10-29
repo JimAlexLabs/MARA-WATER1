@@ -293,6 +293,17 @@ class OrderController extends Controller
                 $request->merge(['signatory' => trim((string) $request->buyer_name)]);
             }
 
+            // Manager cash lock is enforced server-side (same idea as driver cash).
+            if (! $isDirector
+                && $request->payment_method === 'cash'
+                && \App\Services\ManagerUiLocksService::isLocked($user, 'manager_cash_payment')
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cash sales are locked for managers. Contact Admin to unlock, or use M-Pesa.',
+                ], 403);
+            }
+
             $orderDateParsed = \Carbon\Carbon::parse($request->order_date ?? now('Africa/Nairobi')->toDateString(), 'Africa/Nairobi')->startOfDay();
             $todayNairobi = now('Africa/Nairobi')->startOfDay();
             if ($orderDateParsed->gt($todayNairobi)) {
@@ -302,13 +313,20 @@ class OrderController extends Controller
                     'errors' => ['order_date' => ['Cannot be after today']],
                 ], 422);
             }
-            // Catch-up logging after offline days — Director/Admin only.
+            // Catch-up logging: directors always; managers only when Admin
+            // unlocks "manager edit of sales (≤7 days)" and date is within 7 days.
             if ($orderDateParsed->lt($todayNairobi) && ! $isDirector) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Only a Director can log a backdated (catch-up) sale.',
-                    'errors' => ['order_date' => ['Backdated sales are Director-only']],
-                ], 422);
+                $managerCatchUpOk = ! \App\Services\ManagerUiLocksService::isLocked($user, 'manager_edit_sales_7d')
+                    && $orderDateParsed->gte($todayNairobi->copy()->subDays(7));
+                if (! $managerCatchUpOk) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => \App\Services\ManagerUiLocksService::isLocked($user, 'manager_edit_sales_7d')
+                            ? 'Backdated sales are locked. Contact Admin to unlock sales edits for the past 7 days.'
+                            : 'Managers can only catch up sales within the last 7 days.',
+                        'errors' => ['order_date' => ['Backdated sales need Admin unlock (≤7 days)']],
+                    ], 422);
+                }
             }
             if ($orderDateParsed->lt($todayNairobi->copy()->subDays(60))) {
                 return response()->json([
@@ -486,14 +504,16 @@ class OrderController extends Controller
 
                 // Returns feed straight back into inventory as a stock-in
                 // movement against the outlet the sale was logged at.
+                // Custom SKUs return into the linked physical bottle stock.
                 if ($qtyReturned > 0) {
+                    $stockSku = \App\Services\SkuStockAliasService::stockSkuFor($sku);
                     $inventoryController->recordMove([
                         'move_type' => 'return',
                         'item_type' => 'sku',
-                        'sku_id' => $item['sku_id'],
+                        'sku_id' => $stockSku?->id ?: $item['sku_id'],
                         'warehouse_to_id' => $request->warehouse_id,
                         'qty' => $qtyReturned,
-                        'uom' => $sku->unit ?? 'BOTTLE',
+                        'uom' => $stockSku->unit ?? $sku->unit ?? 'BOTTLE',
                         'ref_entity' => 'order',
                         'ref_id' => $order->id,
                     ]);
@@ -684,16 +704,41 @@ class OrderController extends Controller
     {
         try {
             $order = Order::with(['items', 'invoice'])->whereNull('deleted_at')->findOrFail($id);
-            $tier = $request->user()?->role?->access_tier;
-            $isDirector = $tier === 'director';
+            $user = $request->user();
+            $tier = $user?->role?->access_tier;
+            $isDirector = $tier === 'director' || ($user?->role?->code === 'ADMIN');
 
             // Drafts: managers can edit routing fields.
-            // Posted sales: Director only — correct test / mis-keyed payment metadata.
+            // Posted sales: Director always; managers when Admin unlocks ≤7-day edits
+            // and the sale date is within the past week.
             if ($order->status !== 'draft' && ! $isDirector) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Only a Director can alter a posted sale. Use this for test entries or mistakes.',
-                ], 403);
+                $orderDay = \Carbon\Carbon::parse($order->order_date, 'Africa/Nairobi')->startOfDay();
+                $todayNairobi = now('Africa/Nairobi')->startOfDay();
+                $withinWeek = $orderDay->gte($todayNairobi->copy()->subDays(7)) && $orderDay->lte($todayNairobi);
+                $editUnlocked = ! \App\Services\ManagerUiLocksService::isLocked($user, 'manager_edit_sales_7d')
+                    && ! \App\Services\ManagerUiLocksService::isLocked($user, 'manager_edit_sales');
+                if (! $withinWeek || ! $editUnlocked) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => ! $editUnlocked
+                            ? 'Sale edits are locked. Contact Admin to unlock manager sale edits (≤7 days).'
+                            : 'Managers can only alter sales from the past 7 days.',
+                    ], 403);
+                }
+                if ($request->payment_method === 'cash'
+                    && \App\Services\ManagerUiLocksService::isLocked($user, 'manager_cash_payment')
+                ) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Cash is locked for managers. Contact Admin or keep M-Pesa.',
+                    ], 403);
+                }
+                if ($request->payment_method === 'credit') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Only a Director can set a sale to credit.',
+                    ], 403);
+                }
             }
 
             if ($order->status === 'draft') {

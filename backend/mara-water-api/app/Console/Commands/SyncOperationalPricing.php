@@ -222,7 +222,23 @@ class SyncOperationalPricing extends Command
         $lists = $this->targetLists();
         foreach ($byCode as $code => $price) {
             $sku = Sku::where('code', $code)->first();
+            if (! $sku && $code === 'PREM-CUSTOM-0.5L') {
+                $sku = Sku::create([
+                    'code' => 'PREM-CUSTOM-0.5L',
+                    'name' => 'Premium Custom 0.5L',
+                    'brand' => 'Premium',
+                    'size_liters' => 0.5,
+                    'unit' => 'BOTTLE',
+                    'expiry_days' => 365,
+                    'reorder_threshold' => 20,
+                    'active' => true,
+                    'created_by' => $actorId,
+                    'updated_by' => $actorId,
+                ]);
+                $this->line("  created {$code}");
+            }
             if (! $sku) {
+                $this->warn("  missing SKU {$code} — skipped");
                 continue;
             }
             $sku->update(['active' => true, 'updated_by' => $actorId]);

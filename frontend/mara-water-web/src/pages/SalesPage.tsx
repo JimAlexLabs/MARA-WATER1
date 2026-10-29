@@ -26,6 +26,7 @@ import {
   isLocked,
   isWithinPastWeek,
   locksFromSettingsPayload,
+  nairobiDaysAgo,
   pickMainWarehouse,
 } from '../utils/managerLocks';
 import MpesaStkDialog, { StkPayment } from '../components/MpesaStkDialog';
@@ -168,10 +169,15 @@ const SalesPage: React.FC = () => {
   const director = isDirector() || accessTier() === 'director';
   const [managerLocks, setManagerLocks] = useState(DEFAULT_MANAGER_LOCKS);
   const cashLocked = !director && isLocked(managerLocks, 'manager_cash_payment');
+  const sales7dUnlocked = director || !isLocked(managerLocks, 'manager_edit_sales_7d');
+  const saleDateMin = director ? undefined : (sales7dUnlocked ? nairobiDaysAgo(7) : todayStr());
   const canManagerEditSale = (order: Order) =>
     !director
     && !isLocked(managerLocks, 'manager_edit_sales_7d')
+    && !isLocked(managerLocks, 'manager_edit_sales')
     && isWithinPastWeek(order.order_date);
+  const canAlterViewing = (order: Order | null) =>
+    !!order && (director || canManagerEditSale(order));
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null);
@@ -224,16 +230,21 @@ const SalesPage: React.FC = () => {
   const [saleForm, setSaleForm] = useState(EMPTY_SALE_FORM);
 
   useEffect(() => {
-    const endpoint = director ? '/settings' : '/settings/ui-locks';
-    api.get(endpoint)
-      .then((res) => {
-        const locks = locksFromSettingsPayload(res.data?.data);
-        setManagerLocks(locks);
-        if (!director && isLocked(locks, 'manager_cash_payment')) {
-          setSaleForm((f) => (f.payment_method === 'cash' ? { ...f, payment_method: 'mpesa' } : f));
-        }
-      })
-      .catch(() => {});
+    const loadLocks = () => {
+      const endpoint = director ? '/settings' : '/settings/ui-locks';
+      api.get(endpoint)
+        .then((res) => {
+          const locks = locksFromSettingsPayload(res.data?.data);
+          setManagerLocks(locks);
+          if (!director && isLocked(locks, 'manager_cash_payment')) {
+            setSaleForm((f) => (f.payment_method === 'cash' ? { ...f, payment_method: 'mpesa' } : f));
+          }
+        })
+        .catch(() => {});
+    };
+    loadLocks();
+    window.addEventListener('focus', loadLocks);
+    return () => window.removeEventListener('focus', loadLocks);
   }, [director]);
 
   useEffect(() => {
@@ -1239,19 +1250,29 @@ const SalesPage: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Sale date{director ? ' (catch-up OK)' : ''}
+                    Sale date{director || sales7dUnlocked ? ' (catch-up OK)' : ''}
                   </label>
                   <input
                     type="date"
                     value={saleForm.order_date || todayStr()}
                     max={todayStr()}
-                    min={director ? undefined : todayStr()}
+                    min={saleDateMin}
                     onChange={(e) => setSaleForm({...saleForm, order_date: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   {director && (
                     <p className="text-xs text-gray-500 mt-1">
                       Pick a past date to log sales from days without the app — no stock discrepancy popups.
+                    </p>
+                  )}
+                  {!director && sales7dUnlocked && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Admin unlocked catch-up: you can log sales from the past 7 days.
+                    </p>
+                  )}
+                  {!director && !sales7dUnlocked && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      Past dates are locked. Contact Admin to unlock sales edits (≤7 days).
                     </p>
                   )}
                 </div>
@@ -1545,10 +1566,12 @@ const SalesPage: React.FC = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            {editingSale && director ? (
+            {editingSale && canAlterViewing(viewingOrder) ? (
               <div className="space-y-3 text-sm mb-4">
                 <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 rounded px-3 py-2">
-                  Director correction for test or mis-keyed entries. Wrong products: delete this sale and log again.
+                  {director
+                    ? 'Director correction for test or mis-keyed entries. Wrong products: delete this sale and log again.'
+                    : 'Admin-approved correction for sales in the past 7 days. Wrong products: ask Admin to delete and re-log.'}
                 </p>
                 <div>
                   <label className="block text-gray-600 dark:text-gray-400 mb-1">Customer</label>
@@ -1594,6 +1617,8 @@ const SalesPage: React.FC = () => {
                     <input
                       type="date"
                       value={editForm.order_date}
+                      max={todayStr()}
+                      min={saleDateMin}
                       onChange={(e) => setEditForm(f => ({ ...f, order_date: e.target.value }))}
                       className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-3 py-2"
                     />
@@ -1681,7 +1706,7 @@ const SalesPage: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    {director && (
+                    {canAlterViewing(viewingOrder) && (
                       <button type="button" onClick={() => openEditSale(viewingOrder)} className="px-3 py-2 text-sm border border-amber-300 text-amber-800 rounded-md hover:bg-amber-50">
                         Alter
                       </button>

@@ -104,10 +104,16 @@ const SettingsPage: React.FC = () => {
   const handleSaveSettings = async () => {
     setSaving(true);
     try {
-      await api.put('/settings', settings);
-      toast.success('Settings saved successfully');
+      const res = await api.put('/settings', settings);
+      const saved = res.data?.data || {};
+      if (saved.manager_ui_locks) {
+        handleSettingChange('manager_ui_locks', mergeManagerLocks(saved.manager_ui_locks));
+      }
+      if (saved.manager_ui_locks_by_user) {
+        handleSettingChange('manager_ui_locks_by_user', saved.manager_ui_locks_by_user);
+      }
+      toast.success('Settings saved. Managers must refresh (or re-login) for lock changes to apply.');
     } catch (error: any) {
-      // Backend may not accept manager_ui_locks yet — keep UI values anyway.
       toast.error(error.response?.data?.message || 'Failed to save settings');
     } finally {
       setSaving(false);
@@ -671,6 +677,7 @@ const SettingsPage: React.FC = () => {
                     <p className="text-sm text-gray-500 dark:text-gray-400">
                       Locked features stay hidden for managers until you unlock them here. Managers see “Contact Admin” on anything locked.
                       Includes cash (manager + driver), petty cash, payables, and Admin-approved edit windows (sales ≤7 days, inventory, production).
+                      Unchecking “Lock manager edit of sales (≤7 days)” lets managers log and alter sales dated within the past week — they must refresh after you Save.
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {(Object.keys(DEFAULT_MANAGER_LOCKS) as ManagerLockKey[]).map((key) => (

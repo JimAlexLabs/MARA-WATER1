@@ -156,32 +156,11 @@ class SettingsController extends Controller
     private function settingsPayload(Request $request): array
     {
         $data = Setting::allAsMap();
-        $defaults = self::defaultManagerUiLocks();
-        $locks = is_array($data['manager_ui_locks'] ?? null)
-            ? array_merge($defaults, array_intersect_key($data['manager_ui_locks'], $defaults))
-            : $defaults;
+        $locks = \App\Services\ManagerUiLocksService::globalLocks();
         $data['manager_ui_locks'] = $locks;
-
-        $byUser = is_array($data['manager_ui_locks_by_user'] ?? null)
-            ? $data['manager_ui_locks_by_user']
-            : [];
-        $data['manager_ui_locks_by_user'] = $byUser;
-
-        $user = $request->user();
-        $isDirector = (bool) ($user?->isDirector() || $user?->role?->access_tier === 'director');
-
-        if ($isDirector) {
-            $data['manager_ui_locks_effective'] = $locks;
-        } else {
-            $userId = (string) ($user?->id ?? '');
-            $userLocks = is_array($byUser[$userId] ?? null)
-                ? $byUser[$userId]
-                : (is_array($byUser[$user?->id] ?? null) ? $byUser[$user->id] : []);
-            $data['manager_ui_locks_effective'] = array_merge(
-                $locks,
-                array_intersect_key($userLocks, $defaults)
-            );
-        }
+        $data['manager_ui_locks_by_user'] = \App\Services\ManagerUiLocksService::byUserMap();
+        // Effective = what this requester is gated by (directors get all unlocked).
+        $data['manager_ui_locks_effective'] = \App\Services\ManagerUiLocksService::effectiveFor($request->user());
 
         if (! array_key_exists('driver_allow_cash', $data)) {
             $data['driver_allow_cash'] = ! ($locks['driver_cash_payment'] ?? false);

@@ -283,6 +283,14 @@ class InventoryController extends Controller
     public function deductStock(string $skuId, ?Sku $sku, string $warehouseId, int $qtyToDeduct, string $refEntity, string $refId, ?string $uomOverride = null): array
     {
         $warnings = [];
+        // Premium Custom (etc.) sells under its own SKU but draws physical
+        // stock from a linked bottle SKU (e.g. PREM-CUSTOM-0.5L → PREM-0.5L).
+        $sellable = $sku ?: Sku::find($skuId);
+        $stockSku = \App\Services\SkuStockAliasService::stockSkuFor($sellable);
+        $stockSkuId = $stockSku?->id ?: $skuId;
+        $sku = $stockSku ?: $sellable;
+        $skuId = $stockSkuId;
+
         // Round 4 Phase 1: the driver-trip caller passes bales, not the
         // SKU's own packaging unit (bottle/container) -- $uomOverride
         // lets it label the resulting stock_move accurately instead of

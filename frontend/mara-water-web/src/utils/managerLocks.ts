@@ -87,7 +87,7 @@ export const MANAGER_LOCK_LABELS: Record<ManagerLockKey, string> = {
   driver_cash_payment: 'Lock driver cash (M-Pesa only)',
   manager_cash_payment: 'Lock manager cash (M-Pesa only)',
   manager_edit_sales: 'Lock all manager sale edits',
-  manager_edit_sales_7d: 'Lock manager edit of sales (≤7 days) — unlock = Admin approved',
+  manager_edit_sales_7d: 'Lock manager catch-up sales & edits (≤7 days) — unlock = can change sale date / alter week',
   manager_edit_inventory: 'Lock manager inventory alters — unlock = Admin approved',
   manager_edit_production: 'Lock manager production edits — unlock = Admin approved',
   manager_fieldwork_mode: 'Default fieldwork mode for managers',
@@ -142,6 +142,17 @@ export function setFieldworkModeLocal(on: boolean): void {
   } catch {
     // ignore
   }
+}
+
+/** Nairobi calendar date string (YYYY-MM-DD) for today minus N days. */
+export function nairobiDaysAgo(days: number): string {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
+  const d = new Date(`${today}T00:00:00`);
+  d.setDate(d.getDate() - days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 /** Sale date within last 7 Nairobi calendar days (inclusive of today). */

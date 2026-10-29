@@ -70,18 +70,23 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   useEffect(() => {
     const tier = user?.role?.access_tier;
-    const endpoint = tier === 'director' ? '/settings' : '/settings/ui-locks';
-    api.get(endpoint)
-      .then((res) => {
-        const data = res.data?.data || {};
-        const locks = locksFromSettingsPayload(data);
-        setManagerLocks(locks);
-        if (tier === 'manager' && locks.manager_fieldwork_mode && !getFieldworkModeLocal()) {
-          setFieldworkModeLocal(true);
-          setFieldworkMode(true);
-        }
-      })
-      .catch(() => {});
+    const loadLocks = () => {
+      const endpoint = tier === 'director' ? '/settings' : '/settings/ui-locks';
+      api.get(endpoint)
+        .then((res) => {
+          const data = res.data?.data || {};
+          const locks = locksFromSettingsPayload(data);
+          setManagerLocks(locks);
+          if (tier === 'manager' && locks.manager_fieldwork_mode && !getFieldworkModeLocal()) {
+            setFieldworkModeLocal(true);
+            setFieldworkMode(true);
+          }
+        })
+        .catch(() => {});
+    };
+    loadLocks();
+    window.addEventListener('focus', loadLocks);
+    return () => window.removeEventListener('focus', loadLocks);
   }, [user?.role?.access_tier]);
 
   const toggleFieldworkMode = () => {
