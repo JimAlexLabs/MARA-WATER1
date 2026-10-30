@@ -20,7 +20,7 @@ class BackupService
     // list means -- these are the same two lists, now canonical here.
     public const PRESERVE_TABLES = [
         'departments', 'roles', 'permissions', 'role_permissions', 'users',
-        'user_sessions', 'audits', 'api_keys', 'director_handover_logs',
+        'user_sessions', 'audits', 'deletion_logs', 'api_keys', 'director_handover_logs',
         'suppliers', 'materials', 'skus', 'bom_items', 'warehouses', 'routes',
         'vehicles', 'price_lists', 'price_list_items', 'qa_thresholds',
         'cleaning_tasks', 'bank_accounts', 'taxes', 'shifts',

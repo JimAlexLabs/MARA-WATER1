@@ -398,44 +398,15 @@ class OrderController extends Controller
             $orderDate = $orderDateParsed->toDateString();
             $customerId = $request->customer_id;
 
-            // Single Main warehouse — auto-pick when client omits / sends blank.
-            $warehouseId = $request->warehouse_id;
+            // Single Main warehouse — same picker production uses (WH-MAIN first).
+            $warehouseId = $request->warehouse_id
+                ?: \App\Services\MainWarehouse::id();
             if (! $warehouseId) {
-                $warehouseId = \App\Models\Warehouse::query()
-                    ->whereNull('deleted_at')
-                    ->where(function ($q) {
-                        $q->where('code', 'like', '%MAIN%')
-                            ->orWhere('name', 'like', '%Main%')
-                            ->orWhere('name', 'like', '%Warehouse%');
-                    })
-                    ->value('id')
-                    ?: \App\Models\Warehouse::whereNull('deleted_at')->value('id');
-                if (! $warehouseId) {
-                    DB::rollBack();
-
-                    return response()->json(['success' => false, 'message' => 'No warehouse configured'], 422);
-                }
-                $request->merge(['warehouse_id' => $warehouseId]);
-            }
-
-            // Finished bales only. Unfinished bottles and labels are not sellable.
-            $finished = app(\App\Services\FinishedGoodsService::class);
-            $needed = [];
-            foreach ($request->items as $item) {
-                $net = (float) $item['qty'] - (float) ($item['qty_returned'] ?? 0);
-                if ($net > 0 && ! empty($item['sku_id'])) {
-                    $needed[$item['sku_id']] = ($needed[$item['sku_id']] ?? 0) + $net;
-                }
-            }
-            try {
-                foreach ($needed as $skuId => $bales) {
-                    $finished->assertCanTake((string) $skuId, (float) $bales, $warehouseId);
-                }
-            } catch (\InvalidArgumentException $e) {
                 DB::rollBack();
 
-                return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+                return response()->json(['success' => false, 'message' => 'No warehouse configured'], 422);
             }
+            $request->merge(['warehouse_id' => $warehouseId]);
 
             // M-Pesa prompt phone doubles as customer phone.
             if ($request->filled('stk_phone') && ! $request->filled('buyer_phone')) {
@@ -496,7 +467,10 @@ class OrderController extends Controller
 
             $totalAmount = 0;
             $stockWarnings = [];
+            $backorderNotes = [];
             $inventoryController = new InventoryController();
+            $finished = app(\App\Services\FinishedGoodsService::class);
+            $backorders = app(\App\Services\FinishedGoodsBackorderService::class);
 
             foreach ($request->items as $item) {
                 $sku = Sku::find($item['sku_id']);
@@ -523,6 +497,11 @@ class OrderController extends Controller
                     continue;
                 }
 
+                // Refill = customer-owned jerrican. Log the sale only.
+                if ($sku && $sku->isRefill()) {
+                    continue;
+                }
+
                 // Returns feed straight back into inventory as a stock-in
                 // movement against the outlet the sale was logged at.
                 // Custom SKUs return into the linked physical bottle stock.
@@ -532,7 +511,7 @@ class OrderController extends Controller
                         'move_type' => 'return',
                         'item_type' => 'sku',
                         'sku_id' => $stockSku?->id ?: $item['sku_id'],
-                        'warehouse_to_id' => $request->warehouse_id,
+                        'warehouse_to_id' => $warehouseId,
                         'qty' => $qtyReturned,
                         'uom' => $stockSku->unit ?? $sku->unit ?? 'BOTTLE',
                         'ref_entity' => 'order',
@@ -540,20 +519,35 @@ class OrderController extends Controller
                     ]);
                 }
 
-                // The net quantity actually sold (dispatched minus what
-                // came back) has to leave recorded stock, or the
-                // inventory pages just keep showing produced quantities
-                // forever regardless of what's been sold. Sku stock is
-                // tracked per batch, and a sale doesn't ask which batch --
-                // so draw down FEFO (soonest-expiring batch first, same
-                // logic a warehouse would use by hand) across as many
-                // batches as it takes to cover the quantity.
-                $netQtySold = $item['qty'] - $qtyReturned;
+                // Take what is on hand now; reserve the rest against the
+                // next produced bales (walk-in may sell before production).
+                $netQtySold = (float) $item['qty'] - (float) $qtyReturned;
                 if ($netQtySold > 0) {
-                    $stockWarnings = array_merge(
-                        $stockWarnings,
-                        $inventoryController->deductStock($item['sku_id'], $sku, $request->warehouse_id, $netQtySold, 'order', $order->id)
-                    );
+                    $alloc = $finished->allocateSale((string) $item['sku_id'], $netQtySold, $warehouseId);
+                    if ($alloc['from_stock'] > 0) {
+                        $stockWarnings = array_merge(
+                            $stockWarnings,
+                            $inventoryController->deductStock(
+                                $item['sku_id'],
+                                $sku,
+                                $warehouseId,
+                                (int) round($alloc['from_stock']),
+                                'order',
+                                $order->id,
+                                'BALE'
+                            )
+                        );
+                    }
+                    if ($alloc['backorder'] > 0) {
+                        $backorders->reserve($order, $orderItem, (string) $item['sku_id'], $alloc['backorder'], $warehouseId);
+                        $name = $sku?->name ?: 'product';
+                        $backorderNotes[] = "{$alloc['backorder']} bales of {$name} reserved from next production";
+                        $stockWarnings[] = [
+                            'sku_id' => $item['sku_id'],
+                            'sku_name' => $name,
+                            'message' => "{$alloc['backorder']} bales of {$name} were not on hand — reserved against the next production and will deduct automatically when those bales are recorded.",
+                        ];
+                    }
                 }
             }
 
@@ -652,17 +646,23 @@ class OrderController extends Controller
                 }
             }
 
+            $okMessage = $isCatchUp
+                ? 'Catch-up sale logged successfully'
+                : 'Sale logged successfully';
+            if ($backorderNotes !== []) {
+                $okMessage .= '. '.implode('; ', $backorderNotes).'.';
+            }
+
             return response()->json([
                 'success' => true,
-                'message' => $isCatchUp
-                    ? 'Catch-up sale logged successfully'
-                    : 'Sale logged successfully',
+                'message' => $okMessage,
                 'data' => [
                     'order' => $order,
                     'invoice' => $invoice,
                     // Directors backfilling offline days should not be blocked by
                     // negative-stock toasts — stock still deducts for the ledger.
                     'stock_warnings' => ($isCatchUp && $isDirector) ? [] : $stockWarnings,
+                    'backorders' => $backorderNotes,
                     'catch_up' => $isCatchUp,
                     'payment' => $payment,
                     'stk_error' => $stkError,
@@ -866,6 +866,7 @@ class OrderController extends Controller
             if ($order->stock_posted || in_array($order->status, ['delivered', 'dispatched', 'partially_returned', 'confirmed', 'awaiting_payment'], true)) {
                 $this->reverseOrderStock($order);
             }
+            app(\App\Services\FinishedGoodsBackorderService::class)->cancelForOrder($order->id);
 
             \App\Models\MpesaPayment::where('order_id', $order->id)->get()->each(function ($payment) {
                 if ($payment->status === 'pending') {
@@ -1149,33 +1150,7 @@ class OrderController extends Controller
                 && in_array($order->status, ['delivered', 'dispatched', 'partially_returned', 'confirmed', 'awaiting_payment'], true);
 
             if ($shouldRepost) {
-                $finished = app(\App\Services\FinishedGoodsService::class);
-                $needed = [];
-                foreach ($order->items as $item) {
-                    $netQtySold = (int) $item->qty - (int) ($item->qty_returned ?? 0);
-                    if ($netQtySold > 0 && $item->sku_id) {
-                        $needed[$item->sku_id] = ($needed[$item->sku_id] ?? 0) + $netQtySold;
-                    }
-                }
-                foreach ($needed as $skuId => $bales) {
-                    $finished->assertCanTake((string) $skuId, (float) $bales, $order->warehouse_id);
-                }
-
-                $inventory = new InventoryController();
-                foreach ($order->items as $item) {
-                    $sku = $item->sku ?: Sku::find($item->sku_id);
-                    $netQtySold = (int) $item->qty - (int) ($item->qty_returned ?? 0);
-                    if ($netQtySold > 0 && $order->warehouse_id) {
-                        $inventory->deductStock(
-                            $item->sku_id,
-                            $sku,
-                            $order->warehouse_id,
-                            $netQtySold,
-                            'order',
-                            $order->id
-                        );
-                    }
-                }
+                $this->postFinishedGoodsForOrder($order);
                 $order->update(['stock_posted' => true, 'updated_by' => Auth::id()]);
             } else {
                 $order->update(['updated_by' => Auth::id()]);
@@ -1257,6 +1232,48 @@ class OrderController extends Controller
         $tier = $user?->role?->access_tier;
 
         return $tier === 'director' || ($user?->role?->code === 'ADMIN') || (bool) $user?->isDirector();
+    }
+
+    /**
+     * Deduct on-hand finished bales and reserve any shortfall against
+     * the next production for every line on this order.
+     */
+    private function postFinishedGoodsForOrder(Order $order): void
+    {
+        $warehouseId = $order->warehouse_id ?: \App\Services\MainWarehouse::id();
+        if (! $warehouseId) {
+            return;
+        }
+        $finished = app(\App\Services\FinishedGoodsService::class);
+        $backorders = app(\App\Services\FinishedGoodsBackorderService::class);
+        $inventory = new InventoryController();
+        $order->loadMissing('items.sku');
+
+        foreach ($order->items as $item) {
+            $sku = $item->sku ?: Sku::find($item->sku_id);
+            if ($sku && $sku->isRefill()) {
+                continue;
+            }
+            $net = (float) $item->qty - (float) ($item->qty_returned ?? 0);
+            if ($net <= 0) {
+                continue;
+            }
+            $alloc = $finished->allocateSale((string) $item->sku_id, $net, $warehouseId, $order->id);
+            if ($alloc['from_stock'] > 0) {
+                $inventory->deductStock(
+                    $item->sku_id,
+                    $sku,
+                    $warehouseId,
+                    (int) round($alloc['from_stock']),
+                    'order',
+                    $order->id,
+                    'BALE'
+                );
+            }
+            if ($alloc['backorder'] > 0) {
+                $backorders->reserve($order, $item, (string) $item->sku_id, $alloc['backorder'], $warehouseId);
+            }
+        }
     }
 
     private function reverseOrderStock(Order $order): void

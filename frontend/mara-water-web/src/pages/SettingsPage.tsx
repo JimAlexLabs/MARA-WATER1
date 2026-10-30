@@ -191,6 +191,10 @@ const SettingsPage: React.FC = () => {
   } | null>(null);
   const [backups, setBackups] = useState<any[]>([]);
   const [resetLogs, setResetLogs] = useState<any[]>([]);
+  const [deletionLogs, setDeletionLogs] = useState<Array<{
+    id: string; entity: string; entity_id?: string | null; action: string;
+    created_at: string; user?: string | null; snapshot?: Record<string, unknown> | null;
+  }>>([]);
   const [dangerLoading, setDangerLoading] = useState(false);
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [togglingLock, setTogglingLock] = useState(false);
@@ -207,10 +211,12 @@ const SettingsPage: React.FC = () => {
       api.get('/admin/danger-zone/tables'),
       api.get('/admin/backups'),
       api.get('/admin/reset-logs'),
-    ]).then(([tablesRes, backupsRes, logsRes]) => {
+      api.get('/admin/deletion-logs'),
+    ]).then(([tablesRes, backupsRes, logsRes, deletionRes]) => {
       setDangerInfo(tablesRes.data.data);
       setBackups(backupsRes.data.data);
       setResetLogs(logsRes.data.data);
+      setDeletionLogs(deletionRes.data.data || []);
     }).catch(() => {
       toast.error('Could not load Danger Zone data');
     }).finally(() => setDangerLoading(false));
@@ -967,6 +973,30 @@ const SettingsPage: React.FC = () => {
                         </button>
                       </div>
                     )}
+                  </div>
+
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Deletion log</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                      Every delete in the app is stored here (who, what, when), including soft-deletes that still sit in the database with a deleted stamp.
+                    </p>
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700 max-h-56 overflow-y-auto">
+                      {deletionLogs.length === 0 ? (
+                        <p className="text-sm text-gray-500 dark:text-gray-400 p-4">No deletions logged yet.</p>
+                      ) : (
+                        deletionLogs.map((l) => (
+                          <div key={l.id} className="px-4 py-2.5 text-sm">
+                            <span className="text-gray-900 dark:text-gray-100">{l.user || 'System'}</span>
+                            <span className="text-gray-500 dark:text-gray-400">
+                              {' · '}{new Date(l.created_at).toLocaleString()}
+                              {' · '}{l.action.replace('_', ' ')}
+                              {' · '}{l.entity}
+                              {l.entity_id ? ` #${String(l.entity_id).slice(0, 8)}` : ''}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
 
                   <div className="border-t border-gray-200 dark:border-gray-700 pt-6">

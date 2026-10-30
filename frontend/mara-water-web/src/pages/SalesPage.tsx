@@ -75,6 +75,15 @@ interface Sku {
   brand?: string | null;
 }
 
+/** Customer-owned 5L / 10L / 20L jerrican fill — revenue only, not MARA stock. */
+const isRefillSku = (s: Pick<Sku, 'code' | 'brand' | 'size_liters'>) => {
+  const brand = (s.brand || '').toUpperCase();
+  const code = (s.code || '').toUpperCase();
+  if (brand !== 'REFILL' && !code.startsWith('REFILL')) return false;
+  const size = Math.round(Number(s.size_liters) * 100) / 100;
+  return size === 5 || size === 10 || size === 20;
+};
+
 interface Warehouse {
   id: string;
   code: string;
@@ -681,14 +690,24 @@ const SalesPage: React.FC = () => {
       }
       const orderNo = res.data?.data?.order?.order_no;
       const catchUp = Boolean(res.data?.data?.catch_up);
+      const apiMessage = res.data?.message as string | undefined;
       toast.success(
-        catchUp
-          ? `Catch-up sale logged${orderNo ? ` (${orderNo})` : ''}`
-          : `Sale logged${orderNo ? ` (${orderNo})` : ''}`
+        apiMessage
+          || (catchUp
+            ? `Catch-up sale logged${orderNo ? ` (${orderNo})` : ''}`
+            : `Sale logged${orderNo ? ` (${orderNo})` : ''}`),
+        { duration: 7000 }
       );
       const stockWarnings = res.data?.data?.stock_warnings || [];
       if (!catchUp) {
-        stockWarnings.forEach((w: { message: string }) => toast.error(w.message, { duration: 8000 }));
+        stockWarnings.forEach((w: { message: string }) => {
+          const msg = w.message || '';
+          if (/reserved against the next production/i.test(msg)) {
+            toast(msg, { duration: 9000 });
+          } else {
+            toast.error(msg, { duration: 8000 });
+          }
+        });
       }
       setShowCreditConfirm(false);
       setShowSaleForm(false);
@@ -1456,13 +1475,22 @@ const SalesPage: React.FC = () => {
                                 ? ` — KES ${price.toLocaleString()}`
                                 : '';
                               const customBit = /CUSTOM/i.test(s.code || '') ? ' (uses 0.5L stock)' : '';
+                              const refillBit = isRefillSku(s) ? ' (refill — no stock)' : '';
                               return (
                                 <option key={s.id} value={s.id}>
-                                  {s.name}{priceBit}{customBit}
+                                  {s.name}{priceBit}{customBit}{refillBit}
                                 </option>
                               );
                             })}
                           </select>
+                          {(() => {
+                            const selected = skus.find((s) => s.id === item.sku_id);
+                            return selected && isRefillSku(selected) ? (
+                              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                Refill: customer brings the jerrican. Logged as a refill sale only — does not use finished stock.
+                              </p>
+                            ) : null;
+                          })()}
                         </div>
                         <div className="col-span-2">
                           <input

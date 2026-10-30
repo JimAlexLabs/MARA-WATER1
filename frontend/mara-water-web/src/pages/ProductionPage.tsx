@@ -954,13 +954,23 @@ const ProductionPage: React.FC = () => {
                   className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select SKU</option>
-                  {skus.map((s) => (
+                  {skus
+                    .filter((s) => {
+                      const brand = (s.brand || '').toUpperCase();
+                      const code = (s.code || '').toUpperCase();
+                      const isRefill = brand === 'REFILL' || code.startsWith('REFILL');
+                      return !isRefill;
+                    })
+                    .map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.brand ? `${s.brand} — ` : ''}{s.name}
                       {/CUSTOM/i.test(s.code || '') ? ' (stock → Premium 0.5L)' : ''}
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Refills (5L / 10L / 20L) are not produced here — log them on Sales. The customer owns the jerrican.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity produced today (bales)</label>

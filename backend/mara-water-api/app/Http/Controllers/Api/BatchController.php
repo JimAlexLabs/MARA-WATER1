@@ -98,14 +98,19 @@ class BatchController extends Controller
             }
 
             $sku = Sku::findOrFail($request->sku_id);
+            if ($sku->isRefill()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Refills are not produced into stock. Log them as sales only — the customer owns the jerrican.',
+                ], 422);
+            }
             $expiryDate = $request->expiry_date
                 ?: Carbon::parse($request->manufacture_date)
                     ->addDays((int) ($sku->expiry_days ?: 365))
                     ->toDateString();
 
             $warehouseId = $request->warehouse_id
-                ?: Warehouse::where('code', 'WH-MAIN')->value('id')
-                ?: Warehouse::orderBy('name')->value('id');
+                ?: \App\Services\MainWarehouse::id();
 
             DB::beginTransaction();
 

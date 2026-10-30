@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Models\Backup;
+use App\Models\DeletionLog;
 use App\Models\ResetLog;
 use App\Models\Setting;
 use App\Services\BackupService;
@@ -285,6 +286,31 @@ class AdminController extends Controller
         $this->requireAdmin($request);
 
         $logs = ResetLog::latest('created_at')->limit(50)->get();
+
+        return response()->json(['success' => true, 'data' => $logs]);
+    }
+
+    /** Who deleted what — soft or hard — across the whole app. */
+    public function listDeletionLogs(Request $request)
+    {
+        $this->requireAdmin($request);
+
+        $logs = DeletionLog::with('user:id,first_name,last_name')
+            ->orderByDesc('created_at')
+            ->limit(200)
+            ->get()
+            ->map(fn (DeletionLog $row) => [
+                'id' => $row->id,
+                'entity' => $row->entity,
+                'entity_id' => $row->entity_id,
+                'action' => $row->action,
+                'snapshot' => $row->snapshot,
+                'created_at' => $row->created_at,
+                'user' => $row->user
+                    ? trim(($row->user->first_name ?? '').' '.($row->user->last_name ?? ''))
+                    : null,
+                'ip' => $row->ip,
+            ]);
 
         return response()->json(['success' => true, 'data' => $logs]);
     }

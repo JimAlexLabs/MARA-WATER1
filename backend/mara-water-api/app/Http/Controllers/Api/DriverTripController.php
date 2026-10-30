@@ -121,12 +121,7 @@ class DriverTripController extends Controller
             return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
-        $warehouseId = $request->warehouse_id
-            ?: \App\Models\Warehouse::whereNull('deleted_at')
-                ->where(function ($q) {
-                    $q->where('code', 'like', '%MAIN%')->orWhere('name', 'like', '%Main%');
-                })->value('id')
-            ?: \App\Models\Warehouse::whereNull('deleted_at')->value('id');
+        $warehouseId = $request->warehouse_id ?: \App\Services\MainWarehouse::id();
         if (! $warehouseId) {
             return response()->json(['success' => false, 'message' => 'No Main warehouse configured'], 422);
         }

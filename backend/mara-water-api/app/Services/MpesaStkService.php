@@ -595,24 +595,45 @@ class MpesaStkService
         }
         $order->loadMissing('items.sku');
         $inventory = new InventoryController();
+        $warehouseId = $order->warehouse_id ?: \App\Services\MainWarehouse::id();
+        $finished = app(\App\Services\FinishedGoodsService::class);
+        $backorders = app(\App\Services\FinishedGoodsBackorderService::class);
+
         foreach ($order->items as $item) {
             $sku = $item->sku ?: Sku::find($item->sku_id);
+            if ($sku && $sku->isRefill()) {
+                continue;
+            }
             $returned = (int) ($item->qty_returned ?? 0);
-            if ($returned > 0 && $order->warehouse_id) {
+            if ($returned > 0 && $warehouseId) {
                 $inventory->recordMove([
                     'move_type' => 'return',
                     'item_type' => 'sku',
                     'sku_id' => $item->sku_id,
-                    'warehouse_to_id' => $order->warehouse_id,
+                    'warehouse_to_id' => $warehouseId,
                     'qty' => $returned,
                     'uom' => $sku->unit ?? 'BOTTLE',
                     'ref_entity' => 'order',
                     'ref_id' => $order->id,
                 ]);
             }
-            $net = (int) $item->qty - $returned;
-            if ($net > 0 && $order->warehouse_id) {
-                $inventory->deductStock($item->sku_id, $sku, $order->warehouse_id, $net, 'order', $order->id);
+            $net = (float) $item->qty - $returned;
+            if ($net > 0 && $warehouseId) {
+                $alloc = $finished->allocateSale((string) $item->sku_id, $net, $warehouseId, $order->id);
+                if ($alloc['from_stock'] > 0) {
+                    $inventory->deductStock(
+                        $item->sku_id,
+                        $sku,
+                        $warehouseId,
+                        (int) round($alloc['from_stock']),
+                        'order',
+                        $order->id,
+                        'BALE'
+                    );
+                }
+                if ($alloc['backorder'] > 0) {
+                    $backorders->reserve($order, $item, (string) $item->sku_id, $alloc['backorder'], $warehouseId);
+                }
             }
         }
         $order->update(['stock_posted' => true]);

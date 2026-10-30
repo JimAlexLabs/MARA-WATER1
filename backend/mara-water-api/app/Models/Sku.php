@@ -81,4 +81,21 @@ class Sku extends Model
 
         return rtrim(rtrim(number_format($size, 2, '.', ''), '0'), '.') . 'L';
     }
+
+    /**
+     * Customer-owned jerrican fill (5L / 10L / 20L only).
+     * Not MARA finished goods — sales log revenue only; no unsold stock,
+     * warehouse deduct, or production material draw.
+     */
+    public function isRefill(): bool
+    {
+        $brand = strtoupper(trim((string) $this->brand));
+        $code = strtoupper(trim((string) $this->code));
+        if ($brand !== 'REFILL' && ! str_starts_with($code, 'REFILL')) {
+            return false;
+        }
+        $size = round((float) $this->size_liters, 2);
+
+        return in_array($size, [5.0, 10.0, 20.0], true);
+    }
 }

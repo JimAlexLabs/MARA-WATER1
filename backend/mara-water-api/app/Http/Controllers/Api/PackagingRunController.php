@@ -660,11 +660,16 @@ class PackagingRunController extends Controller
     private function postProductionStockMoves(PackagingRun $packagingRun, string $warehouseId): array
     {
         $inventory = new InventoryController();
+        $sellable = $packagingRun->sku ?: \App\Models\Sku::find($packagingRun->sku_id);
+        // Refills are not MARA-owned product. Do not create finished stock
+        // or consume bottles/labels/caps from unfinished materials.
+        if ($sellable && $sellable->isRefill()) {
+            return [];
+        }
 
         if ($packagingRun->good_qty > 0) {
             // Premium Custom (etc.) is made from the same physical bottles —
             // finished-goods stock lands on the linked PREM-0.5L inventory.
-            $sellable = $packagingRun->sku ?: \App\Models\Sku::find($packagingRun->sku_id);
             $stockSku = \App\Services\SkuStockAliasService::stockSkuFor($sellable);
             $stockSkuId = $stockSku?->id ?: $packagingRun->sku_id;
 
@@ -675,10 +680,17 @@ class PackagingRunController extends Controller
                 'batch_id' => $packagingRun->batch_id,
                 'warehouse_to_id' => $warehouseId,
                 'qty' => $packagingRun->good_qty,
-                'uom' => $stockSku->unit ?? $packagingRun->sku->unit ?? 'BOTTLE',
+                'uom' => 'BALE',
                 'ref_entity' => 'packaging_run',
                 'ref_id' => $packagingRun->id,
             ]);
+
+            // Walk-in sales logged before these bales existed take them first.
+            app(\App\Services\FinishedGoodsBackorderService::class)->fulfillFromProduction(
+                $stockSkuId,
+                (float) $packagingRun->good_qty,
+                $warehouseId
+            );
         }
 
         $warnings = [];

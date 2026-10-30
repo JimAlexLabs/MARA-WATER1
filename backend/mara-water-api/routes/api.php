@@ -218,6 +218,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('/backups/{id}/restore', [AdminController::class, 'restoreBackup']);
                 Route::post('/reset', [AdminController::class, 'resetAllData']);
                 Route::get('/reset-logs', [AdminController::class, 'listResetLogs']);
+                Route::get('/deletion-logs', [AdminController::class, 'listDeletionLogs']);
             });
 
             // Users routes -- user management, role assignment, salary/

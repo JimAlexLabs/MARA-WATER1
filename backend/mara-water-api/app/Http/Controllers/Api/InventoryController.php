@@ -310,6 +310,11 @@ class InventoryController extends Controller
         // Premium Custom (etc.) sells under its own SKU but draws physical
         // stock from a linked bottle SKU (e.g. PREM-CUSTOM-0.5L → PREM-0.5L).
         $sellable = $sku ?: Sku::find($skuId);
+        // Refill = customer-owned jerrican fill. Revenue only; never touch
+        // finished MARA stock or unfinished materials.
+        if ($sellable && $sellable->isRefill()) {
+            return $warnings;
+        }
         $stockSku = \App\Services\SkuStockAliasService::stockSkuFor($sellable);
         $stockSkuId = $stockSku?->id ?: $skuId;
         $sku = $stockSku ?: $sellable;
@@ -320,16 +325,20 @@ class InventoryController extends Controller
         // lets it label the resulting stock_move accurately instead of
         // silently mislabeling a bale quantity as "BOTTLE".
         $uom = $uomOverride ?? ($sku->unit ?? 'BOTTLE');
+        $warehouseIds = array_values(array_unique(array_filter([
+            $warehouseId,
+            ...\App\Services\MainWarehouse::ids(),
+        ])));
 
         $available = StockItem::where('stock_items.item_type', 'sku')
             ->where('stock_items.sku_id', $skuId)
-            ->where('stock_items.warehouse_id', $warehouseId)
+            ->whereIn('stock_items.warehouse_id', $warehouseIds)
             ->where('stock_items.qty', '>', 0)
             ->whereNull('stock_items.deleted_at')
-            ->join('batches', 'batches.id', '=', 'stock_items.batch_id')
+            ->leftJoin('batches', 'batches.id', '=', 'stock_items.batch_id')
             ->orderByRaw('batches.expiry_date IS NULL, batches.expiry_date ASC')
             ->orderByRaw('batches.manufacture_date IS NULL, batches.manufacture_date ASC')
-            ->select('stock_items.batch_id', 'stock_items.qty')
+            ->select('stock_items.batch_id', 'stock_items.qty', 'stock_items.warehouse_id')
             ->get();
 
         $remaining = $qtyToDeduct;
@@ -343,7 +352,7 @@ class InventoryController extends Controller
                 'item_type' => 'sku',
                 'sku_id' => $skuId,
                 'batch_id' => $row->batch_id,
-                'warehouse_from_id' => $warehouseId,
+                'warehouse_from_id' => $row->warehouse_id ?: $warehouseId,
                 'qty' => $take,
                 'uom' => $uom,
                 'ref_entity' => $refEntity,
