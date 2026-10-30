@@ -22,16 +22,10 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         // Soft or hard deletes: keep a durable log of who removed what.
+        // (forceDeleting is only on SoftDeletes models — use deleting + isForceDeleting.)
         Model::deleting(function (Model $model) {
-            // forceDelete also fires deleting — log once via forceDeleting.
-            if (method_exists($model, 'isForceDeleting') && $model->isForceDeleting()) {
-                return;
-            }
-            app(DeletionLogService::class)->record($model);
-        });
-
-        Model::forceDeleting(function (Model $model) {
-            app(DeletionLogService::class)->record($model, 'force_delete');
+            $forced = method_exists($model, 'isForceDeleting') && $model->isForceDeleting();
+            app(DeletionLogService::class)->record($model, $forced ? 'force_delete' : null);
         });
     }
 }
