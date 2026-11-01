@@ -327,8 +327,15 @@ const QAPage: React.FC = () => {
         expiry_date: ''
       });
       fetchData();
-    } catch (error) {
-      toast.error('Failed to create batch');
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const firstError = errors ? Object.values(errors)[0] : null;
+      toast.error(
+        (Array.isArray(firstError) ? firstError[0] : firstError) ||
+          error.response?.data?.message ||
+          error.response?.data?.error ||
+          'Failed to create batch'
+      );
     }
   };
 

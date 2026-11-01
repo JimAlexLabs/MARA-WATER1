@@ -303,6 +303,7 @@ const ProductionPage: React.FC = () => {
       toast.error(
         (Array.isArray(firstError) ? firstError[0] : firstError) ||
           error.response?.data?.message ||
+          error.response?.data?.error ||
           'Failed to create batch'
       );
     } finally {

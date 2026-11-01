@@ -72,56 +72,67 @@ class FinishedGoodsBackorderService
             return [];
         }
 
-        $ids = app(FinishedGoodsService::class)->familyIds($skuId);
-        $remaining = $qtyProduced;
-        $fulfilled = [];
-        $inventory = new InventoryController();
+        try {
+            $ids = app(FinishedGoodsService::class)->familyIds($skuId);
+            $remaining = $qtyProduced;
+            $fulfilled = [];
+            $inventory = new InventoryController();
 
-        $rows = FinishedGoodsBackorder::query()
-            ->whereIn('sku_id', $ids)
-            ->where('status', 'open')
-            ->orderBy('created_at')
-            ->lockForUpdate()
-            ->get();
+            $rows = FinishedGoodsBackorder::query()
+                ->whereIn('sku_id', $ids)
+                ->where('status', 'open')
+                ->orderBy('created_at')
+                ->lockForUpdate()
+                ->get();
 
-        foreach ($rows as $row) {
-            if ($remaining <= 0.001) {
-                break;
+            foreach ($rows as $row) {
+                if ($remaining <= 0.001) {
+                    break;
+                }
+                $owed = $row->remaining();
+                if ($owed <= 0.001) {
+                    $row->update(['status' => 'fulfilled']);
+                    continue;
+                }
+                $take = min($owed, $remaining);
+                $takeInt = (int) round($take);
+                if ($takeInt < 1) {
+                    break;
+                }
+                $inventory->deductStock(
+                    $row->sku_id,
+                    Sku::find($row->sku_id),
+                    $row->warehouse_id ?: $warehouseId,
+                    $takeInt,
+                    'backorder',
+                    $row->id,
+                    'BALE'
+                );
+                $take = (float) $takeInt;
+                $row->qty_fulfilled = round((float) $row->qty_fulfilled + $take, 2);
+                if ($row->remaining() <= 0.001) {
+                    $row->status = 'fulfilled';
+                }
+                $row->save();
+                $fulfilled[] = [
+                    'backorder_id' => $row->id,
+                    'order_id' => $row->order_id,
+                    'qty' => $take,
+                ];
+                $remaining -= $take;
             }
-            $owed = $row->remaining();
-            if ($owed <= 0.001) {
-                $row->update(['status' => 'fulfilled']);
-                continue;
-            }
-            $take = min($owed, $remaining);
-            $takeInt = (int) round($take);
-            if ($takeInt < 1) {
-                break;
-            }
-            $inventory->deductStock(
-                $row->sku_id,
-                Sku::find($row->sku_id),
-                $row->warehouse_id ?: $warehouseId,
-                $takeInt,
-                'backorder',
-                $row->id,
-                'BALE'
-            );
-            $take = (float) $takeInt;
-            $row->qty_fulfilled = round((float) $row->qty_fulfilled + $take, 2);
-            if ($row->remaining() <= 0.001) {
-                $row->status = 'fulfilled';
-            }
-            $row->save();
-            $fulfilled[] = [
-                'backorder_id' => $row->id,
-                'order_id' => $row->order_id,
-                'qty' => $take,
-            ];
-            $remaining -= $take;
+
+            return $fulfilled;
+        } catch (\Throwable $e) {
+            // Never block New Batch / production entry on backorder drawdown.
+            \Log::warning('backorder_fulfill_failed', [
+                'sku_id' => $skuId,
+                'qty' => $qtyProduced,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
         }
-
-        return $fulfilled;
     }
 
     public function cancelForOrder(string $orderId): void

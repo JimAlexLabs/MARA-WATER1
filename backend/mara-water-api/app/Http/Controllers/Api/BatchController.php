@@ -114,20 +114,43 @@ class BatchController extends Controller
 
             DB::beginTransaction();
 
-            $batchCode = $this->generateBatchCode($request->sku_id, $request->manufacture_date);
-
-            $batch = Batch::create([
-                'code' => $batchCode,
-                'sku_id' => $request->sku_id,
-                'manufacture_date' => $request->manufacture_date,
-                'expiry_date' => $expiryDate,
-                'planned_qty' => $request->planned_qty,
-                // in_progress so the auto packaging run can complete it
-                'status' => 'in_progress',
-                'opened_by' => Auth::id(),
-                'created_by' => Auth::id(),
-                'updated_by' => Auth::id(),
-            ]);
+            // Soft-deleted rows still occupy uk_batches_code. Re-entering
+            // reconciled production for the same SKU/date used to collide
+            // on BATCH-…-001 and return a generic 500 forever.
+            $batch = null;
+            $lastCodeError = null;
+            for ($attempt = 0; $attempt < 8; $attempt++) {
+                $batchCode = $this->generateBatchCode(
+                    $request->sku_id,
+                    $request->manufacture_date,
+                    $attempt
+                );
+                try {
+                    $batch = Batch::create([
+                        'code' => $batchCode,
+                        'sku_id' => $request->sku_id,
+                        'manufacture_date' => $request->manufacture_date,
+                        'expiry_date' => $expiryDate,
+                        'planned_qty' => $request->planned_qty,
+                        // in_progress so the auto packaging run can complete it
+                        'status' => 'in_progress',
+                        'opened_by' => Auth::id(),
+                        'created_by' => Auth::id(),
+                        'updated_by' => Auth::id(),
+                    ]);
+                    break;
+                } catch (\Illuminate\Database\QueryException $qe) {
+                    $lastCodeError = $qe;
+                    // Duplicate code only — retry with next sequence.
+                    if (! str_contains(strtolower($qe->getMessage()), 'duplicate')
+                        && ! str_contains(strtolower($qe->getMessage()), 'uk_batches_code')) {
+                        throw $qe;
+                    }
+                }
+            }
+            if (! $batch) {
+                throw $lastCodeError ?: new \RuntimeException('Could not allocate a unique batch code');
+            }
 
             $materialWarnings = [];
             $packagingRun = null;
@@ -167,9 +190,19 @@ class BatchController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
+            \Log::error('batch_create_failed', [
+                'error' => $e->getMessage(),
+                'sku_id' => $request->sku_id ?? null,
+                'manufacture_date' => $request->manufacture_date ?? null,
+            ]);
+            $detail = $e->getMessage();
+            // Keep the toast actionable — hide raw SQL noise but keep the cause.
+            if (str_contains(strtolower($detail), 'duplicate') || str_contains($detail, 'uk_batches_code')) {
+                $detail = 'A batch code for this product and date already exists (including deleted). Try again — a new code will be allocated.';
+            }
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to create batch',
+                'message' => $detail ?: 'Failed to create batch',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -613,22 +646,42 @@ class BatchController extends Controller
     }
 
     /**
-     * Generate unique batch code
+     * Generate unique batch code.
+     * Soft-deleted batches still hold uk_batches_code, so sequence must
+     * consider withTrashed() and the highest existing suffix — not only
+     * the live row count.
      */
-    private function generateBatchCode($skuId, $manufactureDate)
+    private function generateBatchCode($skuId, $manufactureDate, int $extra = 0)
     {
         $sku = Sku::find($skuId);
         $skuCode = $sku ? $sku->code : 'SKU';
         $date = date('Ymd', strtotime($manufactureDate));
-        
-        // Get count of batches for this SKU on this date
-        $count = Batch::where('sku_id', $skuId)
-            ->whereDate('manufacture_date', $manufactureDate)
-            ->count();
+        $prefix = "BATCH-{$skuCode}-{$date}-";
 
-        $sequence = str_pad($count + 1, 3, '0', STR_PAD_LEFT);
-        
-        return "BATCH-{$skuCode}-{$date}-{$sequence}";
+        $maxSeq = 0;
+        // Soft-deleted rows still own uk_batches_code — must include them.
+        $codes = Batch::withTrashed()
+            ->where(function ($q) use ($skuId, $manufactureDate, $prefix) {
+                $q->where(function ($q2) use ($skuId, $manufactureDate) {
+                    $q2->where('sku_id', $skuId)
+                        ->whereDate('manufacture_date', $manufactureDate);
+                })->orWhere('code', 'like', $prefix . '%');
+            })
+            ->pluck('code');
+
+        foreach ($codes as $code) {
+            if (! is_string($code) || ! str_starts_with($code, $prefix)) {
+                continue;
+            }
+            $suffix = substr($code, strlen($prefix));
+            if (ctype_digit($suffix)) {
+                $maxSeq = max($maxSeq, (int) $suffix);
+            }
+        }
+
+        $sequence = str_pad($maxSeq + 1 + max(0, $extra), 3, '0', STR_PAD_LEFT);
+
+        return $prefix . $sequence;
     }
 
     /**
