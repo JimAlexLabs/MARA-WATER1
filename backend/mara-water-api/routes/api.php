@@ -146,6 +146,10 @@ Route::prefix('v1')->group(function () {
         Route::middleware('tier:driver,manager,director')->prefix('payments')->group(function () {
             Route::get('/meta', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'meta']);
             Route::post('/stk', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'stk'])->middleware('throttle:8,1');
+            Route::get('/paybill', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'paybill']);
+            Route::get('/paybill/watches', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'watches']);
+            Route::post('/paybill/watch', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'watch'])->middleware('throttle:20,1');
+            Route::post('/{id}/claim', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'claim']);
             Route::get('/{id}/status', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'status']);
             Route::post('/{id}/recheck', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'recheck']);
             Route::post('/{id}/cash', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'cash']);

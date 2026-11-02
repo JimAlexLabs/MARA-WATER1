@@ -243,6 +243,8 @@ const SalesPage: React.FC = () => {
   const [priceListPrices, setPriceListPrices] = useState<Record<string, string>>({});
   const [saleSubmitting, setSaleSubmitting] = useState(false);
   const [stkPayment, setStkPayment] = useState<StkPayment | null>(null);
+  const [paybillMeta, setPaybillMeta] = useState<{ paybill?: string }>({});
+  const [watchingPaybill, setWatchingPaybill] = useState(false);
 
   // Customer Form State
   const [customerForm, setCustomerForm] = useState(EMPTY_CUSTOMER_FORM);
@@ -264,6 +266,7 @@ const SalesPage: React.FC = () => {
         .catch(() => {});
     };
     loadLocks();
+    api.get('/payments/meta').then((res) => setPaybillMeta(res.data?.data || {})).catch(() => {});
     window.addEventListener('focus', loadLocks);
     return () => window.removeEventListener('focus', loadLocks);
   }, [director]);
@@ -1398,7 +1401,34 @@ const SalesPage: React.FC = () => {
                   className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                 />
                 {saleForm.payment_method === 'mpesa' && (
-                  <p className="text-xs text-gray-500 mt-1">STK prompt is sent automatically — same number is saved as buyer phone.</p>
+                  <div className="mt-2 space-y-1">
+                    <p className="text-xs text-gray-500">STK prompt is sent automatically on save — or wait for a direct Paybill (account MARA{paybillMeta.paybill ? `, Paybill ${paybillMeta.paybill}` : ''}).</p>
+                    <button
+                      type="button"
+                      disabled={watchingPaybill}
+                      onClick={async () => {
+                        const phone = (saleForm.stk_phone || saleForm.buyer_phone || '').trim();
+                        if (!phone) { toast.error('Enter the phone they will pay from'); return; }
+                        setWatchingPaybill(true);
+                        try {
+                          const res = await api.post('/payments/paybill/watch', {
+                            phone,
+                            customer_id: saleForm.customer_id || undefined,
+                            amount: saleTotal > 0 ? saleTotal : undefined,
+                            channel: 'warehouse',
+                          });
+                          toast.success(`Waiting for Paybill ${res.data?.data?.paybill || paybillMeta.paybill || ''} account MARA`);
+                        } catch (error: any) {
+                          toast.error(error.response?.data?.message || 'Could not start Paybill wait');
+                        } finally {
+                          setWatchingPaybill(false);
+                        }
+                      }}
+                      className="text-sm text-blue-600 hover:underline"
+                    >
+                      {watchingPaybill ? 'Saving…' : 'Waiting for Paybill'}
+                    </button>
+                  </div>
                 )}
               </div>
 

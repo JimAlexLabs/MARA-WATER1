@@ -633,6 +633,14 @@ class OrderController extends Controller
             $payment = null;
             $stkError = null;
             if ($deferStock) {
+                $already = app(\App\Services\PaybillMatchService::class)->attachOpenC2bToOrder($order->fresh());
+                if ($already) {
+                    $deferStock = false;
+                    $payment = $already;
+                    $order->refresh()->load(['customer', 'salesOfficer.role', 'warehouse', 'priceList', 'items.sku', 'invoice']);
+                }
+            }
+            if ($deferStock) {
                 try {
                     $payment = app(\App\Services\MpesaStkService::class)->startForOrder(
                         $order->fresh(),

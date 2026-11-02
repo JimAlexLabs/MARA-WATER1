@@ -92,6 +92,7 @@ class MpesaStkService
             'phone' => $phone,
             'amount' => $amount,
             'status' => 'pending',
+            'source' => 'stk',
             'initiated_by' => $user->id,
             'channel' => 'field_trip',
             'trip_id' => $input['trip_id'] ?? null,
@@ -173,6 +174,7 @@ class MpesaStkService
             'phone' => $phone,
             'amount' => $amount,
             'status' => 'pending',
+            'source' => 'stk',
             'initiated_by' => $user->id,
             'channel' => $input['channel'],
             'trip_id' => $input['trip_id'] ?? null,
@@ -256,10 +258,13 @@ class MpesaStkService
                 'phone' => substr(preg_replace('/\D+/', '', (string) ($body['phone'] ?? '254700000000')), 0, 15),
                 'amount' => (float) ($body['amount'] ?? 0),
                 'status' => 'pending',
-                'channel' => 'unmatched',
+                'channel' => 'paybill',
+                'source' => 'c2b',
+                'unmatched' => true,
                 'idempotency_key' => 'wh-'.($body['payment_id'] ?? Str::uuid()),
                 'mpesa_receipt' => $body['mpesa_receipt'] ?? null,
             ]);
+            app(PaybillMatchService::class)->match($payment->fresh());
         }
 
         if (! $payment) {
@@ -305,34 +310,15 @@ class MpesaStkService
 
     public function applyC2b(array $body): MpesaPayment
     {
-        $ref = strtoupper(trim((string) ($body['BillRefNumber'] ?? '')));
-        $receipt = $body['TransID'] ?? null;
-        if ($receipt && MpesaPayment::where('mpesa_receipt', $receipt)->exists()) {
-            return MpesaPayment::where('mpesa_receipt', $receipt)->first();
-        }
+        return \Illuminate\Support\Facades\DB::transaction(
+            fn () => app(PaybillMatchService::class)->ingestC2b($body)
+        );
+    }
 
-        $payment = $ref !== '' ? MpesaPayment::where('reference', substr($ref, 0, 12))->latest()->first() : null;
-        if (! $payment) {
-            $payment = MpesaPayment::create([
-                'reference' => substr($ref !== '' ? $ref : 'UNMATCHED', 0, 12),
-                'phone' => substr(preg_replace('/\D+/', '', (string) ($body['MSISDN'] ?? '')), 0, 15) ?: '254700000000',
-                'amount' => (float) ($body['TransAmount'] ?? 0),
-                'status' => 'pending',
-                'channel' => str_starts_with($ref, 'MARA-') ? 'paybill' : 'unmatched',
-                'idempotency_key' => 'c2b-'.($receipt ?: Str::uuid()),
-                'mpesa_receipt' => $receipt,
-            ]);
-        }
-
-        $this->applyResult($payment, [
-            'status' => 'success',
-            'result_code' => '0',
-            'result_desc' => 'Paybill payment',
-            'mpesa_receipt' => $receipt,
-            'amount' => $body['TransAmount'] ?? $payment->amount,
-        ]);
-
-        return $payment->fresh();
+    /** Used by PaybillMatchService after identity matching. */
+    public function applyC2bResult(MpesaPayment $payment, array $result): void
+    {
+        $this->applyResult($payment, $result);
     }
 
     public function markCash(MpesaPayment $payment): void
@@ -365,11 +351,22 @@ class MpesaStkService
         }
         if ($saleType === 'order') {
             $order = Order::findOrFail($saleId);
-            $payment->update(['order_id' => $order->id, 'channel' => $payment->channel === 'unmatched' ? 'warehouse' : $payment->channel]);
+            $payment->update([
+                'order_id' => $order->id,
+                'channel' => in_array($payment->channel, ['unmatched', 'paybill'], true) ? 'warehouse' : $payment->channel,
+                'unmatched' => false,
+                'match_method' => $payment->match_method ?: 'manual',
+            ]);
             $this->markSalePaid($payment->fresh());
         } else {
             $sale = DriverTripSale::findOrFail($saleId);
-            $payment->update(['driver_trip_sale_id' => $sale->id, 'trip_id' => $sale->driver_trip_id, 'channel' => 'field_trip']);
+            $payment->update([
+                'driver_trip_sale_id' => $sale->id,
+                'trip_id' => $sale->driver_trip_id,
+                'channel' => 'field_trip',
+                'unmatched' => false,
+                'match_method' => $payment->match_method ?: 'manual',
+            ]);
             $this->markSalePaid($payment->fresh());
         }
 

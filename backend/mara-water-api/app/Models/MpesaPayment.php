@@ -16,6 +16,7 @@ class MpesaPayment extends Model
         'trip_id', 'location', 'location_id', 'idempotency_key', 'paid_at',
         'unmatched', 'assigned_sale_id', 'assigned_sale_type', 'assigned_by', 'assigned_at',
         'pending_sale_snapshot',
+        'source', 'bill_ref', 'payer_name', 'customer_id', 'match_method',
     ];
 
     protected $casts = [
@@ -39,5 +40,10 @@ class MpesaPayment extends Model
     public function tripSale()
     {
         return $this->belongsTo(DriverTripSale::class, 'driver_trip_sale_id');
+    }
+
+    public function customer()
+    {
+        return $this->belongsTo(Customer::class);
     }
 }

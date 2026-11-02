@@ -9,6 +9,7 @@ import {
   isLocked,
   locksFromSettingsPayload,
 } from '../utils/managerLocks';
+import DirectPaybillPanel from '../components/DirectPaybillPanel';
 
 // Round 4 Phase 0/4: "New standalone Log a Sale entity, connected to
 // but separate from the trip page" -- a real page (its own route), not
@@ -60,6 +61,10 @@ const DriverLogSalePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [cashLocked, setCashLocked] = useState(true);
   const [saleForm, setSaleForm] = useState(EMPTY_SALE_FORM);
+
+  useEffect(() => {
+    api.get('/payments/meta').then((res) => setPaybillMeta(res.data?.data || {})).catch(() => {});
+  }, []);
 
   useEffect(() => {
     api.get('/settings/ui-locks')
@@ -122,7 +127,10 @@ const DriverLogSalePage: React.FC = () => {
   // the default for payment_method='mpesa'; "I already have the code"
   // switches back to the old manual-reference field, for when STK isn't
   // available or the customer already paid another way.
-  const [mpesaMode, setMpesaMode] = useState<'stk' | 'manual'>('stk');
+  const [mpesaMode, setMpesaMode] = useState<'stk' | 'manual' | 'paybill'>('stk');
+  const [paybillMeta, setPaybillMeta] = useState<{ paybill?: string; account_number?: string }>({});
+  const [paybillWatch, setPaybillWatch] = useState<{ expires_at?: string } | null>(null);
+  const [watchingPaybill, setWatchingPaybill] = useState(false);
   const [stkPhone, setStkPhone] = useState('');
   const [stkStatus, setStkStatus] = useState<StkStatus>('idle');
   const [stkPayment, setStkPayment] = useState<StkPayment | null>(null);
@@ -160,6 +168,7 @@ const DriverLogSalePage: React.FC = () => {
 
   const selectCustomer = (c: CustomerRef) => {
     setSaleForm({ ...saleForm, customer_id: c.id, customer_name: c.name, customer_phone: c.phone || '' });
+    if (c.phone) setStkPhone(c.phone);
     setStkPhone(c.phone || '');
     setCustomerQuery(c.name);
     setCustomerResults([]);
@@ -211,7 +220,7 @@ const DriverLogSalePage: React.FC = () => {
     // button (type="button", calls initiateStk() directly) rather than
     // this form's normal submit -- this guard just stops a stray Enter
     // keypress from skipping straight to the old manual-confirm flow.
-    if (saleForm.payment_method === 'mpesa' && mpesaMode === 'stk') return;
+    if (saleForm.payment_method === 'mpesa' && (mpesaMode === 'stk' || mpesaMode === 'paybill')) return;
     if (!saleForm.customer_id) { toast.error('Select a customer'); return; }
     if (validSaleLineItems.length === 0) { toast.error('Add at least one line item (brand/size, bales, price)'); return; }
     for (const l of validSaleLineItems) {
@@ -291,7 +300,30 @@ const DriverLogSalePage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stkStatus, stkPayment?.id]);
 
-  const resetStk = () => { setStkStatus('idle'); setStkPayment(null); };
+  const resetStk = () => { setStkStatus('idle'); setStkPayment(null); setPaybillWatch(null); };
+
+  const startPaybillWatch = async () => {
+    if (!activeTrip) return;
+    if (!saleForm.customer_id) { toast.error('Select a customer'); return; }
+    const phone = normalizePhone(stkPhone || saleForm.customer_phone || '');
+    if (!/^254(7|1)\d{8}$/.test(phone)) { toast.error('Enter the phone they will pay from'); return; }
+    setWatchingPaybill(true);
+    try {
+      const res = await api.post('/payments/paybill/watch', {
+        phone,
+        customer_id: saleForm.customer_id,
+        amount: saleTotal > 0 ? saleTotal : undefined,
+        trip_id: activeTrip.id,
+        channel: 'field_trip',
+      });
+      setPaybillWatch(res.data.data);
+      toast.success(`Waiting for Paybill ${res.data.data?.paybill || paybillMeta.paybill || ''} account MARA`);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Could not start Paybill wait');
+    } finally {
+      setWatchingPaybill(false);
+    }
+  };
 
   const initiateStk = async () => {
     if (!activeTrip) return;
@@ -460,10 +492,14 @@ const DriverLogSalePage: React.FC = () => {
               or they already paid another way. */}
           {saleForm.payment_method === 'mpesa' && (
             <div className="bg-blue-50 dark:bg-blue-900/20 rounded-md p-3 space-y-3">
-              <div className="flex items-center gap-4 text-sm">
+              <div className="flex flex-wrap items-center gap-4 text-sm">
                 <label className="flex items-center gap-1.5 cursor-pointer">
                   <input type="radio" checked={mpesaMode === 'stk'} onChange={() => { setMpesaMode('stk'); resetStk(); }} />
                   Send payment request (STK)
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" checked={mpesaMode === 'paybill'} onChange={() => { setMpesaMode('paybill'); resetStk(); }} />
+                  They will pay Paybill
                 </label>
                 <label className="flex items-center gap-1.5 cursor-pointer">
                   <input type="radio" checked={mpesaMode === 'manual'} onChange={() => { setMpesaMode('manual'); resetStk(); }} />
@@ -475,6 +511,21 @@ const DriverLogSalePage: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">M-Pesa Reference</label>
                   <input type="text" value={saleForm.mpesa_reference} onChange={e => setSaleForm({ ...saleForm, mpesa_reference: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                </div>
+              ) : mpesaMode === 'paybill' ? (
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone they will pay from</label>
+                  <input type="tel" placeholder="07XXXXXXXX" value={stkPhone} onChange={e => setStkPhone(e.target.value)}
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    Paybill <span className="font-semibold">{paybillMeta.paybill || '—'}</span>, account <span className="font-semibold">MARA</span>
+                    {saleTotal > 0 ? ` · KES ${saleTotal.toLocaleString()}` : ''}.
+                  </p>
+                  {paybillWatch ? (
+                    <p className="text-sm text-green-700 dark:text-green-400">Waiting for their Paybill — expires {paybillWatch.expires_at ? new Date(paybillWatch.expires_at).toLocaleTimeString() : 'in 90 min'}.</p>
+                  ) : (
+                    <p className="text-xs text-gray-500">Tap Waiting for Paybill so we match the callback to this customer by phone.</p>
+                  )}
                 </div>
               ) : stkStatus === 'idle' || stkStatus === 'sending' ? (
                 <div>
@@ -620,11 +671,19 @@ const DriverLogSalePage: React.FC = () => {
                   {stkStatus === 'sending' ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Sending…</> : <><Smartphone className="w-4 h-4 mr-2" /> Send Payment Request</>}
                 </button>
               )
+            ) : saleForm.payment_method === 'mpesa' && mpesaMode === 'paybill' ? (
+              <button type="button" onClick={startPaybillWatch} disabled={watchingPaybill} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
+                {watchingPaybill ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</> : 'Waiting for Paybill'}
+              </button>
             ) : (
               <button type="submit" disabled={savingSale} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingSale ? 'Saving…' : 'Record Sale'}</button>
             )}
           </div>
         </form>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <DirectPaybillPanel compact toastNew />
       </div>
 
       {/* Quick "add new customer" */}

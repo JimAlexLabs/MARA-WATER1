@@ -230,7 +230,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       name: 'M-Pesa',
       href: '/payments',
       icon: BarChart3,
-      description: 'STK prompts, receipts, and unmatched paybill payments'
+      description: 'STK prompts, direct Paybill logs, and unmatched receipts'
     },
     { 
       name: 'Fleet', 

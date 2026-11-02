@@ -5,6 +5,7 @@ import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 import { PageShell, PageHero } from '../components/PageShell';
 import { useAuth } from '../contexts/AuthContext';
+import DirectPaybillPanel from '../components/DirectPaybillPanel';
 
 // Ops brief §2.5: driver/sales exec operational tool — KPIs, sell-through,
 // fuel, repairs, customer base, trackable discrepancies/issues.
@@ -242,6 +243,8 @@ const DriverPage: React.FC = () => {
           )}
         </div>
       )}
+
+      <DirectPaybillPanel toastNew />
 
       <div className="mara-panel p-6">
         <div className="flex items-center justify-between mb-3">

@@ -8,7 +8,9 @@ use App\Models\DriverTripSale;
 use App\Models\DriverTripSaleItem;
 use App\Models\MpesaPayment;
 use App\Models\Order;
+use App\Models\PaybillWatch;
 use App\Services\MpesaStkService;
+use App\Services\PaybillMatchService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -25,6 +27,7 @@ class MpesaPaymentController extends Controller
                 'mode' => $stk->mode(),
                 'paybill' => $stk->paybill(),
                 'account_prefix' => 'MARA-',
+                'account_number' => 'MARA',
             ],
         ]);
     }
@@ -173,6 +176,7 @@ class MpesaPaymentController extends Controller
                 'initiator:id,first_name,last_name',
                 'tripSale.customer:id,name',
                 'order.customer:id,name',
+                'customer:id,name,phone',
             ])
             ->latest()
             ->paginate($limit);
@@ -201,6 +205,7 @@ class MpesaPaymentController extends Controller
                     });
             })
             ->where('status', 'success')
+            ->with(['customer:id,name,phone', 'initiator:id,first_name,last_name'])
             ->orderByDesc('created_at')
             ->limit(200)
             ->get()
@@ -218,21 +223,26 @@ class MpesaPaymentController extends Controller
 
     public function export(Request $request)
     {
-        $rows = $this->filtered($request)->with('initiator:id,first_name,last_name')->latest()->limit(5000)->get();
+        $rows = $this->filtered($request)->with(['initiator:id,first_name,last_name', 'customer:id,name'])->latest()->limit(5000)->get();
         $sheet = new Spreadsheet();
         $ws = $sheet->getActiveSheet();
-        $ws->fromArray(['When', 'Reference', 'Phone', 'Amount', 'Status', 'Receipt', 'Channel', 'Location', 'By'], null, 'A1');
+        $ws->fromArray(['When', 'Source', 'Reference', 'Account', 'Phone', 'Payer', 'Customer', 'Amount', 'Status', 'Receipt', 'Channel', 'Match', 'Location', 'By'], null, 'A1');
         $r = 2;
         foreach ($rows as $p) {
             $who = trim(($p->initiator->first_name ?? '').' '.($p->initiator->last_name ?? ''));
             $ws->fromArray([
                 optional($p->created_at)->format('Y-m-d H:i'),
+                $p->source ?: 'stk',
                 $p->reference,
+                $p->bill_ref,
                 $p->phone,
+                $p->payer_name,
+                $p->customer?->name,
                 (float) $p->amount,
                 $p->status,
                 $p->mpesa_receipt,
                 $p->channel,
+                $p->match_method,
                 $p->location,
                 $who,
             ], null, 'A'.$r);
@@ -285,6 +295,133 @@ class MpesaPaymentController extends Controller
         return response()->json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
     }
 
+    /** GET /payments/paybill — C2B rows. Drivers see only their trip/customers. */
+    public function paybill(Request $request, PaybillMatchService $match)
+    {
+        $limit = min(100, (int) ($request->input('limit') ?: 80));
+        $query = $match->driverVisibleQuery($request->user())
+            ->with([
+                'initiator:id,first_name,last_name',
+                'tripSale.customer:id,name',
+                'order.customer:id,name',
+                'customer:id,name,phone',
+            ])
+            ->latest();
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+        $page = $query->paginate($limit);
+        $claimPhones = $request->user()->hasAccessTier('driver')
+            ? $match->driverTodayCustomerPhones($request->user()->id)
+            : [];
+
+        return response()->json([
+            'success' => true,
+            'data' => collect($page->items())->map(function (MpesaPayment $p) use ($claimPhones) {
+                $row = $this->listRow($p);
+                $row['claimable'] = (bool) $p->unmatched
+                    && $p->status === 'success'
+                    && ! $p->order_id
+                    && ! $p->driver_trip_sale_id
+                    && $claimPhones
+                    && in_array(PaybillMatchService::last9((string) $p->phone), $claimPhones, true);
+
+                return $row;
+            })->values(),
+            'pagination' => [
+                'current_page' => $page->currentPage(),
+                'per_page' => $page->perPage(),
+                'total' => $page->total(),
+                'last_page' => $page->lastPage(),
+            ],
+        ]);
+    }
+
+    /** POST /payments/paybill/watch — "Waiting for Paybill" window. */
+    public function watch(Request $request, PaybillMatchService $match)
+    {
+        $data = $request->validate([
+            'phone' => 'required|string|max:20',
+            'customer_id' => 'nullable|uuid|exists:customers,id',
+            'amount' => 'nullable|numeric|min:0',
+            'trip_id' => 'nullable|uuid|exists:driver_trips,id',
+            'order_id' => 'nullable|uuid|exists:orders,id',
+            'driver_trip_sale_id' => 'nullable|uuid|exists:driver_trip_sales,id',
+            'channel' => 'nullable|in:field_trip,warehouse,refill,admin,paybill',
+        ]);
+        if ($request->user()->hasAccessTier('driver') && ! empty($data['trip_id'])) {
+            $trip = DriverTrip::find($data['trip_id']);
+            if (! $trip || $trip->driver_id !== $request->user()->id) {
+                return response()->json(['success' => false, 'message' => 'You do not have access to this trip.'], 403);
+            }
+        }
+        try {
+            $watch = $match->openWatch($data, $request->user());
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Waiting for Paybill — tell them account MARA.',
+            'data' => [
+                'id' => $watch->id,
+                'phone' => $watch->phone,
+                'amount' => $watch->amount,
+                'expires_at' => optional($watch->expires_at)?->toIso8601String(),
+                'account_number' => 'MARA',
+                'paybill' => app(MpesaStkService::class)->paybill(),
+            ],
+        ], 201);
+    }
+
+    public function watches(Request $request)
+    {
+        $q = PaybillWatch::query()->with('customer:id,name,phone')->latest();
+        if ($request->user()->hasAccessTier('driver')) {
+            $q->where('initiated_by', $request->user()->id);
+        }
+        $rows = $q->open()->limit(40)->get()->map(fn (PaybillWatch $w) => [
+            'id' => $w->id,
+            'phone' => $w->phone,
+            'amount' => $w->amount,
+            'expires_at' => optional($w->expires_at)?->toIso8601String(),
+            'customer' => $w->customer ? ['id' => $w->customer->id, 'name' => $w->customer->name] : null,
+            'trip_id' => $w->trip_id,
+        ]);
+
+        return response()->json(['success' => true, 'data' => $rows]);
+    }
+
+    public function claim(Request $request, string $id, PaybillMatchService $match)
+    {
+        $payment = MpesaPayment::find($id);
+        if (! $payment) {
+            return response()->json(['success' => false, 'message' => 'Payment not found'], 404);
+        }
+        $data = $request->validate([
+            'sale_type' => 'nullable|in:order,trip,driver_trip_sale',
+            'sale_id' => 'nullable|uuid',
+        ]);
+        try {
+            $saleType = $data['sale_type'] ?? null;
+            if ($saleType === 'driver_trip_sale') {
+                $saleType = 'trip';
+            }
+            $payment = $match->claim($payment, $request->user(), $saleType, $data['sale_id'] ?? null);
+            if ($payment->order_id || $payment->driver_trip_sale_id) {
+                $payment->update(['unmatched' => false]);
+            }
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['success' => true, 'data' => $this->listRow($payment->fresh()->load(['customer', 'initiator', 'tripSale.customer', 'order.customer']))]);
+    }
+
     public function webhook(Request $request, MpesaStkService $stk)
     {
         $secret = (string) config('mpesa.webhook_secret');
@@ -316,6 +453,9 @@ class MpesaPaymentController extends Controller
         if ($request->filled('channel')) {
             $q->where('channel', $request->channel);
         }
+        if ($request->filled('source')) {
+            $q->where('source', $request->source);
+        }
         if ($request->filled('location')) {
             $q->where('location', $request->location);
         }
@@ -344,20 +484,33 @@ class MpesaPaymentController extends Controller
         $tripSale = $payment->tripSale;
         $order = $payment->order;
 
+        $customer = $payment->customer;
+
         return [
             'id' => $payment->id,
             'channel' => $payment->channel,
+            'source' => $payment->source ?: 'stk',
             'reference' => $payment->reference,
+            'bill_ref' => $payment->bill_ref,
             'phone' => $payment->phone,
+            'payer_name' => $payment->payer_name,
             'amount' => (string) $payment->amount,
             'status' => $payment->status,
             'result_desc' => $payment->result_desc,
             'mpesa_receipt' => $payment->mpesa_receipt,
+            'match_method' => $payment->match_method,
+            'unmatched' => (bool) $payment->unmatched,
             'created_at' => optional($payment->created_at)?->toIso8601String(),
+            'paid_at' => optional($payment->paid_at)?->toIso8601String(),
             'location' => is_string($payment->location) && $payment->location !== ''
                 ? ['name' => $payment->location]
                 : null,
             'initiated_by' => $fullName ? ['full_name' => $fullName] : null,
+            'customer' => $customer ? [
+                'id' => $customer->id,
+                'name' => $customer->name,
+                'phone' => $customer->phone,
+            ] : null,
             'driver_trip_sale' => $tripSale ? [
                 'id' => $tripSale->id,
                 'customer' => $tripSale->customer ? ['name' => $tripSale->customer->name] : null,
@@ -367,6 +520,7 @@ class MpesaPaymentController extends Controller
                 'order_no' => $order->order_no ?? $order->order_number ?? null,
                 'customer' => $order->customer ? ['name' => $order->customer->name] : null,
             ] : null,
+            'trip_id' => $payment->trip_id,
         ];
     }
 
@@ -384,7 +538,12 @@ class MpesaPaymentController extends Controller
             'location' => $payment->location,
             'order_id' => $payment->order_id,
             'driver_trip_sale_id' => $payment->driver_trip_sale_id,
+            'source' => $payment->source ?: 'stk',
+            'bill_ref' => $payment->bill_ref,
+            'match_method' => $payment->match_method,
+            'unmatched' => (bool) $payment->unmatched,
             'paybill' => $stk->paybill(),
+            'account_number' => 'MARA',
             'mode' => $stk->mode(),
             'paid_at' => optional($payment->paid_at)?->toIso8601String(),
         ];

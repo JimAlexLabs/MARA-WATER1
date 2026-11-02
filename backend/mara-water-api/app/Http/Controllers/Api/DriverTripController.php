@@ -501,6 +501,18 @@ class DriverTripController extends Controller
 
         $payment = null;
         if ($request->payment_method === 'mpesa') {
+            $already = app(\App\Services\PaybillMatchService::class)->attachOpenC2bToTripSale($sale->fresh());
+            if ($already) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Sale recorded — Paybill '.$already->mpesa_receipt.' already received.',
+                    'data' => [
+                        'sale' => $sale->fresh(['customer', 'debt', 'items.sku']),
+                        'trip' => $trip->fresh(self::WITH),
+                        'payment' => $already,
+                    ],
+                ], 201);
+            }
             try {
                 $payment = app(\App\Services\MpesaStkService::class)->startForTripSale($sale, $request->stk_phone, $request->user());
             } catch (\Throwable $e) {

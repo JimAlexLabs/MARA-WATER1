@@ -14,6 +14,8 @@ interface PaymentRow {
   id: string; channel: string; reference: string; phone: string; amount: string;
   status: 'pending' | 'success' | 'failed' | 'cancelled' | 'timeout';
   result_desc: string | null; mpesa_receipt: string | null; created_at: string;
+  source?: string; bill_ref?: string | null; payer_name?: string | null; match_method?: string | null;
+  customer?: { id: string; name: string } | null;
   driver_trip_sale?: { id: string; customer?: { name: string } } | null;
   order?: { id: string; order_no: string; customer?: { name: string } } | null;
   initiated_by?: { full_name: string } | null;
@@ -28,7 +30,7 @@ const STATUS_COLOR: Record<string, string> = {
   cancelled: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
   timeout: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
 };
-const CHANNEL_LABEL: Record<string, string> = { field_trip: 'Field Trip', warehouse: 'Warehouse', refill: 'Refill', admin: 'Admin' };
+const CHANNEL_LABEL: Record<string, string> = { field_trip: 'Field Trip', warehouse: 'Warehouse', refill: 'Refill', admin: 'Admin', paybill: 'Paybill' };
 
 /** Accept a plain array, or a Laravel paginator `{ data: [...] }`, never throw on .map. */
 function asPaymentList<T>(payload: unknown): T[] {
@@ -40,7 +42,7 @@ function asPaymentList<T>(payload: unknown): T[] {
 }
 
 const MpesaPaymentsPage: React.FC = () => {
-  const [tab, setTab] = useState<'all' | 'unmatched'>('all');
+  const [tab, setTab] = useState<'all' | 'paybill' | 'unmatched'>('all');
   const [rows, setRows] = useState<PaymentRow[]>([]);
   const [unmatchedRows, setUnmatchedRows] = useState<UnmatchedRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,11 +66,12 @@ const MpesaPaymentsPage: React.FC = () => {
         date_from: dateFrom, date_to: dateTo, limit: 100,
         ...(channelFilter !== 'all' ? { channel: channelFilter } : {}),
         ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
+        ...(tab === 'paybill' ? { source: 'c2b' } : {}),
       },
     }).then(res => setRows(asPaymentList<PaymentRow>(res.data?.data)))
       .catch(() => { setRows([]); toast.error('Failed to load payments'); })
       .finally(() => setLoading(false));
-  }, [dateFrom, dateTo, channelFilter, statusFilter]);
+  }, [dateFrom, dateTo, channelFilter, statusFilter, tab]);
 
   const fetchUnmatched = useCallback(() => {
     api.get('/payments/unmatched')
@@ -116,14 +119,16 @@ const MpesaPaymentsPage: React.FC = () => {
     }
   };
 
-  const buyerName = (r: PaymentRow) => r.driver_trip_sale?.customer?.name || r.order?.customer?.name || '—';
+  const buyerName = (r: PaymentRow) => r.customer?.name || r.driver_trip_sale?.customer?.name || r.order?.customer?.name || r.payer_name || '—';
+
+  const visibleRows = rows;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2"><Smartphone className="w-6 h-6" /> M-Pesa Payments</h1>
-          <p className="text-gray-600 dark:text-gray-400">Every STK push MARA has sent, across field trips, warehouse, refill and admin sales -- via the shared AfriGig gateway.</p>
+          <p className="text-gray-600 dark:text-gray-400">STK prompts we sent, and direct Paybill payments (account MARA) captured from the callback.</p>
         </div>
         <button onClick={exportXlsx} className="flex items-center text-sm px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
           <Download className="w-4 h-4 mr-1.5" /> Export
@@ -132,12 +137,13 @@ const MpesaPaymentsPage: React.FC = () => {
 
       <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
         <button onClick={() => setTab('all')} className={`px-4 py-2 text-sm font-medium border-b-2 ${tab === 'all' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}>All Payments</button>
+        <button onClick={() => setTab('paybill')} className={`px-4 py-2 text-sm font-medium border-b-2 ${tab === 'paybill' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}>Paybill</button>
         <button onClick={() => setTab('unmatched')} className={`px-4 py-2 text-sm font-medium border-b-2 flex items-center gap-1.5 ${tab === 'unmatched' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}>
           Unmatched {unmatchedRows.length > 0 && <span className="inline-flex items-center justify-center text-xs bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 rounded-full h-5 w-5">{unmatchedRows.length}</span>}
         </button>
       </div>
 
-      {tab === 'all' ? (
+      {tab !== 'unmatched' ? (
         <>
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex flex-wrap gap-3 items-end">
             <div>
@@ -174,14 +180,15 @@ const MpesaPaymentsPage: React.FC = () => {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
             {loading ? (
               <div className="p-8 text-center text-sm text-gray-400">Loading…</div>
-            ) : rows.length === 0 ? (
-              <div className="p-8 text-center text-sm text-gray-400">No payments in this range.</div>
+            ) : visibleRows.length === 0 ? (
+              <div className="p-8 text-center text-sm text-gray-400">{tab === 'paybill' ? 'No direct Paybill payments in this range.' : 'No payments in this range.'}</div>
             ) : (
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
                 <thead>
                   <tr>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Reference</th>
+                    {tab === 'paybill' && <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Account</th>}
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Channel</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Buyer / Phone</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Amount</th>
@@ -191,11 +198,12 @@ const MpesaPaymentsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {rows.map(r => (
+                  {visibleRows.map(r => (
                     <tr key={r.id}>
                       <td className="px-4 py-2 text-gray-900 dark:text-gray-100">{new Date(r.created_at).toLocaleString()}</td>
-                      <td className="px-4 py-2 text-gray-900 dark:text-gray-100">{r.reference}</td>
-                      <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{CHANNEL_LABEL[r.channel] || r.channel}{r.location?.name ? ` · ${r.location.name}` : ''}</td>
+                      <td className="px-4 py-2 text-gray-900 dark:text-gray-100">{r.reference}{r.source === 'c2b' && tab !== 'paybill' ? ' · Paybill' : ''}</td>
+                      {tab === 'paybill' && <td className="px-4 py-2 text-gray-500">{r.bill_ref || 'MARA'}</td>}
+                      <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{CHANNEL_LABEL[r.channel] || r.channel}{r.location?.name ? ` · ${r.location.name}` : ''}{r.match_method ? ` · ${r.match_method}` : ''}</td>
                       <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{buyerName(r)} · {r.phone}</td>
                       <td className="px-4 py-2 text-gray-900 dark:text-gray-100">KES {parseFloat(r.amount).toLocaleString()}</td>
                       <td className="px-4 py-2">
