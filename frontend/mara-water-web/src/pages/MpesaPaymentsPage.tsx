@@ -41,13 +41,29 @@ function asPaymentList<T>(payload: unknown): T[] {
   return [];
 }
 
+/** Kenya calendar date — UTC ISO alone shifts the day after midnight EAT. */
+function nairobiDate(d = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Nairobi',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
 const MpesaPaymentsPage: React.FC = () => {
   const [tab, setTab] = useState<'all' | 'paybill' | 'unmatched'>('all');
   const [rows, setRows] = useState<PaymentRow[]>([]);
   const [unmatchedRows, setUnmatchedRows] = useState<UnmatchedRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [meta, setMeta] = useState<{
+    paybill?: string;
+    account_number?: string;
+    c2b_registerable?: boolean;
+    c2b_confirmation_url?: string;
+  } | null>(null);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = nairobiDate();
   const monthStart = today.slice(0, 8) + '01';
   const [dateFrom, setDateFrom] = useState(monthStart);
   const [dateTo, setDateTo] = useState(today);
@@ -58,6 +74,10 @@ const MpesaPaymentsPage: React.FC = () => {
   const [assignSaleType, setAssignSaleType] = useState<'driver_trip_sale' | 'order'>('driver_trip_sale');
   const [assignSaleId, setAssignSaleId] = useState('');
   const [savingAssign, setSavingAssign] = useState(false);
+  const [showManualLog, setShowManualLog] = useState(false);
+  const [manualForm, setManualForm] = useState({ mpesa_receipt: '', amount: '', phone: '', bill_ref: 'MARA', payer_name: '' });
+  const [savingManual, setSavingManual] = useState(false);
+  const [registering, setRegistering] = useState(false);
 
   const fetchAll = useCallback(() => {
     setLoading(true);
@@ -80,6 +100,9 @@ const MpesaPaymentsPage: React.FC = () => {
   }, []);
 
   useEffect(() => { fetchAll(); fetchUnmatched(); }, [fetchAll, fetchUnmatched]);
+  useEffect(() => {
+    api.get('/payments/meta').then((res) => setMeta(res.data?.data || null)).catch(() => {});
+  }, []);
 
   const retry = (id: string) => {
     api.post(`/payments/${id}/retry`).then(() => { toast.success('Rechecked'); fetchAll(); }).catch((e) => toast.error(e.response?.data?.message || 'Failed to recheck'));
@@ -123,16 +146,80 @@ const MpesaPaymentsPage: React.FC = () => {
 
   const visibleRows = rows;
 
+  const submitManualLog = async () => {
+    if (!manualForm.mpesa_receipt.trim() || !manualForm.amount || !manualForm.phone.trim()) {
+      toast.error('Receipt, amount, and phone are required');
+      return;
+    }
+    setSavingManual(true);
+    try {
+      await api.post('/payments/paybill/log', {
+        mpesa_receipt: manualForm.mpesa_receipt.trim(),
+        amount: Number(manualForm.amount),
+        phone: manualForm.phone.trim(),
+        bill_ref: manualForm.bill_ref.trim() || 'MARA',
+        payer_name: manualForm.payer_name.trim() || undefined,
+      });
+      toast.success('Paybill logged');
+      setShowManualLog(false);
+      setManualForm({ mpesa_receipt: '', amount: '', phone: '', bill_ref: 'MARA', payer_name: '' });
+      fetchAll();
+      fetchUnmatched();
+      setTab('paybill');
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Could not log Paybill');
+    } finally {
+      setSavingManual(false);
+    }
+  };
+
+  const registerUrls = async () => {
+    setRegistering(true);
+    try {
+      const res = await api.post('/payments/paybill/register-urls');
+      toast.success(res.data?.message || 'Paybill callbacks registered with Safaricom');
+      api.get('/payments/meta').then((r) => setMeta(r.data?.data || null)).catch(() => {});
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Could not register C2B URLs — add Daraja keys on Railway first');
+    } finally {
+      setRegistering(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2"><Smartphone className="w-6 h-6" /> M-Pesa Payments</h1>
-          <p className="text-gray-600 dark:text-gray-400">STK prompts we sent, and direct Paybill payments (account MARA) captured from the callback.</p>
+          <p className="text-gray-600 dark:text-gray-400">
+            STK prompts we sent, and direct Paybill {meta?.paybill || '—'} · account {meta?.account_number || 'MARA'}.
+          </p>
         </div>
-        <button onClick={exportXlsx} className="flex items-center text-sm px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
-          <Download className="w-4 h-4 mr-1.5" /> Export
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setShowManualLog(true)} className="flex items-center text-sm px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+            Log Paybill receipt
+          </button>
+          <button onClick={exportXlsx} className="flex items-center text-sm px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+            <Download className="w-4 h-4 mr-1.5" /> Export
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-4 text-sm text-amber-950 dark:text-amber-100 space-y-2">
+        <p className="font-medium flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> Direct Paybill only appears after Safaricom is told to call MARA</p>
+        <p>
+          Paybill {meta?.paybill || '4321343'}, account <strong>MARA</strong>. If money left the phone but nothing shows here, the till’s Confirmation URL is not registered yet — use <strong>Log Paybill receipt</strong> for those SMS codes, then register callbacks so the next ones land automatically.
+        </p>
+        {meta?.c2b_registerable ? (
+          <button type="button" onClick={registerUrls} disabled={registering} className="text-sm font-medium text-blue-700 dark:text-blue-300 hover:underline disabled:opacity-50">
+            {registering ? 'Registering with Safaricom…' : 'Register Paybill callbacks now (Director)'}
+          </button>
+        ) : (
+          <p className="text-xs opacity-90">
+            Add <code className="px-1 bg-white/50 dark:bg-black/30 rounded">MPESA_CONSUMER_KEY</code>, <code className="px-1 bg-white/50 dark:bg-black/30 rounded">MPESA_CONSUMER_SECRET</code>, and <code className="px-1 bg-white/50 dark:bg-black/30 rounded">MPESA_SHORTCODE={meta?.paybill || '4321343'}</code> on Railway (same Daraja app as the Paybill), redeploy, then click register — or set Confirmation URL in the Daraja portal to{' '}
+            <code className="break-all px-1 bg-white/50 dark:bg-black/30 rounded">{meta?.c2b_confirmation_url || '…/api/v1/payments/daraja/c2b'}</code>.
+          </p>
+        )}
       </div>
 
       <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
@@ -287,6 +374,46 @@ const MpesaPaymentsPage: React.FC = () => {
             <div className="flex justify-end space-x-3 mt-4">
               <button onClick={() => setAssigning(null)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
               <button onClick={submitAssign} disabled={savingAssign} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingAssign ? 'Saving…' : 'Assign'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showManualLog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Log Paybill receipt</h3>
+              <button onClick={() => setShowManualLog(false)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+              Use the M-Pesa SMS code when a customer already paid Paybill {meta?.paybill || ''} account MARA but the callback never arrived.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">M-Pesa receipt</label>
+                <input value={manualForm.mpesa_receipt} onChange={(e) => setManualForm({ ...manualForm, mpesa_receipt: e.target.value })} placeholder="e.g. TJ7XXXXXXX" className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Amount (KES)</label>
+                <input type="number" min={1} value={manualForm.amount} onChange={(e) => setManualForm({ ...manualForm, amount: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payer phone</label>
+                <input type="tel" value={manualForm.phone} onChange={(e) => setManualForm({ ...manualForm, phone: e.target.value })} placeholder="07XXXXXXXX" className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Account typed</label>
+                <input value={manualForm.bill_ref} onChange={(e) => setManualForm({ ...manualForm, bill_ref: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payer name (optional)</label>
+                <input value={manualForm.payer_name} onChange={(e) => setManualForm({ ...manualForm, payer_name: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 mt-4">
+              <button onClick={() => setShowManualLog(false)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md text-gray-700 dark:text-gray-300">Cancel</button>
+              <button onClick={submitManualLog} disabled={savingManual} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{savingManual ? 'Saving…' : 'Save'}</button>
             </div>
           </div>
         </div>

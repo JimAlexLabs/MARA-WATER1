@@ -38,6 +38,26 @@ class MpesaStkService
         return $bill ? (string) $bill : null;
     }
 
+    public function c2bConfirmationUrl(): string
+    {
+        return (string) (config('mpesa.c2b_confirmation_url')
+            ?: rtrim((string) config('app.url'), '/').'/api/v1/payments/daraja/c2b');
+    }
+
+    public function c2bValidationUrl(): string
+    {
+        return (string) (config('mpesa.c2b_validation_url')
+            ?: rtrim((string) config('app.url'), '/').'/api/v1/payments/daraja/c2b/validate');
+    }
+
+    /** True when Daraja app credentials exist so we can RegisterURL for Paybill C2B. */
+    public function canRegisterC2bUrls(): bool
+    {
+        return (bool) (config('mpesa.consumer_key')
+            && config('mpesa.consumer_secret')
+            && (config('mpesa.shortcode') ?: config('mpesa.paybill')));
+    }
+
     public static function normalizePhone(string $phone): string
     {
         $digits = preg_replace('/\D+/', '', $phone) ?? '';
@@ -243,6 +263,11 @@ class MpesaStkService
 
     public function applyWebhook(array $body): MpesaPayment
     {
+        // Gateway / forwarder may pass a raw Safaricom C2B confirmation.
+        if (! empty($body['TransID']) || ! empty($body['BillRefNumber']) || ! empty($body['MSISDN'])) {
+            return $this->applyC2b($body);
+        }
+
         $payment = null;
         if (! empty($body['payment_id'])) {
             $payment = MpesaPayment::where('gateway_payment_id', $body['payment_id'])->first();
@@ -310,9 +335,69 @@ class MpesaStkService
 
     public function applyC2b(array $body): MpesaPayment
     {
+        Log::info('M-Pesa C2B confirmation received', [
+            'trans_id' => $body['TransID'] ?? $body['mpesa_receipt'] ?? null,
+            'bill_ref' => $body['BillRefNumber'] ?? $body['BillRef'] ?? null,
+            'amount' => $body['TransAmount'] ?? $body['amount'] ?? null,
+            'msisdn' => isset($body['MSISDN']) ? substr(preg_replace('/\D+/', '', (string) $body['MSISDN']), -4) : null,
+        ]);
+
         return \Illuminate\Support\Facades\DB::transaction(
             fn () => app(PaybillMatchService::class)->ingestC2b($body)
         );
+    }
+
+    /**
+     * Tell Safaricom to POST Paybill confirmations to MARA.
+     * Required once per shortcode — without this, direct Paybill never arrives.
+     */
+    public function registerC2bUrls(): array
+    {
+        if (! $this->canRegisterC2bUrls()) {
+            throw new \RuntimeException(
+                'Set MPESA_CONSUMER_KEY, MPESA_CONSUMER_SECRET, and MPESA_SHORTCODE (or MPESA_PAYBILL) on Railway, then register C2B URLs.'
+            );
+        }
+
+        $shortcode = (string) (config('mpesa.shortcode') ?: config('mpesa.paybill'));
+        $confirmation = $this->c2bConfirmationUrl();
+        $validation = $this->c2bValidationUrl();
+
+        $res = Http::withToken($this->darajaToken())
+            ->acceptJson()
+            ->timeout(25)
+            ->post($this->darajaBase().'/mpesa/c2b/v1/registerurl', [
+                'ShortCode' => $shortcode,
+                'ResponseType' => 'Completed',
+                'ConfirmationURL' => $confirmation,
+                'ValidationURL' => $validation,
+            ]);
+
+        $body = $res->json() ?? [];
+        Log::info('M-Pesa C2B RegisterURL', [
+            'http' => $res->status(),
+            'response' => $body,
+            'confirmation' => $confirmation,
+            'validation' => $validation,
+        ]);
+
+        if (! $res->successful() || (string) ($body['ResponseCode'] ?? '1') !== '0') {
+            throw new \RuntimeException(
+                $body['errorMessage']
+                    ?? $body['ResponseDescription']
+                    ?? $body['errorMessage']
+                    ?? ('Safaricom rejected C2B URL registration (HTTP '.$res->status().').')
+            );
+        }
+
+        return [
+            'shortcode' => $shortcode,
+            'confirmation_url' => $confirmation,
+            'validation_url' => $validation,
+            'response_description' => $body['ResponseDescription'] ?? 'Success',
+            'conversation_id' => $body['ConversationID'] ?? null,
+            'originator_conversation_id' => $body['OriginatorCoversationID'] ?? $body['OriginatorConversationID'] ?? null,
+        ];
     }
 
     /** Used by PaybillMatchService after identity matching. */

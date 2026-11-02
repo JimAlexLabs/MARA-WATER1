@@ -75,6 +75,7 @@ Route::prefix('v1')->group(function () {
     // Safaricom / AfriGig callbacks — no MARA login. Signature / CheckoutRequestID verified in controller.
     Route::post('/payments/daraja/callback', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'darajaCallback']);
     Route::post('/payments/daraja/c2b', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'c2b']);
+    Route::post('/payments/daraja/c2b/validate', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'c2bValidate']);
     Route::post('/payments/webhook', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'webhook']);
 
     // Protected routes
@@ -159,9 +160,14 @@ Route::prefix('v1')->group(function () {
             Route::get('/export', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'export']);
             Route::get('/unmatched', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'unmatched']);
             Route::get('/', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'index']);
+            Route::post('/paybill/log', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'logPaybill']);
             Route::post('/{id}/retry', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'retry']);
             Route::post('/{id}/assign', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'assign']);
             Route::post('/unmatched/{id}/assign', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'assign']);
+        });
+
+        Route::middleware('tier:director')->prefix('payments')->group(function () {
+            Route::post('/paybill/register-urls', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'registerC2bUrls']);
         });
 
         // Round 2 Phase 11: a driver's own dashboard -- their own trip

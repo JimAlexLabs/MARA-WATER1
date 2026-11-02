@@ -28,6 +28,9 @@ class MpesaPaymentController extends Controller
                 'paybill' => $stk->paybill(),
                 'account_prefix' => 'MARA-',
                 'account_number' => 'MARA',
+                'c2b_confirmation_url' => $stk->c2bConfirmationUrl(),
+                'c2b_validation_url' => $stk->c2bValidationUrl(),
+                'c2b_registerable' => $stk->canRegisterC2bUrls(),
             ],
         ]);
     }
@@ -290,9 +293,98 @@ class MpesaPaymentController extends Controller
 
     public function c2b(Request $request, MpesaStkService $stk)
     {
-        $stk->applyC2b($request->all());
+        try {
+            $stk->applyC2b($request->all());
+        } catch (\Throwable $e) {
+            \Log::error('M-Pesa C2B ingest failed', ['error' => $e->getMessage()]);
+        }
 
         return response()->json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
+    }
+
+    /**
+     * Safaricom C2B ValidationURL — MARA-only Paybill: always accept.
+     * Must be registered together with ConfirmationURL via Daraja RegisterURL.
+     */
+    public function c2bValidate(Request $request)
+    {
+        \Log::info('M-Pesa C2B validation', [
+            'bill_ref' => $request->input('BillRefNumber'),
+            'amount' => $request->input('TransAmount'),
+        ]);
+
+        return response()->json([
+            'ResultCode' => 0,
+            'ResultDesc' => 'Accepted',
+        ]);
+    }
+
+    /** Director: register Safaricom Confirmation/Validation URLs for this Paybill. */
+    public function registerC2bUrls(Request $request, MpesaStkService $stk)
+    {
+        if (! $request->user()?->hasAccessTier('director')) {
+            return response()->json(['success' => false, 'message' => 'Only the Director can register Paybill callbacks.'], 403);
+        }
+        try {
+            $result = $stk->registerC2bUrls();
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Safaricom will now send direct Paybill payments to MARA.',
+            'data' => $result,
+        ]);
+    }
+
+    /**
+     * Manager/Director: log a Paybill that already hit the till but never
+     * reached our callback (e.g. before C2B URLs were registered).
+     */
+    public function logPaybill(Request $request, MpesaStkService $stk)
+    {
+        $data = $request->validate([
+            'mpesa_receipt' => 'required|string|max:32',
+            'amount' => 'required|numeric|min:1',
+            'phone' => 'required|string|max:20',
+            'bill_ref' => 'nullable|string|max:32',
+            'payer_name' => 'nullable|string|max:80',
+            'paid_at' => 'nullable|date',
+        ]);
+
+        $receipt = strtoupper(trim($data['mpesa_receipt']));
+        if (MpesaPayment::where('mpesa_receipt', $receipt)->exists()) {
+            return response()->json(['success' => false, 'message' => 'That M-Pesa receipt is already in the ledger.'], 422);
+        }
+
+        try {
+            $phone = MpesaStkService::normalizePhone($data['phone']);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        $payment = $stk->applyC2b([
+            'TransID' => $receipt,
+            'TransAmount' => $data['amount'],
+            'MSISDN' => $phone,
+            'BillRefNumber' => $data['bill_ref'] ?: 'MARA',
+            'FirstName' => $data['payer_name'] ?? null,
+        ]);
+
+        if (! empty($data['paid_at'])) {
+            $payment->update(['paid_at' => $data['paid_at'], 'created_at' => $data['paid_at']]);
+        }
+        $payment->update([
+            'result_desc' => 'Manual Paybill log (callback was missing)',
+            'initiated_by' => $request->user()->id,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Paybill logged',
+            'data' => $this->listRow($payment->fresh()->load(['customer', 'initiator', 'tripSale.customer', 'order.customer'])),
+        ], 201);
     }
 
     /** GET /payments/paybill — C2B rows. Drivers see only their trip/customers. */
