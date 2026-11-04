@@ -148,6 +148,12 @@ const ProductionPage: React.FC = () => {
   const [capacityAlerts, setCapacityAlerts] = useState<CapacityAlert[]>([]);
   const [capacitySummary, setCapacitySummary] = useState<{ total_bales_possible?: number; sizes_blocked?: number; rules?: Record<string, string> } | null>(null);
   const [unsold, setUnsold] = useState<Array<{ sku_id: string; sku_name: string; sku_code?: string; unsold_bales: number }>>([]);
+  const [producedTotals, setProducedTotals] = useState<{
+    by_sku: Array<{ sku_id: string; sku_name: string; sku_code?: string; total_bales: number; batch_count?: number }>;
+    grand_total_bales: number;
+    sku_count?: number;
+    batch_count?: number;
+  } | null>(null);
   const [showDeletedBatches, setShowDeletedBatches] = useState(false);
   const [trashedBatches, setTrashedBatches] = useState<Array<{ id: string; code?: string; planned_qty?: number; manufacture_date?: string; sku?: { name?: string } }>>([]);
   const [loadingTrashedBatches, setLoadingTrashedBatches] = useState(false);
@@ -184,6 +190,7 @@ const ProductionPage: React.FC = () => {
       const res = await api.get('/production/daily', { params: { limit: 90 } });
       setDailyDays(res.data.data || []);
       setUnsold(res.data.unsold || []);
+      setProducedTotals(res.data.produced_totals || null);
     } catch {
       toast.error('Failed to fetch daily production');
     } finally {
@@ -559,6 +566,26 @@ const ProductionPage: React.FC = () => {
 
           {activeTab === 'daily' && !selectedDate && (
             <div className="space-y-4">
+            {producedTotals && (producedTotals.by_sku?.length > 0 || producedTotals.grand_total_bales > 0) && (
+              <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/20 p-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Total produced (all days)</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Running tally of every batch recorded — grows as you add production days.</p>
+                  </div>
+                  <p className="text-lg font-bold text-blue-800 dark:text-blue-200">
+                    {Number(producedTotals.grand_total_bales || 0).toLocaleString()} bales
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {producedTotals.by_sku.map((row) => (
+                    <span key={row.sku_id} className="text-xs rounded-full bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-800 px-2 py-1">
+                      {row.sku_name}: <strong>{Number(row.total_bales).toLocaleString()}</strong> bales
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             {unsold.length > 0 && (
               <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/20 p-4">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Finished bales still unsold</p>
@@ -609,6 +636,18 @@ const ProductionPage: React.FC = () => {
                     </tr>
                   )}
                 </tbody>
+                {filteredDays.length > 0 && (
+                  <tfoot className="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                      <td className="px-6 py-3 text-sm font-semibold text-gray-900 dark:text-gray-100" colSpan={3}>
+                        Listed days total
+                      </td>
+                      <td className="px-6 py-3 text-sm font-bold text-gray-900 dark:text-gray-100">
+                        {filteredDays.reduce((s, d) => s + (d.total_bales || 0), 0).toLocaleString()}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
               {director && (
                 <div className="mt-4 px-2 pb-2">

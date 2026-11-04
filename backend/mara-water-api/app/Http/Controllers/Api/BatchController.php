@@ -302,10 +302,45 @@ class BatchController extends Controller
                     'total_bales' => (int) $row->total_bales,
                 ]);
 
+            // Lifetime produced tally (all non-deleted batches) — per SKU + grand total.
+            $producedRows = Batch::whereNull('deleted_at')
+                ->selectRaw('sku_id')
+                ->selectRaw('SUM(COALESCE(actual_qty, planned_qty)) as total_bales')
+                ->selectRaw('COUNT(*) as batch_count')
+                ->groupBy('sku_id')
+                ->get();
+
+            $skuMap = \App\Models\Sku::whereIn('id', $producedRows->pluck('sku_id')->filter())
+                ->get(['id', 'code', 'name', 'brand', 'size_liters'])
+                ->keyBy('id');
+
+            $producedBySku = $producedRows
+                ->map(function ($row) use ($skuMap) {
+                    $sku = $skuMap->get($row->sku_id);
+
+                    return [
+                        'sku_id' => $row->sku_id,
+                        'sku_code' => $sku?->code,
+                        'sku_name' => $sku?->name ?? 'SKU',
+                        'brand' => $sku?->brand,
+                        'size_liters' => $sku?->size_liters,
+                        'total_bales' => (int) $row->total_bales,
+                        'batch_count' => (int) $row->batch_count,
+                    ];
+                })
+                ->sortByDesc('total_bales')
+                ->values();
+
             return response()->json([
                 'success' => true,
                 'data' => $days,
                 'unsold' => app(\App\Services\FinishedGoodsService::class)->balances(),
+                'produced_totals' => [
+                    'by_sku' => $producedBySku,
+                    'grand_total_bales' => (int) $producedBySku->sum('total_bales'),
+                    'sku_count' => $producedBySku->count(),
+                    'batch_count' => (int) $producedBySku->sum('batch_count'),
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([

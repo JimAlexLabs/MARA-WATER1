@@ -595,13 +595,27 @@ class PackagingRunController extends Controller
 
         foreach ($moves as $move) {
             if ($move->move_type === 'produce' && $move->warehouse_to_id) {
+                // Only pull back what is still on hand for this batch.
+                // Sold / dispatched bales are already gone — reversing the
+                // full produce qty would throw "Insufficient stock" and
+                // block deleting the production record.
+                $available = (float) (\App\Models\StockItem::where('item_type', 'sku')
+                    ->where('sku_id', $move->sku_id)
+                    ->where('batch_id', $move->batch_id)
+                    ->where('warehouse_id', $move->warehouse_to_id)
+                    ->whereNull('deleted_at')
+                    ->value('qty') ?? 0);
+                $reverseQty = min((float) $move->qty, max(0.0, $available));
+                if ($reverseQty <= 0) {
+                    continue;
+                }
                 $inventory->recordMove([
                     'move_type' => 'adjust',
                     'item_type' => 'sku',
                     'sku_id' => $move->sku_id,
                     'batch_id' => $move->batch_id,
                     'warehouse_from_id' => $move->warehouse_to_id,
-                    'qty' => $move->qty,
+                    'qty' => $reverseQty,
                     'uom' => $move->uom ?: 'BALE',
                     'ref_entity' => 'packaging_run_deleted',
                     'ref_id' => $run->id,
