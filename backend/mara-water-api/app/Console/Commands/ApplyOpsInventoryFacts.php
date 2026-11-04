@@ -11,6 +11,7 @@ use App\Models\Sku;
 use App\Models\StockItem;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\SkuStockAliasService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -117,9 +118,112 @@ class ApplyOpsInventoryFacts extends Command
             $this->documentReceipts($main->id, $director?->id);
         });
 
+        $this->reconcileFinished($main->id);
         $this->info('Inventory on-hand now matches the counted facts less production used.');
+        $this->info('Finished bales on hand = bales produced − bales sold.');
 
         return 0;
+    }
+
+    /**
+     * Finished goods must satisfy: on hand = produced − sold.
+     * Custom 0.5L is the same physical stock as Premium 0.5L.
+     * Sale rows and production batches are not rewritten.
+     */
+    private function reconcileFinished(string $mainId): void
+    {
+        $aliasOf = [];
+        foreach (SkuStockAliasService::ALIASES as $sellCode => $stockCode) {
+            $aliasOf[$sellCode] = $stockCode;
+        }
+
+        $skus = Sku::whereNull('deleted_at')->get();
+        $byCode = $skus->keyBy('code');
+
+        $produced = Batch::query()
+            ->whereNull('batches.deleted_at')
+            ->join('skus', 'skus.id', '=', 'batches.sku_id')
+            ->selectRaw('skus.code as code, SUM(COALESCE(batches.actual_qty, batches.planned_qty)) as bales')
+            ->groupBy('skus.code')
+            ->pluck('bales', 'code');
+
+        $orderSold = DB::table('order_items as i')
+            ->join('orders as o', 'o.id', '=', 'i.order_id')
+            ->join('skus as s', 's.id', '=', 'i.sku_id')
+            ->whereNull('o.deleted_at')
+            ->whereNull('i.deleted_at')
+            ->selectRaw('s.code as code, SUM(i.qty - COALESCE(i.qty_returned, 0)) as bales')
+            ->groupBy('s.code')
+            ->pluck('bales', 'code');
+
+        $tripSold = DB::table('driver_trip_sale_items as i')
+            ->join('driver_trip_sales as sa', 'sa.id', '=', 'i.driver_trip_sale_id')
+            ->join('skus as s', 's.id', '=', 'i.sku_id')
+            ->whereNull('sa.deleted_at')
+            ->selectRaw('s.code as code, SUM(i.qty_bales) as bales')
+            ->groupBy('s.code')
+            ->pluck('bales', 'code');
+
+        $this->info('Finished goods (produced − sold = on hand):');
+
+        foreach ($skus as $sku) {
+            if ($sku->isRefill() || isset($aliasOf[$sku->code])) {
+                continue;
+            }
+
+            $codes = [$sku->code];
+            foreach ($aliasOf as $sell => $stock) {
+                if ($stock === $sku->code) {
+                    $codes[] = $sell;
+                }
+            }
+
+            $made = 0.0;
+            $sold = 0.0;
+            foreach ($codes as $code) {
+                $made += (float) ($produced[$code] ?? 0);
+                $sold += (float) ($orderSold[$code] ?? 0) + (float) ($tripSold[$code] ?? 0);
+            }
+            if ($made <= 0 && $sold <= 0) {
+                continue;
+            }
+
+            $target = round($made - $sold, 3);
+            $ids = $byCode->whereIn('code', $codes)->pluck('id');
+
+            StockItem::where('item_type', 'sku')
+                ->whereIn('sku_id', $ids)
+                ->whereNull('deleted_at')
+                ->update(['qty' => 0, 'updated_by' => Auth::id()]);
+
+            if ($target > 0) {
+                $row = StockItem::where('item_type', 'sku')
+                    ->where('sku_id', $sku->id)
+                    ->where('warehouse_id', $mainId)
+                    ->whereNull('deleted_at')
+                    ->first();
+                if ($row) {
+                    $row->update(['qty' => $target, 'updated_by' => Auth::id()]);
+                } else {
+                    StockItem::create([
+                        'item_type' => 'sku',
+                        'sku_id' => $sku->id,
+                        'warehouse_id' => $mainId,
+                        'qty' => $target,
+                        'created_by' => Auth::id(),
+                        'updated_by' => Auth::id(),
+                    ]);
+                }
+            }
+
+            $this->line(sprintf(
+                '  %s produced %s − sold %s = %s on hand',
+                $sku->code,
+                rtrim(rtrim(number_format($made, 2), '0'), '.'),
+                rtrim(rtrim(number_format($sold, 2), '0'), '.'),
+                rtrim(rtrim(number_format(max(0, $target), 2), '0'), '.')
+            ));
+        }
     }
 
     /** @return array{bales_0_5:float,bales_1:float,bales_1_5:float,bales_5:float,bottles_0_5:float,bottles_1:float,bottles_1_5:float,bottles_5:float} */
