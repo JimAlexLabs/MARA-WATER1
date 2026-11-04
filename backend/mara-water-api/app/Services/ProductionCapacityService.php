@@ -74,8 +74,12 @@ class ProductionCapacityService
             $caps = in_array($size, [0.5, 1.0, 1.5], true)
                 ? $this->materialQty('CAP-28MM-DARK', $warehouseId)
                 : $this->materialQty("CAP-{$sizeCode}", $warehouseId);
-            $seals = $this->materialQty('SEAL-BOTTLE', $warehouseId);
-            $bailing = $usesBailing ? $this->materialQty("BAILING-{$sizeCode}", $warehouseId) : null;
+            $seals = in_array($size, [10.0, 20.0], true)
+                ? $this->materialQty('SEAL-REFILL', $warehouseId)
+                : $this->materialQty('SEAL-BOTTLE', $warehouseId);
+            // 1.5L bales are wrapped in 5L bailing paper (no 1.5L sheets were bought).
+            $bailingCode = abs($size - 1.5) < 0.01 ? 'BAILING-5L' : "BAILING-{$sizeCode}";
+            $bailing = $usesBailing ? $this->materialQty($bailingCode, $warehouseId) : null;
 
             $fromBottles = $bpb > 0 ? $bottles / $bpb : 0;
             $fromLabels = $bpb > 0 ? $labels / $bpb : 0;

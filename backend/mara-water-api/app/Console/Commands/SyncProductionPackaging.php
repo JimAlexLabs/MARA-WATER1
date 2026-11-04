@@ -70,7 +70,8 @@ class SyncProductionPackaging extends Command
         DB::transaction(function () use ($warehouse, $actorId) {
             $materials = $this->ensureMaterials($actorId);
             $this->syncBom($materials, $actorId);
-            $this->seedStock($materials, $warehouse->id, $actorId);
+            // On-hand figures are applied by inventory:apply-ops-facts.
+            // This command must not overwrite those balances.
         });
 
         $this->info('Production packaging BOM + opening stock synced.');
@@ -98,6 +99,8 @@ class SyncProductionPackaging extends Command
             ['code' => 'LABEL-1L', 'name' => '1L Bottle Labels', 'category' => 'Packaging', 'uom' => 'PCS'],
             ['code' => 'LABEL-1.5L', 'name' => '1.5L Bottle Labels', 'category' => 'Packaging', 'uom' => 'PCS'],
             ['code' => 'LABEL-5L', 'name' => '5L Container Labels', 'category' => 'Packaging', 'uom' => 'PCS'],
+            ['code' => 'LABEL-PLAT-0.5L', 'name' => 'Platinum 0.5L Labels', 'category' => 'Packaging', 'uom' => 'PCS'],
+            ['code' => 'LABEL-PLAT-1L', 'name' => 'Platinum 1L Labels', 'category' => 'Packaging', 'uom' => 'PCS'],
             ['code' => 'LABEL-10L', 'name' => '10L Container Labels', 'category' => 'Packaging', 'uom' => 'PCS'],
             ['code' => 'LABEL-20L', 'name' => '20L Container Labels', 'category' => 'Packaging', 'uom' => 'PCS'],
             ['code' => 'BAILING-0.5L', 'name' => '0.5L Bailing Paper', 'category' => 'Packaging', 'uom' => 'PCS'],
@@ -156,11 +159,13 @@ class SyncProductionPackaging extends Command
 
             $lines = [];
             $bottleCode = "BOTTLE-{$size}";
-            $labelCode = "LABEL-{$size}";
+            // Platinum keeps its own label stock. Premium (and custom) use size labels.
+            $labelCode = str_contains($brand, 'platinum') ? "LABEL-PLAT-{$size}" : "LABEL-{$size}";
             // 0.5 / 1 / 1.5 share the Intripet dark-blue 28mm cap pool; larger
             // sizes keep size-specific caps.
             $capCode = in_array($sizeKey, [0.5, 1.0, 1.5], true) ? 'CAP-28MM-DARK' : "CAP-{$size}";
-            $bailingCode = "BAILING-{$size}";
+            // 1.5L has no bailing paper of its own — those bales use 5L sheets.
+            $bailingCode = $sizeKey === 1.5 ? 'BAILING-5L' : "BAILING-{$size}";
 
             if (isset($materials[$bottleCode])) {
                 $lines[$bottleCode] = $bpb;

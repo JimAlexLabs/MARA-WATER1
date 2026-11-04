@@ -22,6 +22,21 @@ import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 import { usePermissions } from '../contexts/AuthContext';
 import { locksFromSettingsPayload } from '../utils/managerLocks';
 
+/** Monday, 26 October 2026 — words and numbers, so 10/26 is never read as 26/10. */
+function fullInventoryDate(iso: string, withTime = false): string {
+  const raw = iso.includes('T') ? iso : `${iso}T12:00:00`;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return iso;
+  const opts: Intl.DateTimeFormatOptions = {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  };
+  if (withTime) {
+    opts.hour = '2-digit';
+    opts.minute = '2-digit';
+  }
+  return d.toLocaleString('en-GB', opts);
+}
+
 interface StockItem {
   id?: string;
   item_type: 'material' | 'sku';
@@ -674,7 +689,7 @@ const InventoryPage: React.FC = () => {
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {stockCard.days.map((d) => (
                       <tr key={d.date}>
-                        <td className="py-2">{new Date(d.date).toLocaleDateString()}</td>
+                        <td className="py-2">{fullInventoryDate(d.date)}</td>
                         <td className="py-2">{d.opening.toLocaleString()}</td>
                         <td className="py-2 text-green-600">{d.in > 0 ? `+${d.in.toLocaleString()}` : '—'}</td>
                         <td className="py-2 text-red-600">{d.out > 0 ? `-${d.out.toLocaleString()}` : '—'}</td>
@@ -874,7 +889,7 @@ const InventoryPage: React.FC = () => {
                     <tr key={move.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-gray-100">
-                          {move.created_at ? new Date(move.created_at).toLocaleString() : '—'}
+                          {move.created_at ? fullInventoryDate(move.created_at, true) : '—'}
                         </div>
                         <div className="text-xs text-gray-400 dark:text-gray-500">
                           {move.moved_by?.first_name || 'Unknown'} {move.moved_by?.last_name || ''}

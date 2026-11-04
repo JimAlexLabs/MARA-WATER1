@@ -53,12 +53,12 @@ return [
      */
     'bottles_per_bale' => 24,
     'bottles_per_bale_by_size' => [
-        0.5 => 24,
-        1.0 => 12,
-        1.5 => 12,
-        5.0 => 4,
-        10.0 => 1,
-        20.0 => 1,
+        '0.5' => 24,
+        '1' => 12,
+        '1.5' => 12,
+        '5' => 4,
+        '10' => 1,
+        '20' => 1,
     ],
     'bailing_sheets_per_bale' => 1,
     'bailing_bag_sheets' => 500,
