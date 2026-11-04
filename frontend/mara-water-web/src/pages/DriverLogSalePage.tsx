@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { X, Camera, Smartphone, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -79,14 +79,21 @@ const DriverLogSalePage: React.FC = () => {
       .catch(() => setCashLocked(DEFAULT_MANAGER_LOCKS.driver_cash_payment));
   }, []);
 
+  const reloadActiveTrip = useCallback(() => {
+    return api.get('/fleet/trips', { params: { limit: 10 } }).then(res => {
+      const open = (res.data.data as { id: string; status: string }[]).find(t => t.status !== 'completed');
+      if (!open) { setActiveTrip(null); return null; }
+      return api.get(`/fleet/trips/${open.id}`).then(r => {
+        setActiveTrip(r.data.data);
+        return r.data.data as ActiveTrip;
+      });
+    });
+  }, []);
+
   useEffect(() => {
     setLoading(true);
-    api.get('/fleet/trips', { params: { limit: 10 } }).then(res => {
-      const open = (res.data.data as { id: string; status: string }[]).find(t => t.status !== 'completed');
-      if (!open) { setActiveTrip(null); setLoading(false); return; }
-      api.get(`/fleet/trips/${open.id}`).then(r => setActiveTrip(r.data.data)).finally(() => setLoading(false));
-    }).catch(() => setLoading(false));
-  }, []);
+    reloadActiveTrip().catch(() => {}).finally(() => setLoading(false));
+  }, [reloadActiveTrip]);
 
   // Round 5A Phase 5: "sale line-item pricing should read from the
   // Pricing page's price lists" -- one lookup per dispatched item,
@@ -134,6 +141,8 @@ const DriverLogSalePage: React.FC = () => {
   const [stkPhone, setStkPhone] = useState('');
   const [stkStatus, setStkStatus] = useState<StkStatus>('idle');
   const [stkPayment, setStkPayment] = useState<StkPayment | null>(null);
+  const [verifyReceiptCode, setVerifyReceiptCode] = useState('');
+  const [verifyingReceipt, setVerifyingReceipt] = useState(false);
 
   const addSaleLineItem = () => setSaleLineItems([...saleLineItems, { sku_id: '', qty_bales: '', unit_price: '' }]);
   const removeSaleLineItem = (i: number) => setSaleLineItems(saleLineItems.filter((_, idx) => idx !== i));
@@ -275,32 +284,93 @@ const DriverLogSalePage: React.FC = () => {
     }).catch(() => toast.error('Failed to download receipt'));
   };
 
-  // Round 6: polls GET /payments/{id}/status every 3s while waiting on
-  // the customer's phone -- the fallback for a webhook that hasn't
-  // arrived (mock mode never actually sits in 'waiting': the backend
-  // settles synchronously, so this effect is mostly exercised in real
-  // gateway mode). ~90s cap matches the spec's own expected STK window.
+  const onStkSuccess = useCallback((p: StkPayment) => {
+    setStkStatus('success');
+    setStkPayment(p);
+    toast.success('Payment confirmed');
+    // Green flash, then refresh Log a Sale with updated sold inventory.
+    window.setTimeout(() => {
+      reloadActiveTrip()
+        .then(() => {
+          setSaleForm(EMPTY_SALE_FORM);
+          setSaleLineItems([]);
+          setSalePhoto(null);
+          setSalePhotoPreview(null);
+          setCustomerQuery('');
+          setCustomerResults([]);
+          setStkPhone('');
+          setVerifyReceiptCode('');
+          setStkStatus('idle');
+          setStkPayment(null);
+          setPaybillWatch(null);
+          toast.success('Sale recorded — ready for the next one');
+        })
+        .catch(() => {});
+    }, 1800);
+  }, [reloadActiveTrip]);
+
+  // Poll status + periodic recheck. On success: green then refresh form.
+  // Cap ~150s; final recheck before marking timeout (webhook may lag UI).
   useEffect(() => {
-    if (stkStatus !== 'waiting' || !stkPayment) return;
+    if (stkStatus !== 'waiting' || !stkPayment?.id) return;
     let elapsed = 0;
-    const interval = setInterval(() => {
-      elapsed += 3000;
-      api.get(`/payments/${stkPayment.id}/status`).then(res => {
+    let cancelled = false;
+    const tick = () => {
+      elapsed += 2500;
+      const path = elapsed > 0 && elapsed % 10000 < 2500
+        ? `/payments/${stkPayment.id}/recheck`
+        : `/payments/${stkPayment.id}/status`;
+      const req = path.endsWith('/recheck')
+        ? api.post(path)
+        : api.get(path);
+      req.then(res => {
+        if (cancelled) return;
         const p: StkPayment = res.data.data;
         if (p.status === 'success') {
-          setStkStatus('success'); setStkPayment(p); toast.success('Payment confirmed');
+          onStkSuccess(p);
         } else if (p.status === 'failed' || p.status === 'cancelled' || p.status === 'timeout') {
           setStkStatus(p.status as StkStatus); setStkPayment(p);
-        } else if (elapsed >= 90000) {
-          setStkStatus('timeout'); setStkPayment(p);
+        } else if (elapsed >= 150000) {
+          api.post(`/payments/${stkPayment.id}/recheck`).then(r => {
+            if (cancelled) return;
+            const finalP: StkPayment = r.data.data;
+            if (finalP.status === 'success') onStkSuccess(finalP);
+            else { setStkStatus(finalP.status === 'failed' || finalP.status === 'cancelled' ? finalP.status as StkStatus : 'timeout'); setStkPayment(finalP); }
+          }).catch(() => { if (!cancelled) setStkStatus('timeout'); });
         }
       }).catch(() => {});
-    }, 3000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stkStatus, stkPayment?.id]);
+    };
+    tick();
+    const interval = setInterval(tick, 2500);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [stkStatus, stkPayment?.id, onStkSuccess]);
 
-  const resetStk = () => { setStkStatus('idle'); setStkPayment(null); setPaybillWatch(null); };
+  const resetStk = () => {
+    setStkStatus('idle');
+    setStkPayment(null);
+    setPaybillWatch(null);
+    setVerifyReceiptCode('');
+  };
+
+  const verifyMpesaReceipt = async () => {
+    if (!activeTrip) return;
+    const code = verifyReceiptCode.trim();
+    if (!code) { toast.error('Enter the M-Pesa transaction code'); return; }
+    setVerifyingReceipt(true);
+    try {
+      const res = await api.post('/payments/verify-receipt', {
+        mpesa_receipt: code,
+        trip_id: activeTrip.id,
+        payment_id: stkPayment?.id || undefined,
+      });
+      const p: StkPayment = res.data.data;
+      onStkSuccess({ ...p, status: 'success' });
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Could not match that M-Pesa code on this trip');
+    } finally {
+      setVerifyingReceipt(false);
+    }
+  };
 
   const startPaybillWatch = async () => {
     if (!activeTrip) return;
@@ -356,7 +426,7 @@ const DriverLogSalePage: React.FC = () => {
       });
       const p: StkPayment = res.data.data;
       setStkPayment(p);
-      if (p.status === 'success') { setStkStatus('success'); toast.success('Payment confirmed'); }
+      if (p.status === 'success') { onStkSuccess(p); }
       else if (p.status === 'failed' || p.status === 'cancelled' || p.status === 'timeout') { setStkStatus(p.status as StkStatus); }
       else { setStkStatus('waiting'); }
     } catch (error: any) {
@@ -535,28 +605,63 @@ const DriverLogSalePage: React.FC = () => {
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">A payment prompt is sent straight to this number -- the sale only records once they enter their PIN.</p>
                 </div>
               ) : stkStatus === 'waiting' ? (
-                <div className="flex items-center gap-3 text-sm text-blue-800 dark:text-blue-300">
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Waiting for {stkPhone} to enter their M-Pesa PIN…</span>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 text-sm text-blue-800 dark:text-blue-300">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Waiting for {stkPhone} to enter their M-Pesa PIN…</span>
+                  </div>
+                  <div className="rounded-md border border-gray-200 dark:border-gray-600 p-3 space-y-2">
+                    <p className="text-xs text-gray-600 dark:text-gray-400">Customer already paid? Enter the M-Pesa transaction code to confirm.</p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        placeholder="M-Pesa code"
+                        value={verifyReceiptCode}
+                        onChange={e => setVerifyReceiptCode(e.target.value.toUpperCase())}
+                        className="flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 text-sm"
+                      />
+                      <button type="button" onClick={verifyMpesaReceipt} disabled={verifyingReceipt}
+                        className="px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-md disabled:opacity-50">
+                        {verifyingReceipt ? 'Checking…' : 'Confirm code'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ) : stkStatus === 'success' ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400 font-medium">
-                    <CheckCircle className="w-5 h-5" /> Payment confirmed -- {stkPayment?.mpesa_receipt}
+                <div className="space-y-2 rounded-md bg-green-100 dark:bg-green-900/40 border border-green-500 p-3">
+                  <div className="flex items-center gap-2 text-sm text-green-800 dark:text-green-300 font-semibold">
+                    <CheckCircle className="w-5 h-5" /> Payment confirmed — {stkPayment?.mpesa_receipt || 'M-Pesa'}
                   </div>
+                  <p className="text-xs text-green-700 dark:text-green-400">Refreshing sold stock…</p>
                   {stkPayment?.driver_trip_sale_id && (
                     <button type="button" onClick={() => downloadReceipt(stkPayment.driver_trip_sale_id!)} className="text-sm text-blue-600 hover:underline">Download receipt</button>
                   )}
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-400 font-medium">
                     <XCircle className="w-5 h-5" />
-                    {stkStatus === 'cancelled' ? 'Customer cancelled the request' : stkStatus === 'timeout' ? 'No response from the customer' : (stkPayment?.result_desc || 'Payment failed')}
+                    {stkStatus === 'cancelled' ? 'Customer cancelled the request' : stkStatus === 'timeout' ? 'No response from the customer yet' : (stkPayment?.result_desc || 'Payment failed')}
                   </div>
-                  <div className="flex gap-3">
-                    <button type="button" onClick={() => setStkStatus('idle')} className="text-sm text-blue-600 hover:underline">Retry</button>
-                    <button type="button" onClick={() => { setMpesaMode('manual'); resetStk(); }} className="text-sm text-blue-600 hover:underline">Enter code manually</button>
+                  <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2">
+                    <p className="text-xs text-amber-800 dark:text-amber-200">Paid on the phone but this page still shows red? Enter the M-Pesa transaction code to confirm against Sales.</p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        placeholder="e.g. UK3BN13MQU"
+                        value={verifyReceiptCode}
+                        onChange={e => setVerifyReceiptCode(e.target.value.toUpperCase())}
+                        className="flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 text-sm"
+                      />
+                      <button type="button" onClick={verifyMpesaReceipt} disabled={verifyingReceipt}
+                        className="px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-md disabled:opacity-50">
+                        {verifyingReceipt ? 'Checking…' : 'Confirm code'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <button type="button" onClick={() => setStkStatus('idle')} className="text-sm text-blue-600 hover:underline">Retry STK</button>
+                    <button type="button" onClick={() => { setMpesaMode('manual'); resetStk(); }} className="text-sm text-blue-600 hover:underline">New sale with code</button>
                     {!cashLocked && (
                       <button type="button" onClick={() => { setSaleForm({ ...saleForm, payment_method: 'cash' }); resetStk(); }} className="text-sm text-blue-600 hover:underline">Switch to cash</button>
                     )}

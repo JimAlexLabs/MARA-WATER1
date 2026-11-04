@@ -157,6 +157,73 @@ class MpesaPaymentController extends Controller
         return $this->status($request, $id, $stk);
     }
 
+    /**
+     * Driver Log-a-Sale fallback: when STK UI lags but Sales already has
+     * the payment, match by M-Pesa receipt / transaction code on this trip.
+     */
+    public function verifyReceipt(Request $request, MpesaStkService $stk)
+    {
+        $data = $request->validate([
+            'mpesa_receipt' => 'required|string|max:32',
+            'trip_id' => 'required|uuid|exists:driver_trips,id',
+            'payment_id' => 'nullable|uuid',
+        ]);
+
+        $receipt = strtoupper(preg_replace('/\s+/', '', $data['mpesa_receipt']));
+        $tripId = $data['trip_id'];
+
+        $trip = DriverTrip::find($tripId);
+        if ($request->user()->hasAccessTier('driver') && $trip && $trip->driver_id !== Auth::id()) {
+            return response()->json(['success' => false, 'message' => 'Forbidden'], 403);
+        }
+
+        $q = MpesaPayment::query()
+            ->where('status', 'success')
+            ->whereRaw('UPPER(REPLACE(COALESCE(mpesa_receipt, \'\'), \' \', \'\')) = ?', [$receipt])
+            ->where(function ($inner) use ($tripId) {
+                $inner->where('trip_id', $tripId)
+                    ->orWhereHas('tripSale', fn ($s) => $s->where('driver_trip_id', $tripId));
+            });
+
+        if (! empty($data['payment_id'])) {
+            $q->where('id', $data['payment_id']);
+        }
+
+        $payment = $q->latest()->first();
+
+        if (! $payment) {
+            $sale = DriverTripSale::where('driver_trip_id', $tripId)
+                ->whereRaw('UPPER(REPLACE(COALESCE(mpesa_reference, \'\'), \' \', \'\')) = ?', [$receipt])
+                ->latest()
+                ->first();
+            if ($sale) {
+                $payment = MpesaPayment::where('driver_trip_sale_id', $sale->id)->latest()->first();
+                if (! $payment) {
+                    return response()->json([
+                        'success' => true,
+                        'data' => [
+                            'id' => null,
+                            'status' => 'success',
+                            'mpesa_receipt' => $receipt,
+                            'driver_trip_sale_id' => $sale->id,
+                            'amount' => (float) ($sale->amount ?? 0),
+                            'result_desc' => 'Matched existing sale by M-Pesa reference',
+                        ],
+                    ]);
+                }
+            }
+        }
+
+        if (! $payment) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No successful payment or sale found for that M-Pesa code on this trip',
+            ], 404);
+        }
+
+        return response()->json(['success' => true, 'data' => $this->present($payment, $stk)]);
+    }
+
     public function cash(Request $request, string $id, MpesaStkService $stk)
     {
         $payment = MpesaPayment::find($id);

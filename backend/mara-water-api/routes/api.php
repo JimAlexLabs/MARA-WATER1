@@ -150,6 +150,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/paybill', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'paybill']);
             Route::get('/paybill/watches', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'watches']);
             Route::post('/paybill/watch', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'watch'])->middleware('throttle:20,1');
+            Route::post('/verify-receipt', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'verifyReceipt'])->middleware('throttle:20,1');
             Route::post('/{id}/claim', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'claim']);
             Route::get('/{id}/status', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'status']);
             Route::post('/{id}/recheck', [\App\Http\Controllers\Api\MpesaPaymentController::class, 'recheck']);

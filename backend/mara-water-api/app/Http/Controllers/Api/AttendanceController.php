@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Attendance;
+use App\Models\Notification;
 use App\Models\User;
 
 class AttendanceController extends Controller
@@ -48,12 +49,66 @@ class AttendanceController extends Controller
         return null;
     }
 
+    /** Latest open (checked-in, not yet out) session for a user — any date. */
+    private function openSession(string $userId): ?Attendance
+    {
+        return Attendance::where('user_id', $userId)
+            ->incomplete()
+            ->orderByDesc('date')
+            ->orderByDesc('created_at')
+            ->first();
+    }
+
+    private function formatClockTime($value): ?string
+    {
+        if (!$value) {
+            return null;
+        }
+        if ($value instanceof \Carbon\CarbonInterface) {
+            return $value->format('H:i');
+        }
+
+        return substr((string) $value, 0, 5);
+    }
+
+    private function sessionDateString(Attendance $attendance): string
+    {
+        $date = $attendance->date;
+        if ($date instanceof \Carbon\CarbonInterface) {
+            return $date->toDateString();
+        }
+
+        return (string) $date;
+    }
+
+    private function clockInDateTime(Attendance $attendance): \Carbon\Carbon
+    {
+        $time = $attendance->clock_in_time;
+        $timeStr = $time instanceof \Carbon\CarbonInterface
+            ? $time->format('H:i:s')
+            : (string) $time;
+
+        return \Carbon\Carbon::parse($this->sessionDateString($attendance).' '.$timeStr);
+    }
+
+    private function notifyManagersDirectors(string $title, string $body): void
+    {
+        $ids = User::whereHas('role', fn ($q) => $q->whereIn('access_tier', ['manager', 'director']))->pluck('id');
+        foreach ($ids as $userId) {
+            Notification::create([
+                'user_id' => $userId,
+                'channel' => 'in_app',
+                'type' => 'attendance',
+                'title' => $title,
+                'body' => $body,
+            ]);
+        }
+    }
+
     /**
-     * Round 4 Phase 9: the roster the shared dashboard's three Check In/
-     * Check Out controls are built from -- every active user in one of
-     * the three field-team roles, with today's attendance status, so
-     * names are picked from who the Director has actually assigned
-     * there rather than typed freely.
+     * Round 4 Phase 9 / multi-session: every active field-team user with
+     * independent status. Open sessions can span overnight; finishing a
+     * cycle never locks the person out of another check-in the same day.
      */
     public function fieldTeam(Request $request)
     {
@@ -63,19 +118,49 @@ class AttendanceController extends Controller
             ->orderBy('first_name')
             ->get();
 
-        $todayAttendance = Attendance::whereIn('user_id', $users->pluck('id'))->whereDate('date', $today)->get()->keyBy('user_id');
+        $userIds = $users->pluck('id');
 
-        $data = $users->map(function ($u) use ($todayAttendance) {
-            $a = $todayAttendance->get($u->id);
+        $openByUser = Attendance::whereIn('user_id', $userIds)
+            ->incomplete()
+            ->orderByDesc('date')
+            ->orderByDesc('created_at')
+            ->get()
+            ->unique('user_id')
+            ->keyBy('user_id');
+
+        $latestTodayByUser = Attendance::whereIn('user_id', $userIds)
+            ->whereDate('date', $today)
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('user_id')
+            ->map(fn ($rows) => $rows->first());
+
+        $sessionsTodayCounts = Attendance::whereIn('user_id', $userIds)
+            ->whereDate('date', $today)
+            ->selectRaw('user_id, COUNT(*) as c')
+            ->groupBy('user_id')
+            ->pluck('c', 'user_id');
+
+        $data = $users->map(function ($u) use ($openByUser, $latestTodayByUser, $sessionsTodayCounts, $today) {
+            $open = $openByUser->get($u->id);
+            $latestToday = $latestTodayByUser->get($u->id);
+            $openDate = $open ? $this->sessionDateString($open) : null;
+            $overnight = $open && $openDate !== $today;
+
             return [
                 'id' => $u->id,
                 'full_name' => $u->full_name,
                 'role_code' => $u->role->code ?? null,
                 'role_name' => $u->role->name ?? null,
-                'clocked_in' => (bool) $a?->clock_in_time,
-                'clocked_out' => (bool) $a?->clock_out_time,
-                'clock_in_time' => $a?->clock_in_time,
-                'clock_out_time' => $a?->clock_out_time,
+                // has_open_session drives the button; clocked_out is never a day-lock
+                'has_open_session' => (bool) $open,
+                'overnight_open' => $overnight,
+                'open_session_date' => $openDate,
+                'clocked_in' => (bool) $open,
+                'clocked_out' => false,
+                'clock_in_time' => $this->formatClockTime($open?->clock_in_time ?? $latestToday?->clock_in_time),
+                'clock_out_time' => $open ? null : $this->formatClockTime($latestToday?->clock_out_time),
+                'sessions_today' => (int) ($sessionsTodayCounts[$u->id] ?? 0),
             ];
         });
 
@@ -399,15 +484,23 @@ class AttendanceController extends Controller
             $today = now()->toDateString();
             $currentTime = now()->format('H:i:s');
 
-            // Check if user already clocked in today
-            $existingAttendance = Attendance::where('user_id', $request->user_id)
-                ->whereDate('date', $today)
-                ->first();
+            // Multi-session: only block a new check-in while an open
+            // session exists (including overnight). After check-out they
+            // can check in again the same day — each cycle is its own row.
+            $open = $this->openSession($request->user_id);
+            if ($open) {
+                $openDate = $this->sessionDateString($open);
+                $msg = $openDate !== $today
+                    ? "Still checked in from {$openDate} — check out that session first, then you can check in again."
+                    : 'Already checked in — check out first before starting another session.';
 
-            if ($existingAttendance) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'User has already clocked in today'
+                    'message' => $msg,
+                    'data' => [
+                        'open_session_date' => $openDate,
+                        'overnight_open' => $openDate !== $today,
+                    ],
                 ], 422);
             }
 
@@ -423,6 +516,13 @@ class AttendanceController extends Controller
                 'created_by' => Auth::id(),
                 'updated_by' => Auth::id(),
             ]);
+
+            $who = User::find($request->user_id);
+            $name = $who ? trim(($who->first_name ?? '').' '.($who->last_name ?? '')) : 'Team member';
+            $this->notifyManagersDirectors(
+                'Check-in',
+                "{$name} checked in at {$currentTime}."
+            );
 
             return response()->json([
                 'success' => true,
@@ -466,31 +566,22 @@ class AttendanceController extends Controller
             $today = now()->toDateString();
             $currentTime = now()->format('H:i:s');
 
-            // Find today's attendance record
-            $attendance = Attendance::where('user_id', $request->user_id)
-                ->whereDate('date', $today)
-                ->first();
+            // Close the latest open session (any date) — overnight
+            // forgotten check-outs are closed here without locking the day.
+            $attendance = $this->openSession($request->user_id);
 
             if (!$attendance) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'No clock in record found for today'
+                    'message' => 'No open check-in to close'
                 ], 404);
             }
 
-            if ($attendance->clock_out_time) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User has already clocked out today'
-                ], 422);
-            }
-
-            // Calculate total hours
-            $clockIn = \Carbon\Carbon::parse($attendance->clock_in_time);
-            $clockOut = \Carbon\Carbon::parse($currentTime);
-            $totalHours = $clockIn->diffInHours($clockOut, true);
-
-            // Calculate overtime (assuming 8 hours is standard work day)
+            $sessionDate = $this->sessionDateString($attendance);
+            $overnight = $sessionDate !== $today;
+            $clockIn = $this->clockInDateTime($attendance);
+            $clockOut = now();
+            $totalHours = round($clockIn->diffInMinutes($clockOut) / 60, 2);
             $overtimeHours = max(0, $totalHours - 8);
 
             $attendance->update([
@@ -503,14 +594,28 @@ class AttendanceController extends Controller
                 'updated_by' => Auth::id(),
             ]);
 
+            $who = User::find($request->user_id);
+            $name = $who ? trim(($who->first_name ?? '').' '.($who->last_name ?? '')) : 'Team member';
+            $alert = $overnight
+                ? "Closed open check-in from {$sessionDate} ({$totalHours}h). Ready to check in again."
+                : "Checked out · {$totalHours}h. Ready to check in again anytime.";
+
+            $this->notifyManagersDirectors(
+                'Check-out',
+                "{$name} checked out at {$currentTime} ({$totalHours}h".($overnight ? ", session from {$sessionDate}" : '').').'
+            );
+
             return response()->json([
                 'success' => true,
-                'message' => 'Clock out successful',
+                'message' => $alert,
                 'data' => [
-                    'attendance' => $attendance->load(['user', 'shift', 'createdBy']),
+                    'attendance' => $attendance->fresh()->load(['user', 'shift', 'createdBy']),
                     'clock_out_time' => $currentTime,
                     'total_hours' => $totalHours,
-                    'overtime_hours' => $overtimeHours
+                    'overtime_hours' => $overtimeHours,
+                    'overnight_closed' => $overnight,
+                    'session_date' => $sessionDate,
+                    'can_check_in_again' => true,
                 ]
             ]);
         } catch (\Exception $e) {

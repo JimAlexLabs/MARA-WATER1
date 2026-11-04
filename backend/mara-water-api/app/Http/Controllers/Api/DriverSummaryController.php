@@ -32,7 +32,15 @@ class DriverSummaryController extends Controller
         $today = now()->toDateString();
         $monthStart = now()->startOfMonth()->toDateString();
 
-        $todayAttendance = Attendance::where('user_id', $userId)->whereDate('date', $today)->first();
+        $openAttendance = Attendance::where('user_id', $userId)
+            ->incomplete()
+            ->orderByDesc('date')
+            ->orderByDesc('created_at')
+            ->first();
+        $latestToday = Attendance::where('user_id', $userId)
+            ->whereDate('date', $today)
+            ->orderByDesc('created_at')
+            ->first();
 
         $monthTrips = DriverTrip::with(['vehicle', 'sales'])
             ->where('driver_id', $userId)
@@ -59,14 +67,27 @@ class DriverSummaryController extends Controller
                 ],
             ]);
 
+        $fmt = function ($value) {
+            if (!$value) {
+                return null;
+            }
+            if ($value instanceof \Carbon\CarbonInterface) {
+                return $value->format('H:i');
+            }
+
+            return substr((string) $value, 0, 5);
+        };
+
         return response()->json([
             'success' => true,
             'data' => [
                 'today' => [
-                    'clocked_in' => (bool) ($todayAttendance?->clock_in_time),
-                    'clocked_out' => (bool) ($todayAttendance?->clock_out_time),
-                    'clock_in_time' => $todayAttendance?->clock_in_time?->format('H:i'),
-                    'clock_out_time' => $todayAttendance?->clock_out_time?->format('H:i'),
+                    // Open session (any date) = checked in; never day-lock after out
+                    'clocked_in' => (bool) $openAttendance,
+                    'clocked_out' => false,
+                    'has_open_session' => (bool) $openAttendance,
+                    'clock_in_time' => $fmt($openAttendance?->clock_in_time ?? $latestToday?->clock_in_time),
+                    'clock_out_time' => $openAttendance ? null : $fmt($latestToday?->clock_out_time),
                 ],
                 'this_month' => [
                     'trips' => $monthTrips->count(),
