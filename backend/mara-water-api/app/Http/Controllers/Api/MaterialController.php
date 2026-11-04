@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Material;
+use App\Models\StockItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
@@ -38,12 +39,27 @@ class MaterialController extends Controller
             $sortOrder = $request->get('sort_order', 'asc');
             $query->orderBy($sortBy, $sortOrder);
 
-            $perPage = $request->get('limit', 50);
+            $perPage = $request->get('limit', 200);
             $materials = $query->paginate($perPage);
+            $ids = collect($materials->items())->pluck('id');
+            $onHand = StockItem::query()
+                ->where('item_type', 'material')
+                ->whereIn('material_id', $ids)
+                ->whereNull('deleted_at')
+                ->selectRaw('material_id, SUM(qty) as qty')
+                ->groupBy('material_id')
+                ->pluck('qty', 'material_id');
+
+            $data = collect($materials->items())->map(function ($material) use ($onHand) {
+                $row = $material->toArray();
+                $row['on_hand'] = round((float) ($onHand[$material->id] ?? 0), 3);
+
+                return $row;
+            })->values();
 
             return response()->json([
                 'success' => true,
-                'data' => $materials->items(),
+                'data' => $data,
             ]);
         } catch (\Exception $e) {
             return response()->json([

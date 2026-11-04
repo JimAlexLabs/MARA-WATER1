@@ -32,6 +32,7 @@ interface Material {
   uom: string;
   min_level: string;
   is_consumable: boolean;
+  on_hand?: number;
 }
 
 interface BomItem {
@@ -150,6 +151,7 @@ const ProductionPage: React.FC = () => {
   const [unsold, setUnsold] = useState<Array<{ sku_id: string; sku_name: string; sku_code?: string; unsold_bales: number }>>([]);
   const [producedTotals, setProducedTotals] = useState<{
     by_sku: Array<{ sku_id: string; sku_name: string; sku_code?: string; total_bales: number; batch_count?: number }>;
+    by_size?: Array<{ size: string; total_bales: number; sku_count?: number }>;
     grand_total_bales: number;
     sku_count?: number;
     batch_count?: number;
@@ -176,7 +178,7 @@ const ProductionPage: React.FC = () => {
     fetchDaily();
     fetchCapacity();
     api.get('/fleet/skus').then(res => setSkus(res.data.data)).catch(() => {});
-    api.get('/production/materials').then(res => setMaterials(res.data.data)).catch(() => {});
+    api.get('/production/materials', { params: { limit: 200 } }).then(res => setMaterials(res.data.data)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -568,15 +570,25 @@ const ProductionPage: React.FC = () => {
             <div className="space-y-4">
             {producedTotals && (producedTotals.by_sku?.length > 0 || producedTotals.grand_total_bales > 0) && (
               <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/20 p-4">
-                <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
                   <div>
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Total produced (all days)</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Running tally of every batch recorded — grows as you add production days.</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Bales made of each size, from the first production day through today.</p>
                   </div>
                   <p className="text-lg font-bold text-blue-800 dark:text-blue-200">
                     {Number(producedTotals.grand_total_bales || 0).toLocaleString()} bales
                   </p>
                 </div>
+                {(producedTotals.by_size?.length ?? 0) > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                    {producedTotals.by_size!.map((row) => (
+                      <div key={row.size} className="rounded-lg bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-800 px-3 py-2">
+                        <p className="text-xs text-gray-500">{row.size} made</p>
+                        <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{Number(row.total_bales).toLocaleString()} bales</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
                   {producedTotals.by_sku.map((row) => (
                     <span key={row.sku_id} className="text-xs rounded-full bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-800 px-2 py-1">
@@ -846,7 +858,7 @@ const ProductionPage: React.FC = () => {
           {activeTab === 'materials' && (
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                Display only. To record arrivals or correct counts for labels, bailing papers and bottles, use Inventory → Stock arrival / Correct stock. Production deducts these via each product&apos;s bill of materials.
+                On-hand counts from the warehouse. 1.5L bales use 5L bailing paper. 0.5L, 1L and 1.5L caps are the dark blue 28mm caps. Production deducts these through each product&apos;s bill of materials.
               </p>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -854,6 +866,7 @@ const ProductionPage: React.FC = () => {
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Material</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Category</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">On hand</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">UoM</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Reorder Level</th>
                     </tr>
@@ -866,13 +879,22 @@ const ProductionPage: React.FC = () => {
                           <div className="text-sm text-gray-500 dark:text-gray-400">{m.code}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{m.category}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {Number(m.on_hand ?? 0).toLocaleString()}
+                          {m.code === 'BAILING-1.5L' && (
+                            <span className="block text-xs font-normal text-gray-500">Use 5L bailing paper</span>
+                          )}
+                          {(m.code === 'CAP-0.5L' || m.code === 'CAP-1L' || m.code === 'CAP-1.5L') && (
+                            <span className="block text-xs font-normal text-gray-500">Use dark blue 28mm caps</span>
+                          )}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{m.uom}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{parseFloat(m.min_level || '0').toLocaleString()}</td>
                       </tr>
                     ))}
                     {materials.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="px-6 py-4 text-sm text-gray-400 dark:text-gray-500">
+                        <td colSpan={5} className="px-6 py-4 text-sm text-gray-400 dark:text-gray-500">
                           No materials yet — add them under Inventory when receiving stock.
                         </td>
                       </tr>

@@ -331,12 +331,30 @@ class BatchController extends Controller
                 ->sortByDesc('total_bales')
                 ->values();
 
+            $producedBySize = $producedBySku
+                ->groupBy(function ($row) {
+                    $size = round((float) ($row['size_liters'] ?? 0), 2);
+                    if (abs($size - (int) $size) < 0.011) {
+                        return ((int) $size).'L';
+                    }
+
+                    return rtrim(rtrim(number_format($size, 2, '.', ''), '0'), '.').'L';
+                })
+                ->map(fn ($rows, $size) => [
+                    'size' => $size,
+                    'total_bales' => (int) $rows->sum('total_bales'),
+                    'sku_count' => $rows->count(),
+                ])
+                ->sortBy(fn ($row) => (float) $row['size'])
+                ->values();
+
             return response()->json([
                 'success' => true,
                 'data' => $days,
                 'unsold' => app(\App\Services\FinishedGoodsService::class)->balances(),
                 'produced_totals' => [
                     'by_sku' => $producedBySku,
+                    'by_size' => $producedBySize,
                     'grand_total_bales' => (int) $producedBySku->sum('total_bales'),
                     'sku_count' => $producedBySku->count(),
                     'batch_count' => (int) $producedBySku->sum('batch_count'),

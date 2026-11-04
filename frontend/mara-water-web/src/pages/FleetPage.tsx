@@ -649,7 +649,7 @@ const FleetPage: React.FC = () => {
                       <span className="text-xs text-gray-500 dark:text-gray-400">{v.trips} trip{v.trips === 1 ? '' : 's'}</span>
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                      {v.total_km.toLocaleString()} km · {v.total_fuel_liters.toLocaleString()} L
+                      {Number(v.total_km ?? 0).toLocaleString()} km · {Number(v.total_fuel_liters ?? 0).toLocaleString()} L
                       {v.km_per_liter ? ` · ${v.km_per_liter} km/L` : ''}
                     </p>
                     <ResponsiveContainer width="100%" height={100}>
@@ -701,7 +701,7 @@ const FleetPage: React.FC = () => {
                             <div className="text-gray-500 dark:text-gray-400 flex items-center"><MapPin className="w-3 h-3 mr-1" />{t.route || '—'}</div>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${TRIP_STATUS_BADGE[t.status].cls}`}>{TRIP_STATUS_BADGE[t.status].label}</span>
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${(TRIP_STATUS_BADGE[t.status] || TRIP_STATUS_BADGE.pending_departure).cls}`}>{(TRIP_STATUS_BADGE[t.status] || { label: t.status }).label}</span>
                             {t.has_discrepancy && (
                               <span className="ml-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300">
                                 <AlertTriangle className="w-3.5 h-3.5 mr-1" />Discrepancy
@@ -709,17 +709,17 @@ const FleetPage: React.FC = () => {
                             )}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{t.km_covered ?? '—'}</td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 max-w-[10rem] truncate" title={t.sales.map(s => s.customer?.name).filter(Boolean).join(', ')}>
-                            {t.sales.length === 0 ? '—' : `${t.sales.length} sale${t.sales.length === 1 ? '' : 's'}`}
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 max-w-[10rem] truncate" title={(t.sales || []).map(s => s.customer?.name).filter(Boolean).join(', ')}>
+                            {(t.sales || []).length === 0 ? '—' : `${t.sales.length} sale${t.sales.length === 1 ? '' : 's'}`}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                            KES {t.total_collected.toLocaleString()}
+                            KES {Number(t.total_collected ?? 0).toLocaleString()}
                             <div className="text-xs text-gray-500 dark:text-gray-400">
-                              {t.cash_collected.toLocaleString()} / {t.mpesa_collected.toLocaleString()} / {t.debt_collected.toLocaleString()}
+                              {Number(t.cash_collected ?? t.reconciliation?.cash_collected ?? 0).toLocaleString()} / {Number(t.mpesa_collected ?? t.reconciliation?.mpesa_collected ?? 0).toLocaleString()} / {Number(t.debt_collected ?? t.reconciliation?.debt_collected ?? 0).toLocaleString()}
                             </div>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap space-y-1">
-                            {t.status !== 'completed' ? (
+                            {t.status !== 'completed' || !t.reconciliation ? (
                               <span className="text-xs text-gray-400 dark:text-gray-500">Available once closed</span>
                             ) : (
                               <>
@@ -729,7 +729,7 @@ const FleetPage: React.FC = () => {
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800" title={`Expected KES ${t.reconciliation.expected_revenue}, collected KES ${t.reconciliation.collected}`}>
-                                    <XCircle className="w-3.5 h-3.5 mr-1" /> Off by KES {Math.abs(t.reconciliation.variance).toLocaleString()}
+                                    <XCircle className="w-3.5 h-3.5 mr-1" /> Off by KES {Math.abs(Number(t.reconciliation?.variance ?? 0)).toLocaleString()}
                                   </span>
                                 )}
                               </>
@@ -1206,9 +1206,9 @@ const FleetPage: React.FC = () => {
             </div>
 
             <dl className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
-              <div><dt className="text-gray-500 dark:text-gray-400">Expected Revenue</dt><dd className="font-medium text-gray-900 dark:text-gray-100">KES {viewingTrip.reconciliation.expected_revenue.toLocaleString()}</dd></div>
-              <div><dt className="text-gray-500 dark:text-gray-400">Collected</dt><dd className="font-medium text-gray-900 dark:text-gray-100">KES {viewingTrip.total_collected.toLocaleString()}</dd></div>
-              <div><dt className="text-gray-500 dark:text-gray-400">Variance</dt><dd className={`font-medium ${viewingTrip.reconciliation.matches ? 'text-green-600' : 'text-red-600'}`}>KES {viewingTrip.reconciliation.variance.toLocaleString()}</dd></div>
+              <div><dt className="text-gray-500 dark:text-gray-400">Expected Revenue</dt><dd className="font-medium text-gray-900 dark:text-gray-100">KES {Number(viewingTrip.reconciliation?.expected_revenue ?? 0).toLocaleString()}</dd></div>
+              <div><dt className="text-gray-500 dark:text-gray-400">Collected</dt><dd className="font-medium text-gray-900 dark:text-gray-100">KES {Number(viewingTrip.total_collected ?? 0).toLocaleString()}</dd></div>
+              <div><dt className="text-gray-500 dark:text-gray-400">Variance</dt><dd className={`font-medium ${viewingTrip.reconciliation?.matches ? 'text-green-600' : 'text-red-600'}`}>KES {Number(viewingTrip.reconciliation?.variance ?? 0).toLocaleString()}</dd></div>
               <div><dt className="text-gray-500 dark:text-gray-400">Stock</dt><dd className={`font-medium ${viewingTrip.reconciliation.stock_matches ? 'text-green-600' : 'text-red-600'}`}>{viewingTrip.reconciliation.stock_matches ? 'Matches' : `${viewingTrip.reconciliation.stock_mismatches.length} mismatch(es)`}</dd></div>
             </dl>
 

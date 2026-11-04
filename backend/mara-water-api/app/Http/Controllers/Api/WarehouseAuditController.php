@@ -90,18 +90,25 @@ class WarehouseAuditController extends Controller
         $materials = Material::where('category', 'PPE')->whereNull('deleted_at')->get();
         $rows = $materials->map(function ($material) use ($headcount) {
             $qty = (float) StockItem::where('material_id', $material->id)->whereNull('deleted_at')->sum('qty');
-            $shortfall = max(0, $headcount - $qty);
+            $minLevel = (float) $material->min_level;
+            // Counted PPE is what is in the warehouse. Do not treat
+            // "fewer pairs than every active staff member" as a stock error.
+            if ($qty <= 0 && $minLevel > 0) {
+                $status = 'out_of_stock';
+                $severity = 'critical';
+            } else {
+                $status = 'adequate';
+                $severity = 'ok';
+            }
 
             return [
                 'material' => $material,
                 'qty_on_hand' => $qty,
                 'headcount' => $headcount,
-                'shortfall' => $shortfall,
-                'status' => $shortfall > 0 ? 'shortage' : 'adequate',
-                'severity' => $shortfall > 0 ? 'critical' : 'ok',
-                'message' => $shortfall > 0
-                    ? "{$material->name}: {$qty} on hand for {$headcount} active staff -- short by {$shortfall}"
-                    : "{$material->name}: adequate for {$headcount} active staff",
+                'shortfall' => 0,
+                'status' => $status,
+                'severity' => $severity,
+                'message' => "{$material->name}: {$qty} on hand",
             ];
         });
 
@@ -243,11 +250,29 @@ class WarehouseAuditController extends Controller
     {
         $materials = Material::where('category', $category)->whereNull('deleted_at')->get();
 
-        return $materials->map(function ($material) {
+        $pool = [
+            'BAILING-1.5L' => 'BAILING-5L',
+            'CAP-0.5L' => 'CAP-28MM-DARK',
+            'CAP-1L' => 'CAP-28MM-DARK',
+            'CAP-1.5L' => 'CAP-28MM-DARK',
+        ];
+
+        return $materials->map(function ($material) use ($pool) {
             $qty = (float) StockItem::where('material_id', $material->id)->whereNull('deleted_at')->sum('qty');
             $minLevel = (float) $material->min_level;
+            $pooledFrom = null;
+            if (isset($pool[$material->code])) {
+                $source = Material::where('code', $pool[$material->code])->first();
+                if ($source) {
+                    $qty = (float) StockItem::where('material_id', $source->id)->whereNull('deleted_at')->sum('qty');
+                    $pooledFrom = $source->name;
+                }
+            }
 
-            if ($qty <= 0) {
+            if ($qty <= 0 && $minLevel <= 0) {
+                $status = 'not_tracked';
+                $severity = 'ok';
+            } elseif ($qty <= 0) {
                 $status = 'out_of_stock';
                 $severity = 'critical';
             } elseif ($minLevel > 0 && $qty <= $minLevel) {
@@ -258,13 +283,15 @@ class WarehouseAuditController extends Controller
                 $severity = 'ok';
             }
 
+            $where = $pooledFrom ? " (same stock as {$pooledFrom})" : '';
+
             return [
                 'material' => $material,
                 'qty_on_hand' => $qty,
                 'reorder_level' => $minLevel,
                 'status' => $status,
                 'severity' => $severity,
-                'message' => "{$material->name}: {$qty} {$material->uom} on hand (" . ($minLevel > 0 ? "reorder at {$minLevel}" : 'no reorder level set') . ')',
+                'message' => "{$material->name}: {$qty} {$material->uom} on hand{$where}" . ($minLevel > 0 ? " (reorder at {$minLevel})" : ''),
             ];
         })->values()->toArray();
     }

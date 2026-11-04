@@ -42,7 +42,7 @@ class DriverTrip extends Model
     // unlock() reverses one stage per driver_trip_unlocks below.
     public const STATUSES = ['pending_departure', 'in_transit', 'completed'];
 
-    protected $appends = ['km_covered', 'total_collected', 'reconciliation'];
+    protected $appends = ['km_covered', 'total_collected', 'cash_collected', 'mpesa_collected', 'debt_collected', 'reconciliation'];
 
     public function driver()
     {

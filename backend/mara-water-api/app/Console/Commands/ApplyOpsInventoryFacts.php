@@ -72,6 +72,13 @@ class ApplyOpsInventoryFacts extends Command
         DB::transaction(function () use ($main, $cold, $targets, $mins, $director) {
             $this->ensureExtraMaterials($director?->id);
             $this->patchBom();
+            foreach ([
+                'CAP-0.5L', 'CAP-1L', 'CAP-1.5L', 'BAILING-1.5L', 'BAILING-PAPER',
+                'CARTON-0.5L', 'CARTON-1L', 'CARTON-1.5L', 'SHRINK-WRAP', 'STICKER',
+                'CHLORINE', 'PPE-HAIRCOVER',
+            ] as $idleCode) {
+                Material::where('code', $idleCode)->update(['min_level' => 0]);
+            }
 
             $inventory = new InventoryController();
             $floors = [
@@ -272,8 +279,10 @@ class ApplyOpsInventoryFacts extends Command
             'BOTTLE-1.5L' => 5712 - $u['bottles_1_5'],
             'BOTTLE-5L' => 41 - $u['bottles_5'],
             // Labels held before Monday 26 October 2026, plus Sunday 1 November 2026 receipts.
-            'LABEL-0.5L' => 1005 + 50000 - $u['bottles_0_5'],
-            'LABEL-1L' => 10000 - $u['bottles_1'],
+            // 23 bales of 0.5L were labelled with 1L labels (23 × 24 = 552)
+            // when 0.5L labels had run out. Those pieces sit on 0.5L now.
+            'LABEL-0.5L' => 1005 + 50000 - $u['bottles_0_5'] + 552,
+            'LABEL-1L' => 10000 - $u['bottles_1'] - 552,
             'LABEL-1.5L' => 3000 + 30000 - $u['bottles_1_5'],
             'LABEL-5L' => 2500 - $u['bottles_5'],
             'LABEL-PLAT-0.5L' => 1000,
@@ -496,6 +505,7 @@ class ApplyOpsInventoryFacts extends Command
             ['BOTTLE-1L', 'OPS-FACTS-DMG-B1', '2026-10-20', 1, 'Machine testing before Monday, 26 October 2026 — 1 bottle of 1L damaged.'],
             ['LABEL-0.5L', 'OPS-FACTS-RCPT-L05', '2026-11-01', 50000, 'Sunday, 1 November 2026 — received 50,000 labels of 0.5L.'],
             ['LABEL-1.5L', 'OPS-FACTS-RCPT-L15', '2026-11-01', 30000, 'Sunday, 1 November 2026 — received 30,000 labels of 1.5L.'],
+            ['LABEL-0.5L', 'OPS-FACTS-SWAP-L05', '2026-11-04', 552, '552 labels of 1L were used on 23 bales of 0.5L when 0.5L labels had run out. Those 552 pieces are counted on 0.5L labels, and taken off 1L labels.'],
             ['STAT-RECEIPT', 'OPS-FACTS-OPEN-RCPT', '2026-10-09', 8, 'Held before operations began on Monday, 26 October 2026 — 8 receipt books.'],
             ['STAT-DELIVERY', 'OPS-FACTS-OPEN-DEL', '2026-10-09', 18, 'Held before operations began on Monday, 26 October 2026 — 18 delivery books.'],
             ['STAT-INVOICE', 'OPS-FACTS-OPEN-INV', '2026-10-09', 15, 'Held before operations began on Monday, 26 October 2026 — 15 invoice books.'],
