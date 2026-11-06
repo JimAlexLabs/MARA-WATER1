@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\PayrollController;
 use App\Http\Controllers\Api\ProductionWageController;
 use App\Http\Controllers\Api\StaffLoanController;
 use App\Http\Controllers\Api\SalaryTemplateController;
+use App\Http\Controllers\Api\RefillTallyController;
 use App\Http\Controllers\Api\ReportsController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\FileUploadController;
@@ -299,6 +300,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/daily', [BatchController::class, 'daily']);
             // Packaging runway: labels/caps/seals/bailing/bottles → bales left + alerts.
             Route::get('/capacity', [BatchController::class, 'capacity']);
+            Route::get('/refills', [RefillTallyController::class, 'index']);
+            Route::post('/refills', [RefillTallyController::class, 'store']);
+            Route::delete('/refills/{id}', [RefillTallyController::class, 'destroy']);
 
             Route::get('/packaging-runs/statistics', [PackagingRunController::class, 'statistics']);
             Route::get('/packaging-runs/batch/{batchId}', [PackagingRunController::class, 'byBatch']);

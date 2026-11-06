@@ -148,7 +148,10 @@ const ProductionPage: React.FC = () => {
   const [capacityRows, setCapacityRows] = useState<CapacityRow[]>([]);
   const [capacityAlerts, setCapacityAlerts] = useState<CapacityAlert[]>([]);
   const [capacitySummary, setCapacitySummary] = useState<{ total_bales_possible?: number; sizes_blocked?: number; rules?: Record<string, string> } | null>(null);
-  const [unsold, setUnsold] = useState<Array<{ sku_id: string; sku_name: string; sku_code?: string; unsold_bales: number }>>([]);
+  const [unsold, setUnsold] = useState<Array<{ sku_id: string; sku_name: string; sku_code?: string; unsold_bales: number; produced_bales?: number; sold_bales?: number }>>([]);
+  const [refillRows, setRefillRows] = useState<Array<{ id: string; tally_date: string; size_liters: number; qty: number; notes?: string | null }>>([]);
+  const [refillTotals, setRefillTotals] = useState<Record<string, number>>({});
+  const [refillForm, setRefillForm] = useState({ tally_date: todayIso(), size_liters: '20', qty: '', notes: '' });
   const [producedTotals, setProducedTotals] = useState<{
     by_sku: Array<{ sku_id: string; sku_name: string; sku_code?: string; total_bales: number; batch_count?: number }>;
     by_size?: Array<{ size: string; total_bales: number; sku_count?: number }>;
@@ -171,12 +174,13 @@ const ProductionPage: React.FC = () => {
     const q = searchParams.get('q');
     if (q) setSearchTerm(q);
     const tab = searchParams.get('tab');
-    if (tab === 'materials' || tab === 'bom' || tab === 'daily' || tab === 'capacity') setActiveTab(tab);
+    if (tab === 'materials' || tab === 'bom' || tab === 'daily' || tab === 'capacity' || tab === 'refills') setActiveTab(tab);
   }, [searchParams]);
 
   useEffect(() => {
     fetchDaily();
     fetchCapacity();
+    fetchRefills();
     api.get('/fleet/skus').then(res => setSkus(res.data.data)).catch(() => {});
     api.get('/production/materials', { params: { limit: 200 } }).then(res => setMaterials(res.data.data)).catch(() => {});
   }, []);
@@ -185,6 +189,44 @@ const ProductionPage: React.FC = () => {
     if (!bomSkuId) { setBomItems([]); return; }
     api.get(`/production/bom?sku_id=${bomSkuId}`).then(res => setBomItems(res.data.data)).catch(() => {});
   }, [bomSkuId]);
+
+  const fetchRefills = async () => {
+    try {
+      const res = await api.get('/production/refills');
+      setRefillRows(res.data.data || []);
+      setRefillTotals(res.data.totals || {});
+    } catch {
+      /* refill tally may be deploying */
+    }
+  };
+
+  const saveRefill = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await api.post('/production/refills', {
+        tally_date: refillForm.tally_date,
+        size_liters: Number(refillForm.size_liters),
+        qty: Number(refillForm.qty),
+        notes: refillForm.notes || null,
+      });
+      toast.success('Refill tally saved. Bottles and finished stock were not changed.');
+      setRefillForm((form) => ({ ...form, qty: '', notes: '' }));
+      await fetchRefills();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to save refill tally');
+    }
+  };
+
+  const deleteRefill = async (id: string) => {
+    if (!director) return;
+    if (!window.confirm('Remove this refill tally?')) return;
+    try {
+      await api.delete(`/production/refills/${id}`);
+      await fetchRefills();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to remove refill tally');
+    }
+  };
 
   const fetchDaily = async () => {
     try {
@@ -494,6 +536,7 @@ const ProductionPage: React.FC = () => {
             {[
               { id: 'capacity', label: 'Unfinished materials' },
               { id: 'daily', label: 'Daily Production' },
+              { id: 'refills', label: 'Refills' },
               { id: 'materials', label: `Materials (${materials.length})` },
               { id: 'bom', label: 'Bill of Materials' },
             ].map(tab => (
@@ -524,6 +567,84 @@ const ProductionPage: React.FC = () => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'refills' && (
+            <div className="space-y-6">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Customers bring their own jerricans. This tally does not use bottles, labels, caps, seals, or finished bales.
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {['5', '10', '20'].map((size) => (
+                  <div key={size} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
+                    <p className="text-xs text-gray-500">{size}L refills</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{Number(refillTotals[size] || 0).toLocaleString()}</p>
+                  </div>
+                ))}
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
+                  <p className="text-xs text-gray-500">All sizes</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                    {Object.values(refillTotals).reduce((sum, n) => sum + Number(n || 0), 0).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+              <form onSubmit={saveRefill} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                <label className="text-sm text-gray-700 dark:text-gray-300">
+                  Date
+                  <input type="date" required value={refillForm.tally_date} onChange={(e) => setRefillForm({ ...refillForm, tally_date: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2" />
+                </label>
+                <label className="text-sm text-gray-700 dark:text-gray-300">
+                  Size
+                  <select value={refillForm.size_liters} onChange={(e) => setRefillForm({ ...refillForm, size_liters: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2">
+                    <option value="5">5L</option>
+                    <option value="10">10L</option>
+                    <option value="20">20L</option>
+                  </select>
+                </label>
+                <label className="text-sm text-gray-700 dark:text-gray-300">
+                  Jerricans filled
+                  <input type="number" min={1} required value={refillForm.qty} onChange={(e) => setRefillForm({ ...refillForm, qty: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2" />
+                </label>
+                <label className="text-sm text-gray-700 dark:text-gray-300 sm:col-span-1">
+                  Note
+                  <input type="text" value={refillForm.notes} onChange={(e) => setRefillForm({ ...refillForm, notes: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2" />
+                </label>
+                <button type="submit" className="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-medium">Add refill</button>
+              </form>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Jerricans</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Note</th>
+                      {director && <th className="px-4 py-3" />}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {refillRows.map((row) => (
+                      <tr key={row.id}>
+                        <td className="px-4 py-3 text-sm">{String(row.tally_date).slice(0, 10)}</td>
+                        <td className="px-4 py-3 text-sm">{Number(row.size_liters)}L</td>
+                        <td className="px-4 py-3 text-sm font-semibold">{Number(row.qty).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{row.notes || '—'}</td>
+                        {director && (
+                          <td className="px-4 py-3 text-right">
+                            <button type="button" onClick={() => deleteRefill(row.id)} className="text-red-600 text-sm">Remove</button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                    {refillRows.length === 0 && (
+                      <tr>
+                        <td colSpan={director ? 5 : 4} className="px-4 py-8 text-sm text-gray-400 text-center">No refills recorded yet.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -625,11 +746,14 @@ const ProductionPage: React.FC = () => {
             {unsold.length > 0 && (
               <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/20 p-4">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Finished bales still unsold</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Sales and trip loads can only take these. Producing more adds here; selling subtracts here. Raw materials are not sold.</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Produced minus sold. This cannot be higher than the bales made. Custom 0.5L is the same stock as Premium 0.5L. Refills are not included.</p>
                 <div className="flex flex-wrap gap-2">
                   {unsold.map((u) => (
                     <span key={u.sku_id} className="text-xs rounded-full bg-white dark:bg-gray-800 border border-emerald-200 dark:border-emerald-800 px-2 py-1">
                       {u.sku_name}: <strong>{Number(u.unsold_bales).toLocaleString()}</strong> bales
+                      {u.produced_bales != null && (
+                        <span className="text-gray-500"> ({Number(u.produced_bales).toLocaleString()} made, {Number(u.sold_bales || 0).toLocaleString()} sold)</span>
+                      )}
                     </span>
                   ))}
                 </div>

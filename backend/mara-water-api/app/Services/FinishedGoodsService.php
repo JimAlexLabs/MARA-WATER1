@@ -2,11 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\Batch;
 use App\Models\DriverTripItem;
 use App\Models\OrderItem;
 use App\Models\Sku;
 use App\Models\StockItem;
 use App\Models\StockMove;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -71,11 +73,14 @@ class FinishedGoodsService
         if (abs($fromItems) < 0.001) {
             $fromMoves = $this->onHandFromMoves($stockId, $warehouseIds);
             if ($fromMoves > 0.001) {
-                return $fromMoves;
+                $fromItems = $fromMoves;
             }
         }
 
-        return $fromItems;
+        // Unsold cannot exceed bales produced minus bales sold.
+        $cap = $this->ledger($stockId)['unsold'];
+
+        return min(max(0, $fromItems), $cap);
     }
 
     /** Net finished bales from stock_moves when stock_items is empty. */
@@ -235,52 +240,114 @@ class FinishedGoodsService
         }
     }
 
-    /** Current unsold finished bales per stock SKU (on hand minus reservations). */
+    /**
+     * Unsold finished bales = bales produced − bales sold.
+     * Custom 0.5L is included in Premium 0.5L. This cannot exceed production.
+     *
+     * @return array{produced: float, sold: float, unsold: float}
+     */
+    public function ledger(string $skuId): array
+    {
+        $ids = $this->familyIds($skuId);
+        $produced = (float) Batch::query()
+            ->whereIn('sku_id', $ids)
+            ->whereNull('deleted_at')
+            ->sum(DB::raw('COALESCE(actual_qty, planned_qty)'));
+
+        $orderSold = (float) DB::table('order_items as i')
+            ->join('orders as o', 'o.id', '=', 'i.order_id')
+            ->whereIn('i.sku_id', $ids)
+            ->whereNull('o.deleted_at')
+            ->whereNull('i.deleted_at')
+            ->sum(DB::raw('i.qty - COALESCE(i.qty_returned, 0)'));
+
+        $tripSold = (float) DB::table('driver_trip_sale_items as i')
+            ->join('driver_trip_sales as sa', 'sa.id', '=', 'i.driver_trip_sale_id')
+            ->whereIn('i.sku_id', $ids)
+            ->whereNull('sa.deleted_at')
+            ->sum('i.qty_bales');
+
+        $sold = $orderSold + $tripSold;
+
+        return [
+            'produced' => round($produced, 2),
+            'sold' => round($sold, 2),
+            'unsold' => round(max(0, $produced - $sold), 2),
+        ];
+    }
+
+    /**
+     * Put warehouse finished stock on the ledger: produced − sold.
+     * Clears extra rows that made unsold larger than production.
+     *
+     * @return list<string>
+     */
+    public function syncStockToLedger(): array
+    {
+        $warehouseId = MainWarehouse::id();
+        $lines = [];
+        $sellCodes = array_keys(SkuStockAliasService::ALIASES);
+
+        foreach (Sku::query()->whereNull('deleted_at')->whereNotIn('code', $sellCodes)->get() as $sku) {
+            if ($sku->isRefill()) {
+                continue;
+            }
+            $ledger = $this->ledger($sku->id);
+            if ($ledger['produced'] <= 0 && $ledger['sold'] <= 0) {
+                continue;
+            }
+
+            $ids = $this->familyIds($sku->id);
+            $rows = StockItem::query()
+                ->where('item_type', 'sku')
+                ->whereIn('sku_id', $ids)
+                ->whereNull('deleted_at')
+                ->get();
+            foreach ($rows as $row) {
+                $row->update(['qty' => 0, 'updated_by' => Auth::id()]);
+            }
+
+            $target = $ledger['unsold'];
+            if ($target > 0 && $warehouseId) {
+                $keeper = $rows->first(fn ($row) => (string) $row->sku_id === (string) $sku->id && (string) $row->warehouse_id === (string) $warehouseId);
+                if ($keeper) {
+                    $keeper->update(['qty' => $target, 'updated_by' => Auth::id()]);
+                } else {
+                    StockItem::create([
+                        'item_type' => 'sku',
+                        'sku_id' => $sku->id,
+                        'warehouse_id' => $warehouseId,
+                        'qty' => $target,
+                        'created_by' => Auth::id(),
+                        'updated_by' => Auth::id(),
+                    ]);
+                }
+            }
+
+            $lines[] = sprintf(
+                '%s produced %s − sold %s = %s unsold',
+                $sku->code,
+                $ledger['produced'],
+                $ledger['sold'],
+                $target
+            );
+        }
+
+        return $lines;
+    }
+
+    /** Current unsold finished bales: produced minus sold, one line per physical SKU. */
     public function balances(?string $warehouseId = null): array
     {
-        $warehouseIds = $warehouseId ? [$warehouseId] : MainWarehouse::ids();
-        if ($warehouseIds === []) {
-            return [];
-        }
-
-        $rows = StockItem::query()
-            ->where('item_type', 'sku')
-            ->whereIn('warehouse_id', $warehouseIds)
-            ->whereNull('deleted_at')
-            ->selectRaw('sku_id, SUM(qty) as qty')
-            ->groupBy('sku_id')
-            ->get();
-
-        $seen = [];
+        $sellCodes = array_keys(SkuStockAliasService::ALIASES);
         $out = [];
-        foreach ($rows as $row) {
-            $sku = Sku::find($row->sku_id);
-            if (! $sku || $sku->isRefill()) {
-                continue;
-            }
-            $seen[$sku->id] = true;
-            $onHand = $this->onHandBales($sku->id, $warehouseId);
-            $reserved = $this->reservedBales($sku->id, $warehouseId);
-            $out[] = [
-                'sku_id' => $sku->id,
-                'sku_code' => $sku->code,
-                'sku_name' => $sku->name,
-                'brand' => $sku->brand,
-                'on_hand_bales' => round($onHand, 2),
-                'reserved_bales' => round($reserved, 2),
-                'unsold_bales' => round($onHand - $reserved, 2),
-            ];
-        }
 
-        // Include SKUs that only appear via moves fallback (empty stock_items).
-        foreach (Sku::query()->where(function ($q) {
-            $q->where('active', true)->orWhereNull('active');
-        })->get() as $sku) {
-            if (isset($seen[$sku->id]) || $sku->isRefill()) {
+        foreach (Sku::query()->whereNull('deleted_at')->whereNotIn('code', $sellCodes)->orderBy('size_liters')->get() as $sku) {
+            if ($sku->isRefill()) {
                 continue;
             }
-            $onHand = $this->onHandBales($sku->id, $warehouseId);
-            if ($onHand <= 0.001) {
+            $ledger = $this->ledger($sku->id);
+            if ($ledger['produced'] <= 0 && $ledger['sold'] <= 0) {
                 continue;
             }
             $reserved = $this->reservedBales($sku->id, $warehouseId);
@@ -289,9 +356,11 @@ class FinishedGoodsService
                 'sku_code' => $sku->code,
                 'sku_name' => $sku->name,
                 'brand' => $sku->brand,
-                'on_hand_bales' => round($onHand, 2),
+                'produced_bales' => $ledger['produced'],
+                'sold_bales' => $ledger['sold'],
+                'on_hand_bales' => $ledger['unsold'],
                 'reserved_bales' => round($reserved, 2),
-                'unsold_bales' => round($onHand - $reserved, 2),
+                'unsold_bales' => $ledger['unsold'],
             ];
         }
 

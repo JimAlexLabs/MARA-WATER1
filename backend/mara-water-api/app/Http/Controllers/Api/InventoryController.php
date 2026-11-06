@@ -957,6 +957,16 @@ class InventoryController extends Controller
             throw new \InvalidArgumentException('Counted quantity cannot be negative.');
         }
 
+        if ($itemType === 'sku' && $skuId) {
+            $ledger = app(\App\Services\FinishedGoodsService::class)->ledger($skuId);
+            if ($target > $ledger['unsold'] + 0.001) {
+                $name = \App\Models\Sku::find($skuId)?->name ?: 'This product';
+                throw new \InvalidArgumentException(
+                    "{$name} unsold cannot be more than bales produced minus sold ({$ledger['unsold']}). Produced {$ledger['produced']}, sold {$ledger['sold']}."
+                );
+            }
+        }
+
         $warehouseId = \App\Services\MainWarehouse::id();
         if (! $warehouseId) {
             throw new \RuntimeException('No warehouse is set up yet.');

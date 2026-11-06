@@ -88,11 +88,10 @@ class ProductionCapacityService
             // 1 bailing sheet wraps exactly one finished bale.
             $fromBailing = $usesBailing ? (float) $bailing : null;
 
+            // Caps and seals are held in plenty and are not a production limit.
             $candidates = [
                 'Bottles' => $fromBottles,
                 'Labels' => $fromLabels,
-                'Caps' => $fromCaps,
-                'Seals' => $fromSeals,
             ];
             if ($usesBailing) {
                 $candidates['Bailing paper'] = $fromBailing ?? 0;
@@ -246,10 +245,15 @@ class ProductionCapacityService
             return 0.0;
         }
 
-        return (float) (StockItem::where('item_type', 'material')
+        $warehouseIds = array_values(array_unique(array_filter([
+            $warehouseId,
+            ...MainWarehouse::ids(),
+        ])));
+
+        return (float) StockItem::where('item_type', 'material')
             ->where('material_id', $materialId)
-            ->where('warehouse_id', $warehouseId)
+            ->whereIn('warehouse_id', $warehouseIds)
             ->whereNull('deleted_at')
-            ->value('qty') ?? 0);
+            ->sum('qty');
     }
 }
