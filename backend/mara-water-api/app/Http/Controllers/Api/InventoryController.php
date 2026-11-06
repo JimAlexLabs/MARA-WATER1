@@ -158,7 +158,9 @@ class InventoryController extends Controller
                 'batch_id' => 'nullable|exists:batches,id',
                 'warehouse_from_id' => 'nullable|exists:warehouses,id',
                 'warehouse_to_id' => 'nullable|exists:warehouses,id',
-                'qty' => 'required|numeric|min:0.001',
+                'qty' => 'required_without_all:counted_qty,add_qty|numeric|min:0.001',
+                'counted_qty' => 'nullable|numeric|min:0',
+                'add_qty' => 'nullable|numeric|min:0.001',
                 'uom' => 'required|string|max:20',
                 'unit_cost' => 'nullable|numeric|min:0',
                 'ref_entity' => 'nullable|string|max:100',
@@ -200,8 +202,8 @@ class InventoryController extends Controller
             if ($request->move_type === 'adjust' && ! $isDirector) {
                 $payload = $request->only([
                     'move_type', 'item_type', 'material_id', 'sku_id', 'batch_id',
-                    'warehouse_from_id', 'warehouse_to_id', 'qty', 'uom', 'unit_cost',
-                    'ref_entity', 'ref_id',
+                    'warehouse_from_id', 'warehouse_to_id', 'qty', 'counted_qty', 'add_qty',
+                    'uom', 'unit_cost', 'ref_entity', 'ref_id',
                 ]);
                 $pending = StockCorrectionRequest::create([
                     'requested_by' => Auth::id(),
@@ -222,8 +224,8 @@ class InventoryController extends Controller
 
             $stockMove = $this->recordMove($request->only([
                 'move_type', 'item_type', 'material_id', 'sku_id', 'batch_id',
-                'warehouse_from_id', 'warehouse_to_id', 'qty', 'uom', 'unit_cost',
-                'ref_entity', 'ref_id',
+                'warehouse_from_id', 'warehouse_to_id', 'qty', 'counted_qty', 'add_qty',
+                'uom', 'unit_cost', 'ref_entity', 'ref_id',
             ]));
 
             $stockMove->load(['material', 'sku', 'batch', 'warehouseFrom', 'warehouseTo', 'movedBy']);
@@ -265,6 +267,10 @@ class InventoryController extends Controller
      */
     public function recordMove(array $data, bool $allowNegative = false): StockMove
     {
+        if (array_key_exists('counted_qty', $data) || array_key_exists('add_qty', $data)) {
+            return $this->setCountedOnHand($data);
+        }
+
         $stockMove = StockMove::create([
             'move_type' => $data['move_type'],
             'item_type' => $data['item_type'],
@@ -924,6 +930,139 @@ class InventoryController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Admin counted quantity replaces the plant total for this item.
+     * Rows split across MAIN and WH-MAIN, or across batch lines, were
+     * previously left in place while the correction added a new pile.
+     */
+    private function setCountedOnHand(array $data): StockMove
+    {
+        $itemType = $data['item_type'] ?? null;
+        $materialId = $data['material_id'] ?? null;
+        $skuId = $data['sku_id'] ?? null;
+
+        if ($itemType === 'sku' && $skuId) {
+            $skuId = \App\Services\SkuStockAliasService::stockSkuIdFor($skuId) ?: $skuId;
+        }
+
+        $current = $this->sumPlantQty($itemType, $materialId, $skuId);
+        if (array_key_exists('counted_qty', $data)) {
+            $target = round((float) $data['counted_qty'], 3);
+        } else {
+            $target = round($current + (float) ($data['add_qty'] ?? 0), 3);
+        }
+        if ($target < 0) {
+            throw new \InvalidArgumentException('Counted quantity cannot be negative.');
+        }
+
+        $warehouseId = \App\Services\MainWarehouse::id();
+        if (! $warehouseId) {
+            throw new \RuntimeException('No warehouse is set up yet.');
+        }
+
+        $rows = $this->plantRows($itemType, $materialId, $skuId);
+        foreach ($rows as $row) {
+            $row->update(['qty' => 0, 'updated_by' => Auth::id()]);
+        }
+
+        $keeper = $rows->first(fn ($row) => (string) $row->warehouse_id === (string) $warehouseId);
+        if ($keeper) {
+            $keeper->update(['qty' => $target, 'updated_by' => Auth::id()]);
+        } elseif ($target > 0 || $rows->isEmpty()) {
+            $keeper = StockItem::create([
+                'item_type' => $itemType,
+                'material_id' => $itemType === 'material' ? $materialId : null,
+                'sku_id' => $itemType === 'sku' ? $skuId : null,
+                'batch_id' => null,
+                'warehouse_id' => $warehouseId,
+                'qty' => $target,
+                'created_by' => Auth::id(),
+                'updated_by' => Auth::id(),
+            ]);
+        }
+
+        $delta = round($target - $current, 3);
+        $moveQty = abs($delta) >= 0.001 ? abs($delta) : 0;
+
+        return StockMove::create([
+            'move_type' => 'adjust',
+            'item_type' => $itemType,
+            'material_id' => $itemType === 'material' ? $materialId : null,
+            'sku_id' => $itemType === 'sku' ? $skuId : null,
+            'batch_id' => null,
+            'warehouse_from_id' => $delta < 0 ? $warehouseId : null,
+            'warehouse_to_id' => $delta > 0 ? $warehouseId : ($delta == 0.0 ? $warehouseId : null),
+            'qty' => $moveQty,
+            'uom' => $data['uom'] ?? ($itemType === 'sku' ? 'BALE' : 'PCS'),
+            'unit_cost' => $data['unit_cost'] ?? null,
+            'ref_entity' => $data['ref_entity'] ?? 'stock_correction',
+            'ref_id' => $data['ref_id'] ?? 'Counted quantity',
+            'moved_by' => Auth::id(),
+            'created_by' => Auth::id(),
+            'updated_by' => Auth::id(),
+        ]);
+    }
+
+    private function sumPlantQty(?string $itemType, ?string $materialId, ?string $skuId): float
+    {
+        return round((float) $this->plantRows($itemType, $materialId, $skuId)->sum('qty'), 3);
+    }
+
+    private function plantRows(?string $itemType, ?string $materialId, ?string $skuId)
+    {
+        $query = StockItem::where('item_type', $itemType)->whereNull('deleted_at');
+        if ($itemType === 'material') {
+            $query->where('material_id', $materialId);
+        } else {
+            $query->where('sku_id', $skuId);
+        }
+
+        return $query->get();
+    }
+
+    /**
+     * Remove up to $qty finished bales from whichever rows still hold them
+     * (any warehouse, any batch). Returns how many were actually removed.
+     */
+    public function drawSkuQuantity(string $skuId, float $qty, string $refEntity, string $refId): float
+    {
+        $stockSkuId = \App\Services\SkuStockAliasService::stockSkuIdFor($skuId) ?: $skuId;
+        $left = round($qty, 3);
+        if ($left <= 0) {
+            return 0.0;
+        }
+
+        $rows = StockItem::where('item_type', 'sku')
+            ->where('sku_id', $stockSkuId)
+            ->where('qty', '>', 0)
+            ->whereNull('deleted_at')
+            ->orderByDesc('qty')
+            ->get();
+
+        $drawn = 0.0;
+        foreach ($rows as $row) {
+            if ($left <= 0.0001) {
+                break;
+            }
+            $take = min($left, (float) $row->qty);
+            $this->recordMove([
+                'move_type' => 'adjust',
+                'item_type' => 'sku',
+                'sku_id' => $stockSkuId,
+                'batch_id' => $row->batch_id,
+                'warehouse_from_id' => $row->warehouse_id,
+                'qty' => $take,
+                'uom' => 'BALE',
+                'ref_entity' => $refEntity,
+                'ref_id' => $refId,
+            ]);
+            $drawn += $take;
+            $left = round($left - $take, 3);
+        }
+
+        return $drawn;
     }
 
     /**

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Batch;
+use App\Models\PackagingRun;
 use App\Models\Sku;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -403,6 +404,49 @@ class BatchController extends Controller
         try {
             $batch = Batch::whereNull('deleted_at')->findOrFail($id);
 
+            // Admin sets the bales on a closed batch. Finished stock and
+            // the materials for that batch move by the difference.
+            if ($request->exists('bales')) {
+                $user = Auth::user();
+                if (! $user || (! $user->isDirector() && $user->accessTier() !== 'director')) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Only an admin can change production quantities.',
+                    ], 403);
+                }
+                $baleCheck = Validator::make($request->all(), [
+                    'bales' => 'required|integer|min:0',
+                ]);
+                if ($baleCheck->fails()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Enter a whole number of bales, 0 or more.',
+                        'errors' => $baleCheck->errors(),
+                    ], 422);
+                }
+
+                try {
+                    DB::beginTransaction();
+                    app(PackagingRunController::class)->setBatchBales($batch, (int) $request->bales);
+                    DB::commit();
+                } catch (\Throwable $e) {
+                    DB::rollBack();
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => $e->getMessage() ?: 'Failed to update production',
+                    ], 422);
+                }
+
+                $batch->refresh()->load(['sku', 'openedBy', 'closedBy']);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Production updated. Finished stock and materials moved with it.',
+                    'data' => ['batch' => $batch],
+                ]);
+            }
+
             $validator = Validator::make($request->all(), [
                 'planned_qty' => 'nullable|integer|min:1',
                 'expiry_date' => 'nullable|date|after:manufacture_date',
@@ -518,8 +562,18 @@ class BatchController extends Controller
             return response()->json(['success' => false, 'message' => 'Deleted batch not found'], 404);
         }
 
-        $batch->restore();
-        $batch->update(['updated_by' => Auth::id()]);
+        try {
+            DB::beginTransaction();
+            $batch->restore();
+            PackagingRun::onlyTrashed()->where('batch_id', $batch->id)->get()->each->restore();
+            $batch->update(['updated_by' => Auth::id()]);
+            app(PackagingRunController::class)->repostBatch($batch);
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json(['success' => false, 'message' => $e->getMessage() ?: 'Failed to restore batch'], 422);
+        }
         $batch->load(['sku', 'openedBy', 'closedBy']);
 
         return response()->json([

@@ -588,50 +588,11 @@ class PackagingRunController extends Controller
     public function reverseAndDeleteRun(PackagingRun $run): void
     {
         $inventory = new InventoryController();
-        $moves = \App\Models\StockMove::where('ref_entity', 'packaging_run')
-            ->where('ref_id', $run->id)
-            ->whereNull('deleted_at')
-            ->get();
-
-        foreach ($moves as $move) {
-            if ($move->move_type === 'produce' && $move->warehouse_to_id) {
-                // Only pull back what is still on hand for this batch.
-                // Sold / dispatched bales are already gone — reversing the
-                // full produce qty would throw "Insufficient stock" and
-                // block deleting the production record.
-                $available = (float) (\App\Models\StockItem::where('item_type', 'sku')
-                    ->where('sku_id', $move->sku_id)
-                    ->where('batch_id', $move->batch_id)
-                    ->where('warehouse_id', $move->warehouse_to_id)
-                    ->whereNull('deleted_at')
-                    ->value('qty') ?? 0);
-                $reverseQty = min((float) $move->qty, max(0.0, $available));
-                if ($reverseQty <= 0) {
-                    continue;
-                }
-                $inventory->recordMove([
-                    'move_type' => 'adjust',
-                    'item_type' => 'sku',
-                    'sku_id' => $move->sku_id,
-                    'batch_id' => $move->batch_id,
-                    'warehouse_from_id' => $move->warehouse_to_id,
-                    'qty' => $reverseQty,
-                    'uom' => $move->uom ?: 'BALE',
-                    'ref_entity' => 'packaging_run_deleted',
-                    'ref_id' => $run->id,
-                ]);
-            } elseif ($move->move_type === 'issue' && $move->warehouse_from_id && $move->item_type === 'material') {
-                $inventory->recordMove([
-                    'move_type' => 'adjust',
-                    'item_type' => 'material',
-                    'material_id' => $move->material_id,
-                    'warehouse_to_id' => $move->warehouse_from_id,
-                    'qty' => $move->qty,
-                    'uom' => $move->uom ?: 'PCS',
-                    'ref_entity' => 'packaging_run_deleted',
-                    'ref_id' => $run->id,
-                ], true);
-            }
+        $bales = (int) ($run->good_qty ?: 0);
+        $warehouseId = $run->warehouse_id ?: \App\Services\MainWarehouse::id();
+        if ($bales > 0 && $warehouseId) {
+            $inventory->drawSkuQuantity($run->sku_id, $bales, 'packaging_run_deleted', $run->id);
+            $this->returnBom($run, $warehouseId, $bales, $inventory);
         }
 
         $consumptions = \App\Models\MaterialBatchConsumption::where('packaging_run_id', $run->id)->get();
@@ -644,7 +605,175 @@ class PackagingRunController extends Controller
             $row->delete();
         }
 
+        if ($produceQty > 0) {
+            $inventory->drawSkuQuantity($run->sku_id, $produceQty, 'packaging_run_deleted', $run->id);
+        }
+
         $run->delete();
+    }
+
+    /**
+     * Admin changed how many bales this batch actually made.
+     * Finished stock and the bill of materials move by the difference.
+     * Caller owns the DB transaction.
+     */
+    public function setBatchBales(Batch $batch, int $bales): void
+    {
+        if ($bales < 0) {
+            throw new \InvalidArgumentException('Bales cannot be negative.');
+        }
+
+        $old = (int) ($batch->actual_qty ?? $batch->planned_qty ?? 0);
+        $delta = $bales - $old;
+        $run = PackagingRun::where('batch_id', $batch->id)->whereNull('deleted_at')->orderByDesc('created_at')->first();
+        $warehouseId = $run?->warehouse_id ?: \App\Services\MainWarehouse::id();
+        if (! $warehouseId) {
+            throw new \RuntimeException('No warehouse is set up yet.');
+        }
+
+        if (! $run) {
+            if ($bales > 0) {
+                $this->createCompletedForBatch($batch, $bales, $warehouseId, 'Quantity set by admin');
+            } else {
+                $batch->update([
+                    'planned_qty' => 0,
+                    'actual_qty' => 0,
+                    'updated_by' => Auth::id(),
+                ]);
+            }
+
+            return;
+        }
+
+        if ($delta > 0) {
+            $this->postBaleDelta($run, $warehouseId, $delta);
+        } elseif ($delta < 0) {
+            $this->reverseBaleDelta($run, $warehouseId, abs($delta));
+        }
+
+        $run->update(['good_qty' => $bales, 'updated_by' => Auth::id()]);
+        $batch->update([
+            'planned_qty' => $bales,
+            'actual_qty' => $bales,
+            'status' => 'closed',
+            'closed_by' => $batch->closed_by ?: Auth::id(),
+            'updated_by' => Auth::id(),
+        ]);
+    }
+
+    /**
+     * Undo a deleted batch: the production row is back, so put its bales
+     * and material use back too.
+     */
+    public function repostBatch(Batch $batch): void
+    {
+        $bales = (int) ($batch->actual_qty ?? $batch->planned_qty ?? 0);
+        if ($bales <= 0) {
+            return;
+        }
+        $run = PackagingRun::where('batch_id', $batch->id)->whereNull('deleted_at')->orderByDesc('created_at')->first();
+        $warehouseId = $run?->warehouse_id ?: \App\Services\MainWarehouse::id();
+        if ($run && $warehouseId) {
+            $this->postBaleDelta($run, $warehouseId, $bales);
+        }
+    }
+
+    private function postBaleDelta(PackagingRun $run, string $warehouseId, int $bales): void
+    {
+        if ($bales <= 0) {
+            return;
+        }
+        $inventory = new InventoryController();
+        $sellable = $run->sku ?: Sku::find($run->sku_id);
+        $stockSku = \App\Services\SkuStockAliasService::stockSkuFor($sellable);
+        $stockSkuId = $stockSku?->id ?: $run->sku_id;
+
+        $inventory->recordMove([
+            'move_type' => 'produce',
+            'item_type' => 'sku',
+            'sku_id' => $stockSkuId,
+            'batch_id' => $run->batch_id,
+            'warehouse_to_id' => $warehouseId,
+            'qty' => $bales,
+            'uom' => 'BALE',
+            'ref_entity' => 'packaging_run',
+            'ref_id' => $run->id,
+        ]);
+
+        $this->consumeBom($run, $warehouseId, $bales, $inventory);
+    }
+
+    private function reverseBaleDelta(PackagingRun $run, string $warehouseId, int $bales): void
+    {
+        if ($bales <= 0) {
+            return;
+        }
+        $inventory = new InventoryController();
+        $inventory->drawSkuQuantity($run->sku_id, $bales, 'packaging_run', $run->id);
+        $this->returnBom($run, $warehouseId, $bales, $inventory);
+    }
+
+    private function consumeBom(PackagingRun $run, string $warehouseId, int $bales, InventoryController $inventory): void
+    {
+        $sellable = $run->sku ?: Sku::find($run->sku_id);
+        $stockSku = \App\Services\SkuStockAliasService::stockSkuFor($sellable);
+        $bomSkuId = $stockSku?->id ?: $run->sku_id;
+        $bomItems = BomItem::with('material')->where('sku_id', $bomSkuId)->whereNull('deleted_at')->get();
+        if ($bomItems->isEmpty() && $bomSkuId !== $run->sku_id) {
+            $bomItems = BomItem::with('material')->where('sku_id', $run->sku_id)->whereNull('deleted_at')->get();
+        }
+
+        foreach ($bomItems as $bomItem) {
+            $qtyNeeded = (float) $bomItem->qty_per_unit * $bales;
+            if ($qtyNeeded <= 0) {
+                continue;
+            }
+            $this->consumeMaterialBatchesFifo(
+                $bomItem->material_id,
+                $warehouseId,
+                $qtyNeeded,
+                $bomItem->uom,
+                $run->id
+            );
+            $inventory->recordMove([
+                'move_type' => 'issue',
+                'item_type' => 'material',
+                'material_id' => $bomItem->material_id,
+                'warehouse_from_id' => $warehouseId,
+                'qty' => $qtyNeeded,
+                'uom' => $bomItem->uom,
+                'ref_entity' => 'packaging_run',
+                'ref_id' => $run->id,
+            ], allowNegative: true);
+        }
+    }
+
+    private function returnBom(PackagingRun $run, string $warehouseId, int $bales, InventoryController $inventory): void
+    {
+        $sellable = $run->sku ?: Sku::find($run->sku_id);
+        $stockSku = \App\Services\SkuStockAliasService::stockSkuFor($sellable);
+        $bomSkuId = $stockSku?->id ?: $run->sku_id;
+        $bomItems = BomItem::with('material')->where('sku_id', $bomSkuId)->whereNull('deleted_at')->get();
+        if ($bomItems->isEmpty() && $bomSkuId !== $run->sku_id) {
+            $bomItems = BomItem::with('material')->where('sku_id', $run->sku_id)->whereNull('deleted_at')->get();
+        }
+
+        foreach ($bomItems as $bomItem) {
+            $qty = (float) $bomItem->qty_per_unit * $bales;
+            if ($qty <= 0) {
+                continue;
+            }
+            $inventory->recordMove([
+                'move_type' => 'adjust',
+                'item_type' => 'material',
+                'material_id' => $bomItem->material_id,
+                'warehouse_to_id' => $warehouseId,
+                'qty' => $qty,
+                'uom' => $bomItem->uom,
+                'ref_entity' => 'packaging_run',
+                'ref_id' => $run->id,
+            ], allowNegative: true);
+        }
     }
 
     private function updateBatchStatus($batch, $goodQty)

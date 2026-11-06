@@ -251,6 +251,30 @@ const ProductionPage: React.FC = () => {
     }
   };
 
+  const editBatchBales = async (batch: { id: string; code?: string; planned_qty?: number; actual_qty?: number | null }) => {
+    if (!director) return;
+    const current = batch.actual_qty ?? batch.planned_qty ?? 0;
+    const next = window.prompt(
+      `Bales made in ${batch.code || 'this batch'}. Finished stock and the materials used will move with this number.`,
+      String(current),
+    );
+    if (next === null) return;
+    const bales = Number(next);
+    if (!Number.isInteger(bales) || bales < 0) {
+      toast.error('Enter a whole number of bales, 0 or more');
+      return;
+    }
+    try {
+      await api.put(`/qa/batches/${batch.id}`, { bales });
+      toast.success('Production updated. Finished stock and materials moved with it.');
+      await fetchDaily();
+      await fetchCapacity();
+      if (selectedDate) await openDay(selectedDate);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to update batch');
+    }
+  };
+
   const deleteBatch = async (batch: { id: string; code?: string }) => {
     if (!director) return;
     if (!window.confirm(`Delete batch ${batch.code || batch.id}? You can restore it from Deleted batches.`)) return;
@@ -768,6 +792,17 @@ const ProductionPage: React.FC = () => {
                                 {row.batches.map((b) => (
                                   <div key={b.id} className="flex items-center gap-2">
                                     <span>{b.code}</span>
+                                    <span className="text-gray-600 dark:text-gray-300">{(b.actual_qty ?? b.planned_qty ?? 0).toLocaleString()} bales</span>
+                                    {director && (
+                                      <button
+                                        type="button"
+                                        onClick={() => editBatchBales(b)}
+                                        className="text-blue-600 hover:text-blue-800"
+                                        title="Change bales"
+                                      >
+                                        Edit
+                                      </button>
+                                    )}
                                     {director && (
                                       <button
                                         type="button"

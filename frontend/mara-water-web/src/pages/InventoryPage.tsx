@@ -22,7 +22,31 @@ import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 import { usePermissions } from '../contexts/AuthContext';
 import { locksFromSettingsPayload } from '../utils/managerLocks';
 
-/** Monday, 26 October 2026 — words and numbers, so 10/26 is never read as 26/10. */
+/** One line per product. Split warehouse and batch rows were hiding the real total. */
+function combineStockRows(rows: StockItem[]): StockItem[] {
+  const grouped = new Map<string, StockItem>();
+  rows.forEach((item) => {
+    const key = `${item.item_type}:${item.item_type === 'material' ? item.material_id : item.sku_id}`;
+    const qty = parseFloat(item.qty || '0');
+    const prev = grouped.get(key);
+    if (!prev) {
+      grouped.set(key, {
+        ...item,
+        qty: String(Number.isFinite(qty) ? qty : 0),
+        warehouse: { name: 'Main store', code: 'ALL' },
+      });
+      return;
+    }
+    const sum = parseFloat(prev.qty || '0') + (Number.isFinite(qty) ? qty : 0);
+    prev.qty = String(Math.round(sum * 1000) / 1000);
+  });
+  return Array.from(grouped.values()).sort((a, b) => {
+    const an = (a.material?.name || a.sku?.name || '').toLowerCase();
+    const bn = (b.material?.name || b.sku?.name || '').toLowerCase();
+    return an.localeCompare(bn);
+  });
+}
+
 function fullInventoryDate(iso: string, withTime = false): string {
   const raw = iso.includes('T') ? iso : `${iso}T12:00:00`;
   const d = new Date(raw);
@@ -196,11 +220,11 @@ const InventoryPage: React.FC = () => {
     try {
       setLoading(true);
       const [stockResponse, movesResponse] = await Promise.all([
-        api.get('/inventory/stock-items', { params: { limit: 500 } }),
+        api.get('/inventory/stock-items', { params: { limit: 2000 } }),
         api.get('/inventory/stock-moves', { params: { limit: 200 } })
       ]);
       
-      setStockItems(stockResponse.data.data);
+      setStockItems(combineStockRows(stockResponse.data.data || []));
       setStockMoves(movesResponse.data.data);
       api.get('/inventory/corrections', { params: { status: 'pending' } })
         .then((res) => setCorrections(res.data.data || []))
@@ -283,8 +307,8 @@ const InventoryPage: React.FC = () => {
       const zeroRes = await api.post('/inventory/stock-moves', {
         move_type: 'adjust',
         item_type: item.item_type,
-        warehouse_from_id: warehouseId,
-        qty: currentQty,
+        warehouse_to_id: warehouseId,
+        counted_qty: 0,
         uom,
         ref_entity: 'stock_correction',
         ref_id: 'Zeroed from inventory row',
@@ -323,34 +347,26 @@ const InventoryPage: React.FC = () => {
 
     const material = materials.find(m => m.id === stockForm.material_id);
     const uom = stockForm.item_type === 'material' ? (material?.uom || 'pcs') : 'BALE';
-    const onHand = stockItems
-      .filter(item => item.item_type === stockForm.item_type && item.warehouse_id === warehouseId && (stockForm.item_type === 'material' ? item.material_id === itemId : item.sku_id === itemId))
-      .reduce((sum, item) => sum + parseFloat(item.qty || '0'), 0);
 
     let payload: Record<string, string | number>;
     if (stockForm.purpose === 'correct_set') {
-      const delta = Math.round((qty - onHand) * 1000) / 1000;
-      if (Math.abs(delta) < 0.001) {
-        toast.success('That quantity is already on hand');
-        return;
-      }
       payload = {
         move_type: 'adjust',
         item_type: stockForm.item_type,
-        qty: Math.abs(delta),
+        counted_qty: qty,
         uom,
+        warehouse_to_id: warehouseId,
         ref_entity: 'stock_correction',
         ref_id: stockForm.notes.trim().slice(0, 100),
-        ...(delta > 0 ? { warehouse_to_id: warehouseId } : { warehouse_from_id: warehouseId }),
         ...(stockForm.item_type === 'material' ? { material_id: itemId } : { sku_id: itemId }),
       };
     } else if (stockForm.purpose === 'correct_add') {
       payload = {
         move_type: 'adjust',
         item_type: stockForm.item_type,
-        warehouse_to_id: warehouseId,
-        qty,
+        add_qty: qty,
         uom,
+        warehouse_to_id: warehouseId,
         ref_entity: 'stock_correction',
         ref_id: stockForm.notes.trim().slice(0, 100),
         ...(stockForm.item_type === 'material' ? { material_id: itemId } : { sku_id: itemId }),
@@ -460,7 +476,7 @@ const InventoryPage: React.FC = () => {
       <PageHero
         eyebrow="Main store · one warehouse"
         title="Inventory"
-        description="Record arrivals when labels, bailing papers, seals or bottles come in. Correct the count when missing stock is found."
+        description="Record arrivals when labels, bailing papers, seals or bottles come in. Correct stock replaces the total on hand for that item, including every store line."
         actions={(
           <>
             {director && (
@@ -1007,7 +1023,7 @@ const InventoryPage: React.FC = () => {
               <div className={stockForm.purpose === 'arrival' ? 'grid grid-cols-2 gap-4' : ''}>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {stockForm.purpose === 'correct_set' ? 'Counted quantity on hand' : stockForm.purpose === 'correct_add' ? 'Quantity found / to add' : 'Quantity arrived'}
+                    {stockForm.purpose === 'correct_set' ? 'Counted quantity on hand (replaces the total)' : stockForm.purpose === 'correct_add' ? 'Quantity found / to add' : 'Quantity arrived'}
                   </label>
                   <input
                     required
