@@ -54,7 +54,7 @@ export const DEFAULT_MANAGER_LOCKS: Record<ManagerLockKey, boolean> = {
   reports: true,
   issues: false,
   discrepancies: false,
-  driver_cash_payment: true, // cash locked for drivers by default (M-Pesa only)
+  driver_cash_payment: false, // drivers log cash, M-Pesa and the other methods themselves
   manager_cash_payment: true, // cash locked for managers by default
   manager_edit_sales: true,
   manager_edit_sales_7d: true, // unlock = Admin approved edit of sales ≤7 days

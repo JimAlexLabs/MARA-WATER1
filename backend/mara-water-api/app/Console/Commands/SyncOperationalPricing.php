@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Align the live catalog with suggested retail (Oct 2026):
- * Premium 0.5=390, 1=390, 1.5=400, 5=500, 10=300, 20=500;
+ * Premium 0.5=370, 1=370, 1.5=380, 5=500, 10=300, 20=500;
  * Premium Custom 0.5=500; Platinum 0.5/1=500; Platinum Custom 0.5/1=550.
  */
 class SyncOperationalPricing extends Command
@@ -22,9 +22,9 @@ class SyncOperationalPricing extends Command
 
     /** @var array<string,float> Premium retail (KES / bale or unit) */
     private const PREMIUM_PRICES = [
-        '0.50' => 390.00,
-        '1.00' => 390.00,
-        '1.50' => 400.00,
+        '0.50' => 370.00,
+        '1.00' => 370.00,
+        '1.50' => 380.00,
         '5.00' => 500.00,
         '10.00' => 300.00,
         '20.00' => 500.00,
@@ -58,7 +58,7 @@ class SyncOperationalPricing extends Command
         });
 
         $this->info('Operational pricing synced.');
-        $this->line('  Premium: 0.5/1=390, 1.5=400, 5/20=500, 10=300');
+        $this->line('  Premium: 0.5/1=370, 1.5=380, 5/20=500, 10=300');
         $this->line('  Platinum: 0.5/1=500; Custom Prem 0.5=500; Plat Custom 0.5/1=550');
         $this->line('  255ml + Mara Water duplicates deactivated');
 

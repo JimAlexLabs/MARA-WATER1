@@ -3,12 +3,6 @@ import { useNavigate, Link } from 'react-router-dom';
 import { X, Camera, Smartphone, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
-import {
-  CONTACT_ADMIN_MSG,
-  DEFAULT_MANAGER_LOCKS,
-  isLocked,
-  locksFromSettingsPayload,
-} from '../utils/managerLocks';
 import DirectPaybillPanel from '../components/DirectPaybillPanel';
 
 // Round 4 Phase 0/4: "New standalone Log a Sale entity, connected to
@@ -26,11 +20,12 @@ interface TripSale { id: string; items?: TripSaleItem[]; }
 interface TripItem { id: string; sku_id: string; sku?: SkuRef; qty_carried_bales: number; }
 interface ActiveTrip {
   id: string; status: 'pending_departure' | 'in_transit' | 'completed';
+  route?: string | null;
   items: TripItem[]; sales: TripSale[];
 }
 
 const EMPTY_SALE_FORM = {
-  customer_id: '', customer_name: '', customer_phone: '', payment_method: 'mpesa' as SalePaymentMethod,
+  customer_id: '', customer_name: '', customer_phone: '', payment_method: 'cash' as SalePaymentMethod,
   mpesa_reference: '', debt_signatory: '', debt_expected_repayment_date: '',
   physical_receipt_no: '', physical_delivery_note_no: '',
 };
@@ -59,24 +54,10 @@ const DriverLogSalePage: React.FC = () => {
   const navigate = useNavigate();
   const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null);
   const [loading, setLoading] = useState(true);
-  const [cashLocked, setCashLocked] = useState(true);
   const [saleForm, setSaleForm] = useState(EMPTY_SALE_FORM);
 
   useEffect(() => {
     api.get('/payments/meta').then((res) => setPaybillMeta(res.data?.data || {})).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    api.get('/settings/ui-locks')
-      .then((res) => {
-        const locks = locksFromSettingsPayload(res.data?.data);
-        const locked = isLocked(locks, 'driver_cash_payment');
-        setCashLocked(locked);
-        if (locked) {
-          setSaleForm((f) => (f.payment_method === 'cash' ? { ...f, payment_method: 'mpesa' } : f));
-        }
-      })
-      .catch(() => setCashLocked(DEFAULT_MANAGER_LOCKS.driver_cash_payment));
   }, []);
 
   const reloadActiveTrip = useCallback(() => {
@@ -106,7 +87,7 @@ const DriverLogSalePage: React.FC = () => {
     const dispatched = (activeTrip?.items || []).filter(it => it.qty_carried_bales > 0);
     if (dispatched.length === 0) return;
     Promise.all(dispatched.map(it =>
-      api.get('/sales/prices/current', { params: { sku_id: it.sku_id } })
+      api.get('/sales/prices/current', { params: { sku_id: it.sku_id, place: activeTrip?.route || '' } })
         .then(res => [it.sku_id, res.data?.data?.unit_price ?? null] as const)
         .catch(() => [it.sku_id, null] as const)
     )).then(pairs => setSkuPrices(Object.fromEntries(pairs)));
@@ -541,14 +522,11 @@ const DriverLogSalePage: React.FC = () => {
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Method</label>
             <select value={saleForm.payment_method} onChange={e => { setSaleForm({ ...saleForm, payment_method: e.target.value as any }); resetStk(); }} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2">
-              {!cashLocked && <option value="cash">Cash</option>}
+              <option value="cash">Cash</option>
               <option value="mpesa">M-Pesa</option>
               <option value="pay_direct">Pay-directly (QR)</option>
               <option value="debt">Debt</option>
             </select>
-            {cashLocked && (
-              <p className="text-xs text-amber-700 mt-1">{CONTACT_ADMIN_MSG}</p>
-            )}
           </div>
           {saleForm.payment_method === 'pay_direct' && (
             <div>
@@ -662,9 +640,7 @@ const DriverLogSalePage: React.FC = () => {
                   <div className="flex flex-wrap gap-3">
                     <button type="button" onClick={() => setStkStatus('idle')} className="text-sm text-blue-600 hover:underline">Retry STK</button>
                     <button type="button" onClick={() => { setMpesaMode('manual'); resetStk(); }} className="text-sm text-blue-600 hover:underline">New sale with code</button>
-                    {!cashLocked && (
-                      <button type="button" onClick={() => { setSaleForm({ ...saleForm, payment_method: 'cash' }); resetStk(); }} className="text-sm text-blue-600 hover:underline">Switch to cash</button>
-                    )}
+                    <button type="button" onClick={() => { setSaleForm({ ...saleForm, payment_method: 'cash' }); resetStk(); }} className="text-sm text-blue-600 hover:underline">Switch to cash</button>
                   </div>
                 </div>
               )}

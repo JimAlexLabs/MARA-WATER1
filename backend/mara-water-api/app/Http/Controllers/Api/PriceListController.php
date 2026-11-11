@@ -61,6 +61,8 @@ class PriceListController extends Controller
 
         if ($request->filled('sku_id')) {
             $price = $this->prices->resolveForSku($request->sku_id, $kind);
+            $sku = \App\Models\Sku::find($request->sku_id);
+            $price = \App\Services\MarketPrice::adjust($sku, $price !== null ? (float) $price : null, $request->get('place'));
             return response()->json([
                 'success' => true,
                 'data' => [

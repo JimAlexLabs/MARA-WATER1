@@ -51,8 +51,8 @@ class SettingsController extends Controller
             'reports' => true,
             'issues' => false,
             'discrepancies' => false,
-            // true = cash locked (M-Pesa only).
-            'driver_cash_payment' => true,
+            // true = cash locked (M-Pesa only). Drivers log cash themselves.
+            'driver_cash_payment' => false,
             'manager_cash_payment' => true,
             'manager_edit_sales' => true,
             // Unlock = Admin approved temporary edit rights.

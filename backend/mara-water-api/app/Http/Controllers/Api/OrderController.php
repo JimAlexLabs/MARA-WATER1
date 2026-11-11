@@ -54,8 +54,35 @@ class OrderController extends Controller
             $query->orderBy($sortBy, $sortOrder);
 
             // Pagination
+            // 5L, 10L and 20L are refills, not sales.
+            $query->whereHas('items', function ($q) {
+                $q->whereNull('deleted_at')->whereHas('sku', function ($s) {
+                    $s->where(function ($size) {
+                        $size->whereBetween('size_liters', [0.45, 0.55])
+                            ->orWhereBetween('size_liters', [0.95, 1.05])
+                            ->orWhereBetween('size_liters', [1.45, 1.55]);
+                    })->where(function ($brand) {
+                        $brand->whereNull('brand')->orWhere('brand', 'not like', '%Refill%');
+                    })->where('code', 'not like', 'REFILL%');
+                });
+            });
+
             $perPage = $request->get('limit', 15);
             $orders = $query->paginate($perPage);
+            $orders->getCollection()->transform(function (Order $order) {
+                $items = $order->items
+                    ->filter(fn ($item) => \App\Services\SaleCatalog::isBottled($item->sku))
+                    ->values();
+                $order->setRelation('items', $items);
+                $order->setAttribute('total_amount', round($items->sum(
+                    fn ($item) => (float) $item->qty * (float) $item->unit_price
+                ), 2));
+
+                return $order;
+            });
+            $orders->setCollection(
+                $orders->getCollection()->filter(fn (Order $order) => $order->items->isNotEmpty())->values()
+            );
 
             return response()->json([
                 'success' => true,
@@ -81,18 +108,26 @@ class OrderController extends Controller
             ->counted()
             ->whereNull('deleted_at')
             ->whereHas('trip', fn ($q) => $q->whereNull('deleted_at'))
+            ->when(
+                \Illuminate\Support\Facades\Schema::hasColumn('driver_trip_sales', 'source_order_id'),
+                fn ($q) => $q->whereNull('source_order_id')
+            )
             ->orderByDesc('created_at')
             ->limit((int) $request->get('limit', 100))
             ->get()
             ->map(function ($sale) {
                 $driver = $sale->trip?->driver;
+                $lines = $sale->items->filter(fn ($line) => \App\Services\SaleCatalog::isBottled($line->sku))->values();
+                if ($lines->isEmpty()) {
+                    return null;
+                }
                 return [
                     'id' => $sale->id,
                     'order_no' => 'Field',
                     'order_date' => optional($sale->trip)->trip_date,
                     'status' => 'delivered',
                     'source' => 'field',
-                    'total_amount' => (string) $sale->amount,
+                    'total_amount' => (string) $lines->sum('line_total'),
                     'payment_method' => $sale->payment_method === 'debt' ? 'credit' : $sale->payment_method,
                     'payment_reference' => $sale->mpesa_reference,
                     'customer' => $sale->customer ? [
@@ -107,12 +142,14 @@ class OrderController extends Controller
                         'email' => $driver->email ?? null,
                         'role' => ['code' => 'DRV', 'name' => 'Driver (field trip)'],
                     ],
-                    'items' => $sale->items->map(fn ($line) => [
+                    'items' => $lines->map(fn ($line) => [
                         'sku_name' => $line->sku->name ?? 'Item',
                         'qty' => (float) $line->qty_bales,
                     ])->values(),
                 ];
-            });
+            })
+            ->filter()
+            ->values();
 
         return response()->json(['success' => true, 'data' => $sales]);
     }
@@ -474,9 +511,31 @@ class OrderController extends Controller
 
             foreach ($request->items as $item) {
                 $sku = Sku::find($item['sku_id']);
+                if (! \App\Services\SaleCatalog::isBottled($sku)) {
+                    DB::rollBack();
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Sales are 0.5L, 1L and 1.5L only. 5L, 10L and 20L refills are recorded under Production → Refills.',
+                    ], 422);
+                }
                 $qtyReturned = $item['qty_returned'] ?? 0;
                 $listPrice = $listPrices->get($item['sku_id']);
-                $unitPrice = $item['unit_price'] ?? $listPrice;
+                $place = trim(implode(' ', array_filter([
+                    (string) $request->input('buyer_location'),
+                    (string) $request->input('buyer_name'),
+                ])));
+                $unitPrice = $item['unit_price'] ?? \App\Services\MarketPrice::adjust(
+                    $sku,
+                    $listPrice !== null ? (float) $listPrice : null,
+                    $place
+                );
+                $floorError = \App\Services\MarketPrice::floorError($sku, (float) $unitPrice);
+                if ($floorError) {
+                    DB::rollBack();
+
+                    return response()->json(['success' => false, 'message' => $floorError], 422);
+                }
                 $overridden = isset($item['unit_price']) && $listPrice !== null
                     && $this->moneyDiffers($item['unit_price'], $listPrice);
 
@@ -629,6 +688,14 @@ class OrderController extends Controller
             $order->load(['customer', 'salesOfficer.role', 'warehouse', 'priceList', 'items.sku', 'invoice']);
 
             DB::commit();
+
+            if ($request->input('sale_channel') === 'field' && $request->payment_method === 'cash') {
+                try {
+                    app(\App\Services\FieldTripSaleService::class)->attach($order->fresh(['items.sku', 'customer']));
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
 
             $payment = null;
             $stkError = null;

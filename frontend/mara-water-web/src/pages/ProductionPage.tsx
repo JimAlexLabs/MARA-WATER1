@@ -536,7 +536,7 @@ const ProductionPage: React.FC = () => {
             {[
               { id: 'capacity', label: 'Unfinished materials' },
               { id: 'daily', label: 'Daily Production' },
-              { id: 'refills', label: 'Refills' },
+              ...(director ? [{ id: 'refills', label: 'Refills' }] : []),
               { id: 'materials', label: `Materials (${materials.length})` },
               { id: 'bom', label: 'Bill of Materials' },
             ].map(tab => (
@@ -1190,7 +1190,7 @@ const ProductionPage: React.FC = () => {
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Refills (5L / 10L / 20L) are not produced here — log them on Sales. The customer owns the jerrican.
+                  Refills (5L / 10L / 20L) are not produced here and are not sales. Log them on the Refills tab. The customer owns the jerrican.
                 </p>
               </div>
               <div>

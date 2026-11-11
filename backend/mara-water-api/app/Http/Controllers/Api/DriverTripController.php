@@ -330,9 +330,7 @@ class DriverTripController extends Controller
             return response()->json(['success' => false, 'message' => 'Sales can only be recorded on a trip that is in transit'], 422);
         }
 
-        $allowCash = (bool) (\App\Models\Setting::allAsMap()['driver_allow_cash']
-            ?? ! ((\App\Models\Setting::allAsMap()['manager_ui_locks']['driver_cash_payment'] ?? false)));
-        $paymentRules = $allowCash ? 'required|in:cash,mpesa' : 'required|in:mpesa';
+        $paymentRules = 'required|in:cash,mpesa,pay_direct,debt';
 
         $validator = Validator::make($request->all(), [
             'customer_id' => 'nullable|exists:customers,id',
@@ -352,10 +350,6 @@ class DriverTripController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
-        }
-
-        if (! $allowCash && $request->payment_method === 'cash') {
-            return response()->json(['success' => false, 'message' => 'Cash field sales are locked by Admin — use M-Pesa prompt.'], 403);
         }
 
         $phoneForBuyer = $request->input('stk_phone') ?: $request->input('buyer_phone');
@@ -418,6 +412,17 @@ class DriverTripController extends Controller
             ->pluck('sold', 'sku_id');
 
         foreach ($request->input('items') as $line) {
+            $lineSku = Sku::find($line['sku_id']);
+            if (! \App\Services\SaleCatalog::isBottled($lineSku)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Sales are 0.5L, 1L and 1.5L only. 5L, 10L and 20L refills are recorded under Production → Refills.',
+                ], 422);
+            }
+            $floorError = \App\Services\MarketPrice::floorError($lineSku, (float) ($line['unit_price'] ?? 0));
+            if ($floorError) {
+                return response()->json(['success' => false, 'message' => $floorError], 422);
+            }
             $tripItem = $trip->items->firstWhere('sku_id', $line['sku_id']);
             if (!$tripItem) {
                 return response()->json(['success' => false, 'message' => 'That item was not dispatched on this trip', 'errors' => ['items' => ["{$line['sku_id']} was not dispatched on this trip"]]], 422);
@@ -644,9 +649,14 @@ class DriverTripController extends Controller
                 // Deduct only paid/sold bales from Main warehouse at End Trip.
                 // Unsold stays in warehouse (never left the books at start).
                 $soldPaid = (float) \App\Models\DriverTripSaleItem::where('sku_id', $item->sku_id)
-                    ->whereHas('sale', fn ($q) => $q->where('driver_trip_id', $trip->id)->whereNull('deleted_at')->where(function ($q) {
-                        $q->where('payment_status', 'paid')->orWhereNull('payment_status');
-                    }))
+                    ->whereHas('sale', function ($q) use ($trip) {
+                        $q->where('driver_trip_id', $trip->id)->whereNull('deleted_at')->where(function ($q) {
+                            $q->where('payment_status', 'paid')->orWhereNull('payment_status');
+                        });
+                        if (\Illuminate\Support\Facades\Schema::hasColumn('driver_trip_sales', 'source_order_id')) {
+                            $q->whereNull('source_order_id');
+                        }
+                    })
                     ->sum('qty_bales');
                 $soldPaidBales = (int) max(0, floor($soldPaid));
                 if ($soldPaidBales > 0) {
@@ -1309,12 +1319,13 @@ class DriverTripController extends Controller
         $prices = \App\Models\PriceListItem::whereHas('priceList', fn ($q) => $q->where('is_default', true))
             ->pluck('unit_price', 'sku_id');
 
-        $allowedSizes = [0.5, 1.0, 1.5, 5.0, 10.0, 20.0];
+        $allowedSizes = [0.5, 1.0, 1.5];
         $skus = Sku::where('active', true)
             ->whereNull('deleted_at')
             ->where(function ($q) {
-                // Premium / Platinum / Grace / Refill only — Mara Water merged into Premium.
-                $q->whereIn('brand', ['Premium', 'Platinum', 'Grace', 'Refill'])
+                // Premium / Platinum / Grace only — Mara Water merged into Premium.
+                // 5L, 10L and 20L are refills, not a sale SKU.
+                $q->whereIn('brand', ['Premium', 'Platinum', 'Grace'])
                     ->orWhereNull('brand');
             })
             ->orderBy('brand')

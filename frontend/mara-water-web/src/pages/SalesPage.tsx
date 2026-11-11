@@ -75,6 +75,15 @@ interface Sku {
   brand?: string | null;
 }
 
+/** Sales list and the sale form only offer 0.5L, 1L and 1.5L. */
+const isBottleSale = (s: Pick<Sku, 'code' | 'brand' | 'size_liters'>) => {
+  const brand = (s.brand || '').toUpperCase();
+  const code = (s.code || '').toUpperCase();
+  if (brand === 'REFILL' || code.startsWith('REFILL')) return false;
+  const size = Math.round(Number(s.size_liters) * 100) / 100;
+  return size === 0.5 || size === 1 || size === 1.5;
+};
+
 /** Customer-owned 5L / 10L / 20L jerrican fill — revenue only, not MARA stock. */
 const isRefillSku = (s: Pick<Sku, 'code' | 'brand' | 'size_liters'>) => {
   const brand = (s.brand || '').toUpperCase();
@@ -522,6 +531,19 @@ const SalesPage: React.FC = () => {
   // What each line's price would be if left at the price list default --
   // used both to pre-fill the input and to tell whether it's been overridden.
   const listPriceFor = (skuId: string) => priceListPrices[skuId] || '';
+
+  // Masara and Nyatike are KES 10 under the list. Floor is 360 / 360 / 370.
+  const marketPriceFor = (skuId: string, place: string) => {
+    const list = listPriceFor(skuId);
+    const sku = skus.find((s) => s.id === skuId);
+    if (!list || !sku || !isBottleSale(sku) || /CUSTOM/i.test(sku.code || '')) return list;
+    const base = parseFloat(list);
+    if (Number.isNaN(base)) return list;
+    const size = Math.round(Number(sku.size_liters) * 100) / 100;
+    const floor = size === 1.5 ? 370 : 360;
+    const discount = /masara|nyatike/i.test(place) ? 10 : 0;
+    return String(Math.max(floor, base - discount));
+  };
 
   const saleLineTotal = (item: ReturnType<typeof newSaleItem>) => {
     const price = parseFloat(item.unit_price || listPriceFor(item.sku_id) || '0');
@@ -1380,7 +1402,22 @@ const SalesPage: React.FC = () => {
                   <input
                     type="text"
                     value={saleForm.buyer_name}
-                    onChange={(e) => setSaleForm({...saleForm, buyer_name: e.target.value})}
+                    onChange={(e) => {
+                      const buyer_name = e.target.value;
+                      setSaleForm((f) => ({
+                        ...f,
+                        buyer_name,
+                        items: f.items.map((item) => {
+                          if (!item.sku_id) return item;
+                          const list = listPriceFor(item.sku_id);
+                          const previous = marketPriceFor(item.sku_id, f.buyer_name);
+                          if (!item.unit_price || item.unit_price === list || item.unit_price === previous) {
+                            return { ...item, unit_price: marketPriceFor(item.sku_id, buyer_name) || item.unit_price };
+                          }
+                          return item;
+                        }),
+                      }));
+                    }}
                     placeholder="Person / shop name"
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
                   />
@@ -1492,15 +1529,14 @@ const SalesPage: React.FC = () => {
                             value={item.sku_id}
                             onChange={(e) => {
                               const sku_id = e.target.value;
-                              updateSaleItem(item.id, { sku_id, unit_price: listPriceFor(sku_id) || item.unit_price });
+                              updateSaleItem(item.id, { sku_id, unit_price: marketPriceFor(sku_id, saleForm.buyer_name) || item.unit_price });
                             }}
                             className="block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
                             <option value="">Select product</option>
-                            {skus.map((s) => {
-                              const price = s.current_price != null
-                                ? Number(s.current_price)
-                                : (listPriceFor(s.id) ? Number(listPriceFor(s.id)) : null);
+                            {skus.filter(isBottleSale).map((s) => {
+                              const quoted = marketPriceFor(s.id, saleForm.buyer_name);
+                              const price = quoted ? Number(quoted) : (s.current_price != null ? Number(s.current_price) : null);
                               const priceBit = price != null && !Number.isNaN(price)
                                 ? ` — KES ${price.toLocaleString()}`
                                 : '';

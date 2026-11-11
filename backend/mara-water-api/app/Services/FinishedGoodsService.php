@@ -261,11 +261,16 @@ class FinishedGoodsService
             ->whereNull('i.deleted_at')
             ->sum(DB::raw('i.qty - COALESCE(i.qty_returned, 0)'));
 
-        $tripSold = (float) DB::table('driver_trip_sale_items as i')
+        $tripSoldQuery = DB::table('driver_trip_sale_items as i')
             ->join('driver_trip_sales as sa', 'sa.id', '=', 'i.driver_trip_sale_id')
             ->whereIn('i.sku_id', $ids)
-            ->whereNull('sa.deleted_at')
-            ->sum('i.qty_bales');
+            ->whereNull('sa.deleted_at');
+        // Admin field sales already counted on the order. Counting the
+        // trip copy as well would sell the same bales twice.
+        if (\Illuminate\Support\Facades\Schema::hasColumn('driver_trip_sales', 'source_order_id')) {
+            $tripSoldQuery->whereNull('sa.source_order_id');
+        }
+        $tripSold = (float) $tripSoldQuery->sum('i.qty_bales');
 
         $sold = $orderSold + $tripSold;
 
