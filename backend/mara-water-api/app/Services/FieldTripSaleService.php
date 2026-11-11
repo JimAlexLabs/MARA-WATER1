@@ -40,10 +40,29 @@ class FieldTripSaleService
         }
 
         DB::transaction(function () use ($order, $trip, $lines) {
+            $customerId = $order->customer_id;
+            if (! $customerId) {
+                $buyer = trim((string) ($trip->route ?: 'Field')).' field cash';
+                $customer = \App\Models\Customer::create([
+                    'code' => 'CUST-'.strtoupper(\Illuminate\Support\Str::random(6)),
+                    'name' => $buyer,
+                    'type' => 'retail',
+                    'phone' => 'N/A',
+                    'address' => $trip->route,
+                    'price_tier' => 'standard',
+                    'status' => 'active',
+                    'notes' => 'Field sale (auto)',
+                    'created_by' => $order->created_by,
+                    'updated_by' => $order->updated_by,
+                ]);
+                $customerId = $customer->id;
+                $order->customer_id = $customerId;
+                $order->save();
+            }
             $amount = round($lines->sum(fn ($item) => (float) $item->qty * (float) $item->unit_price), 2);
             $method = $order->payment_method === 'mpesa' ? 'mpesa' : 'cash';
             $sale = $trip->sales()->create([
-                'customer_id' => $order->customer_id,
+                'customer_id' => $customerId,
                 'payment_method' => $method,
                 'payment_status' => 'paid',
                 'amount' => $amount,
