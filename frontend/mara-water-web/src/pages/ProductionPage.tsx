@@ -578,18 +578,18 @@ const ProductionPage: React.FC = () => {
           {activeTab === 'refills' && (
             <div className="space-y-6">
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Refill sales stay on this tab. They are not part of the sales dashboard. Jerricans use the refill price list. The 10 bales of 5L are KES 500 a bale.
+                Every refill sale stays in the log below. The totals count from 11 Nov 2026, so the running figure starts at zero and picks up new refills from that day. Jerricans use the refill price list. The 10 bales of 5L are KES 500 a bale.
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {['5', '10', '20'].map((size) => (
                   <div key={size} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
-                    <p className="text-xs text-gray-500">{size}L refills</p>
+                    <p className="text-xs text-gray-500">{size}L from 11 Nov</p>
                     <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{Number(refillTotals[size] || 0).toLocaleString()}</p>
                     <p className="text-xs text-gray-500">KES {Number(refillSalesBySize[size] || 0).toLocaleString()}</p>
                   </div>
                 ))}
                 <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2">
-                  <p className="text-xs text-emerald-700 dark:text-emerald-300">Refill sales</p>
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300">Refill sales from 11 Nov</p>
                   <p className="text-lg font-bold text-emerald-800 dark:text-emerald-200">KES {refillSalesTotal.toLocaleString()}</p>
                 </div>
               </div>

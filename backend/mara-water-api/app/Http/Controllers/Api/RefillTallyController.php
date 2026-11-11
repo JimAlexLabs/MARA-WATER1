@@ -24,6 +24,8 @@ class RefillTallyController extends Controller
             ->limit(200)
             ->get();
 
+        // The log keeps every refill sale. The cards start again on 11 Nov 2026.
+        $freshFrom = '2026-11-11';
         $totals = [];
         $salesBySize = [];
         $salesTotal = 0.0;
@@ -33,9 +35,13 @@ class RefillTallyController extends Controller
                 ? (float) $row->unit_price
                 : $this->refillListPrice($key);
             $line = round($price * (int) $row->qty, 2);
+            $date = optional($row->tally_date)->toDateString();
             $row->setAttribute('unit_price', $price);
             $row->setAttribute('line_total', $line);
-            $row->setAttribute('tally_date', optional($row->tally_date)->toDateString());
+            $row->setAttribute('tally_date', $date);
+            if ($date < $freshFrom) {
+                continue;
+            }
             $totals[$key] = ($totals[$key] ?? 0) + (int) $row->qty;
             $salesBySize[$key] = round(($salesBySize[$key] ?? 0) + $line, 2);
             $salesTotal += $line;
@@ -47,7 +53,8 @@ class RefillTallyController extends Controller
             'totals' => $totals,
             'sales_by_size' => $salesBySize,
             'sales_total' => round($salesTotal, 2),
-            'grand_total' => (int) $rows->sum('qty'),
+            'fresh_from' => $freshFrom,
+            'grand_total' => (int) array_sum($totals),
         ]);
     }
 
