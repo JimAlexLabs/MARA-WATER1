@@ -149,8 +149,10 @@ const ProductionPage: React.FC = () => {
   const [capacityAlerts, setCapacityAlerts] = useState<CapacityAlert[]>([]);
   const [capacitySummary, setCapacitySummary] = useState<{ total_bales_possible?: number; sizes_blocked?: number; rules?: Record<string, string> } | null>(null);
   const [unsold, setUnsold] = useState<Array<{ sku_id: string; sku_name: string; sku_code?: string; unsold_bales: number; produced_bales?: number; sold_bales?: number }>>([]);
-  const [refillRows, setRefillRows] = useState<Array<{ id: string; tally_date: string; size_liters: number; qty: number; notes?: string | null }>>([]);
+  const [refillRows, setRefillRows] = useState<Array<{ id: string; tally_date: string; size_liters: number; qty: number; unit_price?: number | null; line_total?: number | null; qty_basis?: string | null; notes?: string | null }>>([]);
   const [refillTotals, setRefillTotals] = useState<Record<string, number>>({});
+  const [refillSalesBySize, setRefillSalesBySize] = useState<Record<string, number>>({});
+  const [refillSalesTotal, setRefillSalesTotal] = useState(0);
   const [refillForm, setRefillForm] = useState({ tally_date: todayIso(), size_liters: '20', qty: '', notes: '' });
   const [producedTotals, setProducedTotals] = useState<{
     by_sku: Array<{ sku_id: string; sku_name: string; sku_code?: string; total_bales: number; batch_count?: number }>;
@@ -195,6 +197,8 @@ const ProductionPage: React.FC = () => {
       const res = await api.get('/production/refills');
       setRefillRows(res.data.data || []);
       setRefillTotals(res.data.totals || {});
+      setRefillSalesBySize(res.data.sales_by_size || {});
+      setRefillSalesTotal(Number(res.data.sales_total || 0));
     } catch {
       /* refill tally may be deploying */
     }
@@ -574,20 +578,19 @@ const ProductionPage: React.FC = () => {
           {activeTab === 'refills' && (
             <div className="space-y-6">
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Customers bring their own jerricans. This tally does not use bottles, labels, caps, seals, or finished bales.
+                Refill sales stay on this tab. They are not part of the sales dashboard. Jerricans use the refill price list. The 10 bales of 5L are KES 500 a bale.
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {['5', '10', '20'].map((size) => (
                   <div key={size} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
                     <p className="text-xs text-gray-500">{size}L refills</p>
                     <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{Number(refillTotals[size] || 0).toLocaleString()}</p>
+                    <p className="text-xs text-gray-500">KES {Number(refillSalesBySize[size] || 0).toLocaleString()}</p>
                   </div>
                 ))}
-                <div className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
-                  <p className="text-xs text-gray-500">All sizes</p>
-                  <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                    {Object.values(refillTotals).reduce((sum, n) => sum + Number(n || 0), 0).toLocaleString()}
-                  </p>
+                <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2">
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300">Refill sales</p>
+                  <p className="text-lg font-bold text-emerald-800 dark:text-emerald-200">KES {refillSalesTotal.toLocaleString()}</p>
                 </div>
               </div>
               <form onSubmit={saveRefill} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
@@ -619,7 +622,9 @@ const ProductionPage: React.FC = () => {
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Jerricans</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Qty</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Note</th>
                       {director && <th className="px-4 py-3" />}
                     </tr>
@@ -629,7 +634,11 @@ const ProductionPage: React.FC = () => {
                       <tr key={row.id}>
                         <td className="px-4 py-3 text-sm">{String(row.tally_date).slice(0, 10)}</td>
                         <td className="px-4 py-3 text-sm">{Number(row.size_liters)}L</td>
-                        <td className="px-4 py-3 text-sm font-semibold">{Number(row.qty).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-sm font-semibold">
+                          {Number(row.qty).toLocaleString()} {row.qty_basis === 'bale' ? (Number(row.qty) === 1 ? 'bale' : 'bales') : (Number(row.qty) === 1 ? 'jerrican' : 'jerricans')}
+                        </td>
+                        <td className="px-4 py-3 text-sm">KES {Number(row.unit_price || 0).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-sm font-semibold">KES {Number(row.line_total || 0).toLocaleString()}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{row.notes || '—'}</td>
                         {director && (
                           <td className="px-4 py-3 text-right">
@@ -640,7 +649,7 @@ const ProductionPage: React.FC = () => {
                     ))}
                     {refillRows.length === 0 && (
                       <tr>
-                        <td colSpan={director ? 5 : 4} className="px-4 py-8 text-sm text-gray-400 text-center">No refills recorded yet.</td>
+                        <td colSpan={director ? 7 : 6} className="px-4 py-8 text-sm text-gray-400 text-center">No refills recorded yet.</td>
                       </tr>
                     )}
                   </tbody>

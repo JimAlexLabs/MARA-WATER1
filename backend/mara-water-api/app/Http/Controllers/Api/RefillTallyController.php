@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\RefillTally;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -24,15 +25,28 @@ class RefillTallyController extends Controller
             ->get();
 
         $totals = [];
+        $salesBySize = [];
+        $salesTotal = 0.0;
         foreach ($rows as $row) {
             $key = rtrim(rtrim(number_format((float) $row->size_liters, 2, '.', ''), '0'), '.');
+            $price = $row->unit_price !== null
+                ? (float) $row->unit_price
+                : $this->refillListPrice($key);
+            $line = round($price * (int) $row->qty, 2);
+            $row->setAttribute('unit_price', $price);
+            $row->setAttribute('line_total', $line);
+            $row->setAttribute('tally_date', optional($row->tally_date)->toDateString());
             $totals[$key] = ($totals[$key] ?? 0) + (int) $row->qty;
+            $salesBySize[$key] = round(($salesBySize[$key] ?? 0) + $line, 2);
+            $salesTotal += $line;
         }
 
         return response()->json([
             'success' => true,
             'data' => $rows,
             'totals' => $totals,
+            'sales_by_size' => $salesBySize,
+            'sales_total' => round($salesTotal, 2),
             'grand_total' => (int) $rows->sum('qty'),
         ]);
     }
@@ -53,10 +67,13 @@ class RefillTallyController extends Controller
             ], 422);
         }
 
+        $sizeKey = rtrim(rtrim(number_format((float) $request->size_liters, 2, '.', ''), '0'), '.');
         $row = RefillTally::create([
             'tally_date' => $request->tally_date,
             'size_liters' => $request->size_liters,
             'qty' => (int) $request->qty,
+            'unit_price' => $this->refillListPrice($sizeKey),
+            'qty_basis' => 'jerrican',
             'notes' => $request->input('notes'),
             'created_by' => Auth::id(),
         ]);
@@ -82,5 +99,21 @@ class RefillTallyController extends Controller
         $row->delete();
 
         return response()->json(['success' => true, 'message' => 'Refill tally removed.']);
+    }
+
+    /** Refill price list: 5L, 10L and 20L jerricans. Bales keep their own price. */
+    private function refillListPrice(string $sizeKey): float
+    {
+        $code = 'REFILL-'.$sizeKey.'L';
+        $price = DB::table('price_list_items as i')
+            ->join('skus as s', 's.id', '=', 'i.sku_id')
+            ->join('price_lists as p', 'p.id', '=', 'i.price_list_id')
+            ->where('p.is_default', true)
+            ->where('s.code', $code)
+            ->whereNull('i.deleted_at')
+            ->whereNull('p.deleted_at')
+            ->value('i.unit_price');
+
+        return $price !== null ? (float) $price : 0.0;
     }
 }

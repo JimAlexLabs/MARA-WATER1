@@ -14,6 +14,8 @@ class RefillTally extends Model
         'tally_date',
         'size_liters',
         'qty',
+        'unit_price',
+        'qty_basis',
         'notes',
         'created_by',
     ];
@@ -22,6 +24,7 @@ class RefillTally extends Model
         'tally_date' => 'date',
         'size_liters' => 'float',
         'qty' => 'integer',
+        'unit_price' => 'float',
         'deleted_at' => 'datetime',
     ];
 }
