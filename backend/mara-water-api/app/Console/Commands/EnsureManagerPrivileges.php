@@ -13,61 +13,40 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
- * Two manager logins that share the manager dashboard, with distinct job titles:
- * - CPA Kathy — day-to-day accountant / warehouse / sales-marketing executive (primary system entry)
- * - ADW — auditor / sales-marketing / MD (oversight; do not confuse with Kathy's sales entries)
+ * Manager login for the auditor. Former staff are not recreated.
  */
 class EnsureManagerPrivileges extends Command
 {
     protected $signature = 'ops:ensure-manager-privileges
-        {--email=CKathy@marawater.com : Kathy login email}
-        {--password=Kathy@Mara2026! : Kathy login password}
         {--clear-arrivals : Soft-delete grn/adjust stock moves so Arrivals tab starts fresh}';
 
-    protected $description = 'Ensure CPA Kathy + ADW manager identities (distinct roles), merge manager_ui_locks';
-
-    private const KATHY_EMAIL = 'CKathy@marawater.com';
-    private const KATHY_PASSWORD = 'Kathy@Mara2026!';
+    protected $description = 'Keep the auditor manager login and do not recreate former staff';
     private const ADW_EMAIL = 'manager@marawater.com';
     private const ADW_PASSWORD = 'Dee@Mara2026';
 
     public function handle(): int
     {
-        $kathyRole = $this->ensureRole(
+        $this->ensureRole(
             'CPA',
             'CPA / Accountant · Warehouse · Sales & Marketing',
-            'CPA Kathy — primary day-to-day entries: sales logging, warehouse/stock adjustments, accounts. Shares manager dashboard with ADW.'
+            'Accountant, warehouse and sales entries. A removed employee is not listed here.'
         );
         $adwRole = $this->ensureRole(
             'AUD',
             'Auditor · Sales/Marketing · MD',
-            'ADW — auditor / MD oversight. Shares manager dashboard with CPA Kathy; sales she logs are attributed to her login, not Kathy.'
+            'Auditor and MD oversight. Sales are attributed to the person who was logged in.'
         );
 
         // Keep AUD name accurate if an older seed used a shorter label.
         if ($adwRole->name !== 'Auditor · Sales/Marketing · MD') {
             $adwRole->update([
                 'name' => 'Auditor · Sales/Marketing · MD',
-                'description' => 'ADW — auditor / MD oversight. Shares manager dashboard with CPA Kathy.',
+                'description' => 'Auditor and MD oversight.',
             ]);
             $adwRole->refresh();
         }
 
-        $kathyEmail = strtolower(trim((string) $this->option('email'))) ?: strtolower(self::KATHY_EMAIL);
-        $kathyPassword = (string) $this->option('password') ?: self::KATHY_PASSWORD;
-
-        $financeDept = Department::where('code', 'FIN')->orWhere('name', 'like', '%Finance%')->first();
         $salesDept = Department::where('code', 'SALES')->orWhere('name', 'like', '%Sales%')->first();
-
-        $this->upsertManager([
-            'email' => $kathyEmail,
-            'password' => $kathyPassword,
-            'first_name' => 'CPA Kathy',
-            'last_name' => 'Accounts Manager',
-            'role_id' => $kathyRole->id,
-            'department_id' => $financeDept?->id,
-            'label' => 'CPA Kathy (primary ops entry)',
-        ]);
 
         $this->upsertManager([
             'email' => self::ADW_EMAIL,
@@ -92,9 +71,8 @@ class EnsureManagerPrivileges extends Command
 
         $this->line('');
         $this->info('Accountability reminder:');
-        $this->line('  • Sales Officer on each sale = whoever was logged in when it was saved (Auth::id()).');
-        $this->line('  • CPA Kathy = day-to-day sales / warehouse / accounts adjustments.');
-        $this->line('  • ADW = auditor / MD; same dashboard, separate login — do not treat her rows as Kathy\'s.');
+        $this->line('  • Sales Officer on each sale = whoever was logged in when it was saved.');
+        $this->line('  • Removed employees stay off the roster and are not recreated.');
 
         return 0;
     }

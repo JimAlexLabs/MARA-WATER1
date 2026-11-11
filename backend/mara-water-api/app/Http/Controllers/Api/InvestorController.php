@@ -45,14 +45,9 @@ class InvestorController extends Controller
         $monthStart = now()->startOfMonth()->toDateString();
         $trendStart = now()->subDays(29)->toDateString();
 
-        $ordersRevenue = fn ($from, $to) => Order::completedSale()
-            ->whereBetween('order_date', [$from, $to])->whereNull('deleted_at')
-            ->sum('total_amount');
-
-        $tripRevenue = fn ($from, $to) => DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
-            ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
-            ->whereBetween('driver_trips.trip_date', [$from, $to])
-            ->sum('driver_trip_sales.amount');
+        $sales = new \App\Services\SalesRevenueService();
+        $ordersRevenue = fn ($from, $to) => $sales->ordersRevenueBetween($from, $to);
+        $tripRevenue = fn ($from, $to) => $sales->tripRevenueBetween($from, $to);
 
         $productionLiters = fn ($from, $to) => (float) PackagingRun::join('skus', 'skus.id', '=', 'packaging_runs.sku_id')
             ->whereNotNull('packaging_runs.run_end')
@@ -64,21 +59,9 @@ class InvestorController extends Controller
 
         // Sales trend -- one total per day, no by-customer/by-brand
         // breakdown; that level of detail is exactly what's excluded here.
-        $ordersTrend = Order::completedSale()->whereBetween('order_date', [$trendStart, $today])
-            ->whereNull('deleted_at')
-            ->selectRaw('order_date as date, SUM(total_amount) as revenue')
-            ->groupBy('date')->pluck('revenue', 'date');
-
-        $tripsTrend = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
-            ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
-            ->whereBetween('driver_trips.trip_date', [$trendStart, $today])
-            ->selectRaw('driver_trips.trip_date as date, SUM(driver_trip_sales.amount) as revenue')
-            ->groupBy('date')->pluck('revenue', 'date');
-
-        $dates = collect($ordersTrend->keys())->merge($tripsTrend->keys())->unique()->sort()->values();
-        $salesTrend = $dates->map(fn ($d) => [
-            'date' => $d,
-            'revenue' => round((float) ($ordersTrend[$d] ?? 0) + (float) ($tripsTrend[$d] ?? 0), 2),
+        $salesTrend = $sales->dailyTrend($trendStart, $today)->map(fn ($row) => [
+            'date' => $row['date'],
+            'revenue' => $row['total_revenue'],
         ])->values();
 
         // Round 5A Phase 2: Production analytics needs its own trend too
@@ -97,15 +80,16 @@ class InvestorController extends Controller
         // step); debt is one outstanding total, never a debtor list.
         $orderPayments = Order::completedSale()->whereBetween('order_date', [$monthStart, $today])
             ->whereNull('deleted_at')
-            ->selectRaw('payment_method, SUM(total_amount) as amount')
+            ->selectRaw('payment_method, SUM('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as amount')
             ->groupBy('payment_method')->pluck('amount', 'payment_method');
         $tripPayments = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
             ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
+            ->whereNull('driver_trip_sales.source_order_id')
             ->where(function ($q) {
                 $q->whereNull('driver_trip_sales.payment_status')->orWhere('driver_trip_sales.payment_status', 'paid');
             })
             ->whereBetween('driver_trips.trip_date', [$monthStart, $today])
-            ->selectRaw('payment_method, SUM(amount) as amount')
+            ->selectRaw('payment_method, SUM('.\App\Services\SalesRevenueService::bottledTripRevenueSql('driver_trip_sales').') as amount')
             ->groupBy('payment_method')->pluck('amount', 'payment_method');
         $cashCollectedMonth = round((float) ($orderPayments['cash'] ?? 0) + (float) ($tripPayments['cash'] ?? 0), 2);
         $mpesaCollectedMonth = round((float) ($orderPayments['mpesa'] ?? 0) + (float) ($tripPayments['mpesa'] ?? 0), 2);

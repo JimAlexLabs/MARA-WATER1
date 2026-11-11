@@ -112,38 +112,26 @@ class OperationsOverviewController extends Controller
             ->whereIn('driver_trip_id', $tripIds)
             ->whereNull('deleted_at')
             ->pluck('id');
-        $sold = (float) DriverTripSaleItem::whereIn('driver_trip_sale_id', $saleIds)->sum('qty_bales');
+        $sold = (float) DriverTripSaleItem::query()
+            ->join('skus', 'skus.id', '=', 'driver_trip_sale_items.sku_id')
+            ->whereIn('driver_trip_sale_items.driver_trip_sale_id', $saleIds)
+            ->whereRaw(\App\Services\SalesRevenueService::bottledSkuSql('skus'))
+            ->sum('driver_trip_sale_items.qty_bales');
         $returnsComputed = max(0, $dispatched - $sold);
 
-        $inHouseSales = (float) Order::completedSale()
-            ->whereBetween('order_date', [$monthStart, $today])
-            ->whereNull('deleted_at')
-            ->sum('total_amount');
-
-        $tripSalesAmount = (float) DB::table('driver_trip_sales')
-            ->whereIn('driver_trip_id', $tripIds)
-            ->whereNull('deleted_at')
-            ->sum('amount');
+        $salesFigures = new \App\Services\SalesRevenueService();
+        $inHouseSales = $salesFigures->ordersRevenueBetween($monthStart, $today);
+        $tripSalesAmount = $salesFigures->tripRevenueBetween($monthStart, $today);
 
         $salesTrend = [];
         $cursor = \Carbon\Carbon::parse($trendStart);
         $end = \Carbon\Carbon::parse($today);
-        $ordersByDay = Order::completedSale()->whereBetween('order_date', [$trendStart, $today])
-            ->whereNull('deleted_at')
-            ->selectRaw('order_date as date, SUM(total_amount) as amount')
-            ->groupBy('date')->pluck('amount', 'date');
-        $tripsByDay = DB::table('driver_trip_sales')
-            ->join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
-            ->whereNull('driver_trip_sales.deleted_at')
-            ->whereNull('driver_trips.deleted_at')
-            ->whereBetween('driver_trips.trip_date', [$trendStart, $today])
-            ->selectRaw('driver_trips.trip_date as date, SUM(driver_trip_sales.amount) as amount')
-            ->groupBy('date')->pluck('amount', 'date');
+        $byDay = $salesFigures->dailyTrend($trendStart, $today)->keyBy('date');
         while ($cursor->lte($end)) {
             $d = $cursor->toDateString();
             $salesTrend[] = [
                 'date' => $d,
-                'amount' => round((float) ($ordersByDay[$d] ?? 0) + (float) ($tripsByDay[$d] ?? 0), 2),
+                'amount' => round((float) ($byDay[$d]['total_revenue'] ?? 0), 2),
             ];
             $cursor->addDay();
         }

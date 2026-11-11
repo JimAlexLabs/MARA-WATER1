@@ -1383,34 +1383,22 @@ class DriverTripController extends Controller
      */
     public function authorizingOfficers()
     {
-        // Field rule: CPA Kathy (day-to-day ops) or Director — not ADW auditor login.
         $officers = \App\Models\User::with('role')
             ->where('status', 'active')
             ->whereHas('role', fn ($q) => $q->whereIn('access_tier', ['manager', 'director']))
             ->orderBy('first_name')
             ->get()
-            ->filter(function ($u) {
-                $blob = strtolower(trim(($u->first_name ?? '').' '.($u->last_name ?? '').' '.($u->email ?? '')));
-                $isDirector = ($u->role?->access_tier === 'director') || ($u->role?->code === 'ADMIN');
-                $isKathy = ($u->role?->code === 'CPA')
-                    || str_contains($blob, 'kathy')
-                    || str_contains($blob, 'ckathy@');
-                $isAdw = ($u->role?->code === 'AUD') || str_contains($blob, 'manager@marawater');
-                $isJamal = str_contains($blob, 'jamal') || str_contains($blob, 'jim');
+            ->reject(function ($u) {
+                $blob = strtolower(trim(($u->email ?? '').' '.($u->role?->code ?? '')));
 
-                // ADW shares the manager dashboard but is auditor/MD — not the default authorizing officer.
-                if ($isAdw && ! $isKathy) {
-                    return false;
-                }
-
-                return $isKathy || ($isDirector && $isJamal) || ($isDirector && str_contains($blob, 'director'));
+                return $u->role?->code === 'AUD' || str_contains($blob, 'manager@marawater');
             })
             ->values();
 
-        // Fallback: if name filters match nobody (seed drift), keep director + managers.
         if ($officers->isEmpty()) {
-            $officers = \App\Models\User::whereHas('role', fn ($q) => $q->whereIn('access_tier', ['manager', 'director']))
+            $officers = \App\Models\User::with('role')
                 ->where('status', 'active')
+                ->whereHas('role', fn ($q) => $q->where('access_tier', 'director'))
                 ->orderBy('first_name')
                 ->get();
         }

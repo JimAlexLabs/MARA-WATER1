@@ -799,7 +799,7 @@ const SalesPage: React.FC = () => {
       <PageHero
         eyebrow="Customers · orders · field sales"
         title="Sales"
-        description="Entered by = the login that saved the sale (CPA Kathy for day-to-day ops; ADW only if she was logged in). Field trips show the driver."
+        description="Entered by = the login that saved the sale. Field trips show the driver. Removed employees no longer appear by name."
         actions={(
           <>
             <HeroButton onClick={openNewCustomer}><Plus className="w-4 h-4 mr-2" /> New customer</HeroButton>

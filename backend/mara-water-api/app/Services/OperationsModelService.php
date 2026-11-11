@@ -345,7 +345,7 @@ class OperationsModelService
         foreach ($prices as $p) {
             $size = $p['size'];
             $c = $cost[$size] ?? null;
-            if (! $c) {
+            if (! $c || ! empty($p['is_refill']) || ! in_array($size, self::BOTTLED, true)) {
                 continue;
             }
             $unitCost = $p['is_refill'] ? 0.0 : (float) $raw[$size]['materials'];

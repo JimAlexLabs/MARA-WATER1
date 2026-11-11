@@ -1467,8 +1467,8 @@ class OrderController extends Controller
                     COUNT(CASE WHEN status = "delivered" THEN 1 END) as delivered_orders,
                     COUNT(CASE WHEN status = "partially_returned" THEN 1 END) as returned_orders,
                     COUNT(CASE WHEN status = "cancelled" THEN 1 END) as cancelled_orders,
-                    SUM(total_amount) as total_revenue,
-                    AVG(total_amount) as avg_order_value
+                    SUM('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as total_revenue,
+                    AVG('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as avg_order_value
                 ')
                 ->first();
 

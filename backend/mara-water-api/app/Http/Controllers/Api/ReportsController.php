@@ -39,8 +39,8 @@ class ReportsController extends Controller
             $salesStats = Order::completedSale()->whereBetween('order_date', [$dateFrom, $dateTo])
                 ->selectRaw('
                     COUNT(*) as total_orders,
-                    SUM(total_amount) as total_revenue,
-                    AVG(total_amount) as avg_order_value,
+                    SUM('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as total_revenue,
+                    AVG('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as avg_order_value,
                     COUNT(DISTINCT customer_id) as unique_customers
                 ')->first();
             $tripRevenue = (new SalesRevenueService())->tripRevenueBetween($dateFrom, $dateTo);
@@ -152,8 +152,8 @@ class ReportsController extends Controller
                     $salesData = $query->selectRaw('
                         DATE(order_date) as date,
                         COUNT(*) as orders_count,
-                        SUM(total_amount) as revenue,
-                        AVG(total_amount) as avg_order_value
+                        SUM('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as revenue,
+                        AVG('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as avg_order_value
                     ')->groupBy('date')
                       ->orderBy('date')
                       ->get();
@@ -163,8 +163,8 @@ class ReportsController extends Controller
                     $salesData = $query->selectRaw('
                         YEARWEEK(order_date) as week,
                         COUNT(*) as orders_count,
-                        SUM(total_amount) as revenue,
-                        AVG(total_amount) as avg_order_value
+                        SUM('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as revenue,
+                        AVG('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as avg_order_value
                     ')->groupBy('week')
                       ->orderBy('week')
                       ->get();
@@ -174,8 +174,8 @@ class ReportsController extends Controller
                     $salesData = $query->selectRaw('
                         DATE_FORMAT(order_date, "%Y-%m") as month,
                         COUNT(*) as orders_count,
-                        SUM(total_amount) as revenue,
-                        AVG(total_amount) as avg_order_value
+                        SUM('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as revenue,
+                        AVG('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as avg_order_value
                     ')->groupBy('month')
                       ->orderBy('month')
                       ->get();
@@ -185,8 +185,8 @@ class ReportsController extends Controller
                     $salesData = $query->selectRaw('
                         customer_id,
                         COUNT(*) as orders_count,
-                        SUM(total_amount) as revenue,
-                        AVG(total_amount) as avg_order_value
+                        SUM('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as revenue,
+                        AVG('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as avg_order_value
                     ')->groupBy('customer_id')
                       ->with('customer')
                       ->orderBy('revenue', 'desc')
@@ -203,7 +203,7 @@ class ReportsController extends Controller
                 ->selectRaw('
                     customer_id,
                     COUNT(*) as orders_count,
-                    SUM(total_amount) as total_revenue
+                    SUM('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as total_revenue
                 ')->groupBy('customer_id')
                   ->with('customer')
                   ->orderBy('total_revenue', 'desc')
@@ -214,7 +214,7 @@ class ReportsController extends Controller
             // -- this is meant to show the order pipeline including drafts,
             // not a revenue figure.
             $salesByStatus = Order::whereBetween('order_date', [$dateFrom, $dateTo])
-                ->selectRaw('status, COUNT(*) as count, SUM(total_amount) as revenue')
+                ->selectRaw('status, COUNT(*) as count, SUM('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as revenue')
                 ->groupBy('status')
                 ->get();
 
@@ -222,6 +222,8 @@ class ReportsController extends Controller
             // 31-tabs-per-month-per-outlet Excel pattern with a live report,
             // with dispatched vs returned vs net sold per the spec.
             $byOutlet = OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
+                ->join('skus', 'skus.id', '=', 'order_items.sku_id')
+                ->whereRaw(\App\Services\SalesRevenueService::bottledSkuSql('skus'))
                 ->whereBetween('orders.order_date', [$dateFrom, $dateTo])
                 ->whereNull('orders.deleted_at')
                 ->whereNull('order_items.deleted_at')
@@ -256,6 +258,8 @@ class ReportsController extends Controller
             // fix Analytics (Phase 9) and Costing & P&L / Refills
             // (Phase 12) needed.
             $orderBySku = OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
+                ->join('skus', 'skus.id', '=', 'order_items.sku_id')
+                ->whereRaw(\App\Services\SalesRevenueService::bottledSkuSql('skus'))
                 ->whereBetween('orders.order_date', [$dateFrom, $dateTo])
                 ->whereNull('orders.deleted_at')
                 ->whereNull('order_items.deleted_at')
@@ -270,17 +274,23 @@ class ReportsController extends Controller
                 ->groupBy('order_items.sku_id')
                 ->get()->keyBy('sku_id');
 
-            $tripBySku = \App\Models\DriverTripItem::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_items.driver_trip_id')
+            $tripBySku = \App\Models\DriverTripSaleItem::query()
+                ->join('driver_trip_sales', 'driver_trip_sales.id', '=', 'driver_trip_sale_items.driver_trip_sale_id')
+                ->join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
+                ->join('skus', 'skus.id', '=', 'driver_trip_sale_items.sku_id')
                 ->whereNull('driver_trips.deleted_at')
+                ->whereNull('driver_trip_sales.deleted_at')
+                ->whereNull('driver_trip_sales.source_order_id')
+                ->whereRaw(\App\Services\SalesRevenueService::bottledSkuSql('skus'))
                 ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
                 ->selectRaw('
-                    driver_trip_items.sku_id,
-                    SUM(driver_trip_items.qty_carried) as qty_dispatched,
-                    SUM(driver_trip_items.qty_returned) as qty_returned,
-                    SUM(driver_trip_items.qty_sold) as qty_net_sold,
-                    SUM(driver_trip_items.qty_sold * driver_trip_items.unit_price) as revenue
+                    driver_trip_sale_items.sku_id,
+                    0 as qty_dispatched,
+                    0 as qty_returned,
+                    SUM(driver_trip_sale_items.qty_bales) as qty_net_sold,
+                    SUM(driver_trip_sale_items.qty_bales * driver_trip_sale_items.unit_price) as revenue
                 ')
-                ->groupBy('driver_trip_items.sku_id')
+                ->groupBy('driver_trip_sale_items.sku_id')
                 ->get()->keyBy('sku_id');
 
             $skuIds = collect($orderBySku->keys())->merge($tripBySku->keys())->unique()->values();
@@ -658,8 +668,8 @@ class ReportsController extends Controller
                 ->selectRaw('
                     DATE_FORMAT(order_date, "%Y-%m") as month,
                     COUNT(*) as orders_count,
-                    SUM(total_amount) as total_revenue,
-                    AVG(total_amount) as avg_order_value
+                    SUM('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as total_revenue,
+                    AVG('.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').') as avg_order_value
                 ')->groupBy('month')
                   ->orderBy('month')
                   ->get();

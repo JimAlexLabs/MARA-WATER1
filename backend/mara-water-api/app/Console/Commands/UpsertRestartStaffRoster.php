@@ -95,16 +95,6 @@ class UpsertRestartStaffRoster extends Command
                 'bank_account_number' => '01101689231001', 'bank_code' => '11',
                 'salary' => 20000, 'aka_last' => 'Oriri',
             ],
-            // Manager
-            [
-                'first_name' => 'Santos', 'last_name' => 'Cathy', 'role_id' => $smm->id,
-                'phone' => null, 'id_number' => '683357740',
-                'kra_pin' => 'A021400708D', 'nssf_number' => '2064644736',
-                'shif_number' => 'CR0412870046989-3',
-                'bank_name' => 'Cooperative Bank', 'bank_branch' => null,
-                'bank_account_number' => '01102832068001', 'salary' => 25000,
-                'aka_last' => 'Omolo',
-            ],
         ];
 
         $displayNames = [
@@ -115,7 +105,6 @@ class UpsertRestartStaffRoster extends Command
             '35301452' => ['Janet', 'Auma Ochieng'],
             '38819095' => ['Sellah', 'Atieno'],
             '30055910' => ['Danish', 'Ochieng Oriri'],
-            '683357740' => ['Santos', 'Cathy Omolo'],
         ];
 
         $fn = function () use ($staff, $dry, $bp, $displayNames) {

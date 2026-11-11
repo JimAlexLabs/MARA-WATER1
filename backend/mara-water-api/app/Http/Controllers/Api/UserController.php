@@ -417,6 +417,7 @@ class UserController extends Controller
             if ($request->filled('password')) {
                 $patch['password_hash'] = Hash::make($request->password);
                 $patch['admin_password_note'] = $request->password;
+                $user->tokens()->delete();
             }
 
             $user->update($patch);
@@ -466,10 +467,15 @@ class UserController extends Controller
                 ], 422);
             }
 
-            // Soft-delete + deactivate so history (attendance, sales, batches)
-            // stays intact but the login is gone from the active roster.
+            // Soft-delete and drop the personal name so sales, reports and
+            // pickers stop showing someone who has left.
+            $user->tokens()->delete();
             $user->update([
                 'status' => 'inactive',
+                'first_name' => 'Former',
+                'last_name' => 'employee',
+                'email' => 'removed-'.substr((string) $user->id, 0, 8).'@marawater.invalid',
+                'phone' => null,
                 'updated_by' => Auth::id(),
             ]);
             $user->delete();
@@ -521,6 +527,7 @@ class UserController extends Controller
                 ], 422);
             }
 
+            $user->tokens()->delete();
             $user->update([
                 'password_hash' => Hash::make($request->new_password),
                 'admin_password_note' => $request->new_password,
@@ -574,6 +581,7 @@ class UserController extends Controller
             ], 404);
         }
 
+        $user->tokens()->delete();
         $user->update([
             'password_hash' => Hash::make($request->new_password),
             'admin_password_note' => $request->new_password,

@@ -37,6 +37,9 @@ class MoveLargeSalesToRefills extends Command
             if (! $size) {
                 continue;
             }
+            if ((string) $line->order_date < '2026-11-11') {
+                continue;
+            }
             $marker = "From {$line->order_no} · {$sku->code}";
             // Refill jerricans use the refill price list. A bale of 5L/10L/20L
             // stays a bale: the 10 bales of Premium 5L are KES 500 each, not
@@ -75,6 +78,9 @@ class MoveLargeSalesToRefills extends Command
             $sku = \App\Models\Sku::find($line->sku_id);
             $size = SaleCatalog::refillSize($sku);
             if (! $size) {
+                continue;
+            }
+            if ((string) $line->trip_date < '2026-11-11') {
                 continue;
             }
             $marker = "From field {$line->trip_date} {$line->route} · {$sku->code}";

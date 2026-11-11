@@ -11,6 +11,7 @@ use App\Models\DriverTripSale;
 use App\Models\PackagingRun;
 use App\Models\Debt;
 use App\Models\PayrollRun;
+use App\Services\SalesRevenueService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -84,15 +85,16 @@ class AnalyticsController extends Controller
 
         $ordersTrend = Order::completedSale()->whereBetween('order_date', [$dateFrom, $dateTo])
             ->whereNull('deleted_at')
-            ->selectRaw("{$orderExpr} as period, SUM(total_amount) as revenue")
+            ->selectRaw($orderExpr.' as period, SUM('.SalesRevenueService::bottledOrderRevenueSql('orders').') as revenue')
             ->groupBy('period')->pluck('revenue', 'period');
 
         $tripsTrend = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
             ->whereNull('driver_trip_sales.deleted_at')
             ->whereNull('driver_trips.deleted_at')
+            ->whereNull('driver_trip_sales.source_order_id')
             ->counted()
             ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
-            ->selectRaw("{$tripExpr} as period, SUM(driver_trip_sales.amount) as revenue")
+            ->selectRaw($tripExpr.' as period, SUM('.SalesRevenueService::bottledTripRevenueSql('driver_trip_sales').') as revenue')
             ->groupBy('period')->pluck('revenue', 'period');
 
         $periods = collect($ordersTrend->keys())->merge($tripsTrend->keys())->unique()->sort()->values();
@@ -111,19 +113,25 @@ class AnalyticsController extends Controller
             ->join('skus', 'skus.id', '=', 'order_items.sku_id')
             ->whereNull('orders.deleted_at')->whereNull('order_items.deleted_at')
             ->whereNotNull('orders.payment_method')
+            ->whereRaw(SalesRevenueService::bottledSkuSql('skus'))
             ->whereBetween('orders.order_date', [$dateFrom, $dateTo])
             ->selectRaw('COALESCE(skus.brand, "Uncategorized") as brand,
                 SUM(order_items.qty - order_items.qty_returned) as qty_sold,
                 SUM((order_items.qty - order_items.qty_returned) * order_items.unit_price) as revenue')
             ->groupBy('brand')->get()->keyBy('brand');
 
-        $tripByBrand = DriverTripItem::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_items.driver_trip_id')
-            ->join('skus', 'skus.id', '=', 'driver_trip_items.sku_id')
+        $tripByBrand = \App\Models\DriverTripSaleItem::query()
+            ->join('driver_trip_sales', 'driver_trip_sales.id', '=', 'driver_trip_sale_items.driver_trip_sale_id')
+            ->join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
+            ->join('skus', 'skus.id', '=', 'driver_trip_sale_items.sku_id')
             ->whereNull('driver_trips.deleted_at')
+            ->whereNull('driver_trip_sales.deleted_at')
+            ->whereNull('driver_trip_sales.source_order_id')
+            ->whereRaw(SalesRevenueService::bottledSkuSql('skus'))
             ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
             ->selectRaw('COALESCE(skus.brand, "Uncategorized") as brand,
-                SUM(driver_trip_items.qty_sold) as qty_sold,
-                SUM(driver_trip_items.qty_sold * driver_trip_items.unit_price) as revenue')
+                SUM(driver_trip_sale_items.qty_bales) as qty_sold,
+                SUM(driver_trip_sale_items.qty_bales * driver_trip_sale_items.unit_price) as revenue')
             ->groupBy('brand')->get()->keyBy('brand');
 
         $brands = collect($orderByBrand->keys())->merge($tripByBrand->keys())->unique()->values();
@@ -142,7 +150,7 @@ class AnalyticsController extends Controller
         $byOutlet = Order::join('warehouses', 'warehouses.id', '=', 'orders.warehouse_id')
             ->whereNull('orders.deleted_at')->whereNotNull('orders.payment_method')
             ->whereBetween('orders.order_date', [$dateFrom, $dateTo])
-            ->selectRaw('warehouses.id, warehouses.name, SUM(orders.total_amount) as revenue, COUNT(*) as orders')
+            ->selectRaw('warehouses.id, warehouses.name, SUM('.SalesRevenueService::bottledOrderRevenueSql('orders').') as revenue, COUNT(*) as orders')
             ->groupBy('warehouses.id', 'warehouses.name')
             ->orderByDesc('revenue')
             ->get();
@@ -154,8 +162,9 @@ class AnalyticsController extends Controller
         $byRoute = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
             ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
             ->counted()
+            ->whereNull('driver_trip_sales.source_order_id')
             ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
-            ->selectRaw('driver_trips.route, SUM(driver_trip_sales.amount) as revenue')
+            ->selectRaw('driver_trips.route, SUM('.SalesRevenueService::bottledTripRevenueSql('driver_trip_sales').') as revenue')
             ->groupBy('driver_trips.route')
             ->orderByDesc('revenue')
             ->get()
@@ -185,14 +194,15 @@ class AnalyticsController extends Controller
         // nothing has actually been "sold" until logSale() commits one.
         $orderPayments = Order::completedSale()->whereBetween('order_date', [$dateFrom, $dateTo])
             ->whereNull('deleted_at')
-            ->selectRaw('payment_method, SUM(total_amount) as amount')
+            ->selectRaw('payment_method, SUM('.SalesRevenueService::bottledOrderRevenueSql('orders').') as amount')
             ->groupBy('payment_method')->pluck('amount', 'payment_method');
 
         $tripPayments = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
             ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
+            ->whereNull('driver_trip_sales.source_order_id')
             ->counted()
             ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
-            ->selectRaw('payment_method, SUM(amount) as amount')
+            ->selectRaw('payment_method, SUM('.SalesRevenueService::bottledTripRevenueSql('driver_trip_sales').') as amount')
             ->groupBy('payment_method')->pluck('amount', 'payment_method');
 
         // Orders call it 'credit', driver trips call the exact same thing

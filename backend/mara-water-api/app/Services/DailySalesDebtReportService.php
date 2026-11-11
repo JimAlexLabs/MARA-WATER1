@@ -214,6 +214,7 @@ class DailySalesDebtReportService
         $rows = Order::completedSale()->whereNull('deleted_at')
             ->whereBetween('order_date', [$from->toDateString(), $to->toDateString()])
             ->with('customer')
+            ->selectRaw('orders.*, '.\App\Services\SalesRevenueService::bottledOrderRevenueSql('orders').' as bottled_amount')
             ->get();
 
         $out = collect();
@@ -223,12 +224,13 @@ class DailySalesDebtReportService
             }
             $key = $o->order_date->toDateString() . '|' . $o->location_id;
             $bucket = $out->get($key, ['sales' => 0, 'debt' => 0, 'distributor' => 0]);
-            $bucket['sales'] += (float) $o->total_amount;
+            $amount = (float) ($o->bottled_amount ?? 0);
+            $bucket['sales'] += $amount;
             if ($o->payment_method === 'credit') {
-                $bucket['debt'] += (float) $o->total_amount;
+                $bucket['debt'] += $amount;
             }
             if (optional($o->customer)->type === 'wholesale') {
-                $bucket['distributor'] += (float) $o->total_amount;
+                $bucket['distributor'] += $amount;
             }
             $out->put($key, $bucket);
         }
@@ -239,8 +241,13 @@ class DailySalesDebtReportService
     private function tripTotalsByDayLocation(Carbon $from, Carbon $to): Collection
     {
         $rows = DriverTripSale::whereNull('deleted_at')
+            ->when(
+                \Illuminate\Support\Facades\Schema::hasColumn('driver_trip_sales', 'source_order_id'),
+                fn ($q) => $q->whereNull('source_order_id')
+            )
             ->whereHas('trip', fn ($q) => $q->whereBetween('trip_date', [$from->toDateString(), $to->toDateString()])->whereNotNull('location_id'))
             ->with(['trip', 'customer'])
+            ->selectRaw('driver_trip_sales.*, '.\App\Services\SalesRevenueService::bottledTripRevenueSql('driver_trip_sales').' as bottled_amount')
             ->get();
 
         $out = collect();
@@ -254,12 +261,13 @@ class DailySalesDebtReportService
             if (($s->payment_status ?? 'paid') !== 'paid') {
                 continue;
             }
-            $bucket['sales'] += (float) $s->amount;
+            $amount = (float) ($s->bottled_amount ?? 0);
+            $bucket['sales'] += $amount;
             if ($s->payment_method === 'debt') {
-                $bucket['debt'] += (float) $s->amount;
+                $bucket['debt'] += $amount;
             }
             if (optional($s->customer)->type === 'wholesale') {
-                $bucket['distributor'] += (float) $s->amount;
+                $bucket['distributor'] += $amount;
             }
             $out->put($key, $bucket);
         }

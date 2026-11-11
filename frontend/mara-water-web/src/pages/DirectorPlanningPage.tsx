@@ -243,7 +243,6 @@ const DirectorPlanningPage: React.FC = () => {
       <Card title="Trip quantities & transport" note="Edit to model a future Intripet trip. Transport is split evenly across every bottle on the trip.">
         {BOTTLED.map((s) => F(`Bottles / trip ${s}`, ['trip_bottles', s]))}
         {F('Transport / trip (Nairobi → Rongo)', ['transport_per_trip'], { suffix: 'KES' })}
-        {F('Refill revenue, % of bottled (reference)', ['refill_revenue_pct'], { scale: 100, suffix: '%' })}
       </Card>
 
       <section className="mara-panel p-5 space-y-3">

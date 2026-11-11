@@ -29,19 +29,14 @@ class SalesRevenueService
 {
     public function ordersRevenueBetween(string $from, string $to): float
     {
-        return (float) Order::completedSale()
-            ->whereBetween('order_date', [$from, $to])
-            ->whereNull('deleted_at')
-            ->sum('total_amount');
+        return (float) $this->bottledOrderLines($from, $to)
+            ->sum(\Illuminate\Support\Facades\DB::raw('(order_items.qty - COALESCE(order_items.qty_returned, 0)) * order_items.unit_price'));
     }
 
     public function tripRevenueBetween(string $from, string $to): float
     {
-        return (float) DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
-            ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
-            ->counted()
-            ->whereBetween('driver_trips.trip_date', [$from, $to])
-            ->sum('driver_trip_sales.amount');
+        return (float) $this->bottledTripLines($from, $to)
+            ->sum(\Illuminate\Support\Facades\DB::raw('driver_trip_sale_items.qty_bales * driver_trip_sale_items.unit_price'));
     }
 
     public function combinedRevenueBetween(string $from, string $to): float
@@ -56,16 +51,12 @@ class SalesRevenueService
      */
     public function dailyTrend(string $from, string $to): Collection
     {
-        $orders = Order::completedSale()->whereBetween('order_date', [$from, $to])
-            ->whereNull('deleted_at')
-            ->selectRaw('order_date as date, SUM(total_amount) as revenue, COUNT(*) as orders_count')
+        $orders = $this->bottledOrderLines($from, $to)
+            ->selectRaw('orders.order_date as date, SUM((order_items.qty - COALESCE(order_items.qty_returned, 0)) * order_items.unit_price) as revenue, COUNT(DISTINCT orders.id) as orders_count')
             ->groupBy('date')->get()->keyBy('date');
 
-        $trips = DriverTripSale::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
-            ->whereNull('driver_trip_sales.deleted_at')->whereNull('driver_trips.deleted_at')
-            ->counted()
-            ->whereBetween('driver_trips.trip_date', [$from, $to])
-            ->selectRaw('driver_trips.trip_date as date, SUM(driver_trip_sales.amount) as revenue')
+        $trips = $this->bottledTripLines($from, $to)
+            ->selectRaw('driver_trips.trip_date as date, SUM(driver_trip_sale_items.qty_bales * driver_trip_sale_items.unit_price) as revenue')
             ->groupBy('date')->get()->keyBy('date');
 
         $dates = collect($orders->keys())->merge($trips->keys())->unique()->sort()->values();
@@ -91,18 +82,13 @@ class SalesRevenueService
      */
     public function netQtyAndRevenueBySku(string $from, string $to): Collection
     {
-        $orderRows = OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
-            ->whereNull('orders.deleted_at')->whereNull('order_items.deleted_at')
-            ->whereNotNull('orders.payment_method')
-            ->whereBetween('orders.order_date', [$from, $to])
+        $orderRows = $this->bottledOrderLines($from, $to)
             ->selectRaw('order_items.sku_id, SUM(order_items.qty - order_items.qty_returned) as net_qty, SUM((order_items.qty - order_items.qty_returned) * order_items.unit_price) as revenue')
             ->groupBy('order_items.sku_id')->get()->keyBy('sku_id');
 
-        $tripRows = DriverTripItem::join('driver_trips', 'driver_trips.id', '=', 'driver_trip_items.driver_trip_id')
-            ->whereNull('driver_trips.deleted_at')
-            ->whereBetween('driver_trips.trip_date', [$from, $to])
-            ->selectRaw('driver_trip_items.sku_id, SUM(driver_trip_items.qty_sold) as net_qty, SUM(driver_trip_items.qty_sold * driver_trip_items.unit_price) as revenue')
-            ->groupBy('driver_trip_items.sku_id')->get()->keyBy('sku_id');
+        $tripRows = $this->bottledTripLines($from, $to)
+            ->selectRaw('driver_trip_sale_items.sku_id, SUM(driver_trip_sale_items.qty_bales) as net_qty, SUM(driver_trip_sale_items.qty_bales * driver_trip_sale_items.unit_price) as revenue')
+            ->groupBy('driver_trip_sale_items.sku_id')->get()->keyBy('sku_id');
 
         $skuIds = collect($orderRows->keys())->merge($tripRows->keys())->unique()->values();
 
@@ -126,11 +112,21 @@ class SalesRevenueService
     public function customerStats(string $customerId): array
     {
         $orders = Order::completedSale()->whereNull('deleted_at')->where('customer_id', $customerId)
-            ->get(['total_amount', 'payment_method', 'order_date']);
-        $trips = DriverTripSale::whereNull('deleted_at')->where('customer_id', $customerId)
-            ->get(['amount', 'payment_method', 'created_at']);
+            ->selectRaw('orders.payment_method, orders.order_date, '.self::bottledOrderRevenueSql('orders').' as bottled_amount')
+            ->get()
+            ->filter(fn ($o) => (float) $o->bottled_amount > 0)
+            ->values();
+        $tripQuery = DriverTripSale::whereNull('deleted_at')->where('customer_id', $customerId);
+        if (\Illuminate\Support\Facades\Schema::hasColumn('driver_trip_sales', 'source_order_id')) {
+            $tripQuery->whereNull('source_order_id');
+        }
+        $trips = $tripQuery
+            ->selectRaw('driver_trip_sales.payment_method, driver_trip_sales.created_at, '.self::bottledTripRevenueSql('driver_trip_sales').' as bottled_amount')
+            ->get()
+            ->filter(fn ($s) => (float) $s->bottled_amount > 0)
+            ->values();
 
-        $lifetimePurchases = round((float) $orders->sum('total_amount') + (float) $trips->sum('amount'), 2);
+        $lifetimePurchases = round((float) $orders->sum('bottled_amount') + (float) $trips->sum('bottled_amount'), 2);
 
         $lastOrderDate = $orders->max('order_date');
         $lastTripDate = optional($trips->sortByDesc('created_at')->first())->created_at;
@@ -163,26 +159,34 @@ class SalesRevenueService
     public function customerPurchaseHistory(string $customerId): Collection
     {
         $orders = Order::completedSale()->whereNull('deleted_at')->where('customer_id', $customerId)
+            ->selectRaw('orders.*, '.self::bottledOrderRevenueSql('orders').' as bottled_amount')
             ->orderByDesc('order_date')
             ->get()
+            ->filter(fn ($o) => (float) $o->bottled_amount > 0)
             ->map(fn ($o) => [
                 'source' => 'order',
                 'id' => $o->id,
                 'date' => (string) $o->order_date,
                 'reference' => $o->order_no,
-                'amount' => (float) $o->total_amount,
+                'amount' => (float) $o->bottled_amount,
                 'payment_method' => $o->payment_method,
             ]);
 
-        $trips = DriverTripSale::with('trip')->whereNull('deleted_at')->where('customer_id', $customerId)
+        $tripQuery = DriverTripSale::with('trip')->whereNull('deleted_at')->where('customer_id', $customerId);
+        if (\Illuminate\Support\Facades\Schema::hasColumn('driver_trip_sales', 'source_order_id')) {
+            $tripQuery->whereNull('source_order_id');
+        }
+        $trips = $tripQuery
+            ->selectRaw('driver_trip_sales.*, '.self::bottledTripRevenueSql('driver_trip_sales').' as bottled_amount')
             ->orderByDesc('created_at')
             ->get()
+            ->filter(fn ($s) => (float) $s->bottled_amount > 0)
             ->map(fn ($s) => [
                 'source' => 'driver_trip',
                 'id' => $s->id,
                 'date' => optional($s->trip)->trip_date ? (string) $s->trip->trip_date : (string) $s->created_at->toDateString(),
                 'reference' => $s->physical_receipt_no ?: ('Trip ' . substr($s->driver_trip_id, 0, 8)),
-                'amount' => (float) $s->amount,
+                'amount' => (float) $s->bottled_amount,
                 'payment_method' => $s->payment_method,
             ]);
 
@@ -193,5 +197,75 @@ class SalesRevenueService
         // a plain array. ->toBase() drops back to the base Collection
         // (plain array merge) before combining the two sources.
         return $orders->toBase()->merge($trips->toBase())->sortByDesc('date')->values();
+    }
+
+    /**
+     * Sales figures are 0.5L, 1L and 1.5L only. Refill lines stay on the
+     * admin refill tab and are not part of revenue.
+     */
+    public static function bottledOrderRevenueSql(string $orderAlias = 'orders'): string
+    {
+        return '(SELECT COALESCE(SUM((oi.qty - COALESCE(oi.qty_returned, 0)) * oi.unit_price), 0)
+            FROM order_items oi
+            INNER JOIN skus sk ON sk.id = oi.sku_id
+            WHERE oi.order_id = '.$orderAlias.'.id
+              AND oi.deleted_at IS NULL
+              AND '.self::bottledSkuSql('sk').')';
+    }
+
+    public static function bottledTripRevenueSql(string $saleAlias = 'driver_trip_sales'): string
+    {
+        return '(SELECT COALESCE(SUM(ti.qty_bales * ti.unit_price), 0)
+            FROM driver_trip_sale_items ti
+            INNER JOIN skus sk ON sk.id = ti.sku_id
+            WHERE ti.driver_trip_sale_id = '.$saleAlias.'.id
+              AND '.self::bottledSkuSql('sk').')';
+    }
+
+    public static function bottledSkuSql(string $alias): string
+    {
+        return "(
+            ({$alias}.size_liters BETWEEN 0.45 AND 0.55
+              OR {$alias}.size_liters BETWEEN 0.95 AND 1.05
+              OR {$alias}.size_liters BETWEEN 1.45 AND 1.55)
+            AND ({$alias}.brand IS NULL OR {$alias}.brand NOT LIKE '%Refill%')
+            AND {$alias}.code NOT LIKE 'REFILL%'
+        )";
+    }
+
+    private function bottledOrderLines(string $from, string $to)
+    {
+        return OrderItem::query()
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->join('skus', 'skus.id', '=', 'order_items.sku_id')
+            ->whereNull('orders.deleted_at')
+            ->whereNull('order_items.deleted_at')
+            ->whereNotNull('orders.payment_method')
+            ->where(function ($q) {
+                $q->whereNull('orders.payment_status')->orWhere('orders.payment_status', 'paid');
+            })
+            ->whereBetween('orders.order_date', [$from, $to])
+            ->whereRaw(self::bottledSkuSql('skus'));
+    }
+
+    private function bottledTripLines(string $from, string $to)
+    {
+        $query = \App\Models\DriverTripSaleItem::query()
+            ->join('driver_trip_sales', 'driver_trip_sales.id', '=', 'driver_trip_sale_items.driver_trip_sale_id')
+            ->join('driver_trips', 'driver_trips.id', '=', 'driver_trip_sales.driver_trip_id')
+            ->join('skus', 'skus.id', '=', 'driver_trip_sale_items.sku_id')
+            ->whereNull('driver_trip_sales.deleted_at')
+            ->whereNull('driver_trips.deleted_at')
+            ->where(function ($q) {
+                $q->whereNull('driver_trip_sales.payment_status')->orWhere('driver_trip_sales.payment_status', 'paid');
+            })
+            ->whereBetween('driver_trips.trip_date', [$from, $to])
+            ->whereRaw(self::bottledSkuSql('skus'));
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('driver_trip_sales', 'source_order_id')) {
+            $query->whereNull('driver_trip_sales.source_order_id');
+        }
+
+        return $query;
     }
 }
