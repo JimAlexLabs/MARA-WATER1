@@ -70,7 +70,7 @@ class FuelLogController extends Controller
             'date' => $request->date,
             'cost' => $request->cost,
             'liters' => $request->liters,
-            'odometer' => $request->odometer,
+            'odometer' => $request->filled('odometer') ? $request->odometer : null,
             'created_by' => Auth::id(),
             'updated_by' => Auth::id(),
         ]);
