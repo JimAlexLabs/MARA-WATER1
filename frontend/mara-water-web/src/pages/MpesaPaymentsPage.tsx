@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import DateField from '../components/DateField';
 import { Smartphone, Download, RefreshCw, AlertTriangle, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
@@ -235,11 +236,11 @@ const MpesaPaymentsPage: React.FC = () => {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex flex-wrap gap-3 items-end">
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">From</label>
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="mt-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+              <DateField value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="mt-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">To</label>
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="mt-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+              <DateField value={dateTo} onChange={e => setDateTo(e.target.value)} className="mt-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Channel</label>

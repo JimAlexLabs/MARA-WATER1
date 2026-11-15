@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import DateField from './DateField';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
 
@@ -138,7 +139,7 @@ const ProductionWagesPanel: React.FC = () => {
         {view === 'day' ? (
           <div>
             <label className="block text-xs text-gray-500">Date</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 border rounded-md px-3 py-2 text-sm dark:bg-gray-700 dark:border-gray-600" />
+            <DateField value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 border rounded-md px-3 py-2 text-sm dark:bg-gray-700 dark:border-gray-600" />
           </div>
         ) : (
           <div>

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import DateField from '../components/DateField';
+import { formatDate } from '../utils/dates';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -384,7 +386,7 @@ const FleetPage: React.FC = () => {
       toast.error('A locked trip must be unlocked by a Director before it can be deleted');
       return;
     }
-    if (!window.confirm(`Delete this trip (${t.trip_date})? This can't be undone.`)) return;
+    if (!window.confirm(`Delete this trip (${formatDate(t.trip_date)})? This can't be undone.`)) return;
     try {
       await api.delete(`/fleet/trips/${t.id}`);
       toast.success('Trip deleted');
@@ -767,11 +769,11 @@ const FleetPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">From</label>
-                <input type="date" value={fuelDateFrom} onChange={e => setFuelDateFrom(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+                <DateField value={fuelDateFrom} onChange={e => setFuelDateFrom(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">To</label>
-                <input type="date" value={fuelDateTo} onChange={e => setFuelDateTo(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+                <DateField value={fuelDateTo} onChange={e => setFuelDateTo(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
               </div>
             </div>
             <div className="flex gap-2">
@@ -833,7 +835,7 @@ const FleetPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
-                <input type="date" value={fuelForm.date} onChange={e => setFuelForm({ ...fuelForm, date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                <DateField value={fuelForm.date} onChange={e => setFuelForm({ ...fuelForm, date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -926,7 +928,7 @@ const FleetPage: React.FC = () => {
                   <option value="">Select vehicle</option>
                   {vehicles.map(v => <option key={v.id} value={v.id}>{v.reg_no}</option>)}
                 </select>
-                <input type="date" value={repairForm.repair_date} onChange={e => setRepairForm({ ...repairForm, repair_date: e.target.value })} className="w-full border rounded-md px-3 py-2 dark:bg-gray-700" />
+                <DateField value={repairForm.repair_date} onChange={e => setRepairForm({ ...repairForm, repair_date: e.target.value })} className="w-full border rounded-md px-3 py-2 dark:bg-gray-700" />
                 <select value={repairForm.category} onChange={e => setRepairForm({ ...repairForm, category: e.target.value })} className="w-full border rounded-md px-3 py-2 dark:bg-gray-700">
                   <option value="minor">Minor</option>
                   <option value="major">Major</option>
@@ -957,11 +959,11 @@ const FleetPage: React.FC = () => {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">From</label>
-              <input type="date" value={mileageDateFrom} onChange={e => setMileageDateFrom(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+              <DateField value={mileageDateFrom} onChange={e => setMileageDateFrom(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">To</label>
-              <input type="date" value={mileageDateTo} onChange={e => setMileageDateTo(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
+              <DateField value={mileageDateTo} onChange={e => setMileageDateTo(e.target.value)} className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-1.5 text-sm" />
             </div>
           </div>
           {mileageLogs.length === 0 ? (
@@ -1038,11 +1040,11 @@ const FleetPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Insurance Expiry</label>
-                  <input required type="date" value={vehicleForm.insurance_expiry} onChange={(e) => setVehicleForm({ ...vehicleForm, insurance_expiry: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  <DateField required value={vehicleForm.insurance_expiry} onChange={(e) => setVehicleForm({ ...vehicleForm, insurance_expiry: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Inspection Expiry</label>
-                  <input required type="date" value={vehicleForm.inspection_expiry} onChange={(e) => setVehicleForm({ ...vehicleForm, inspection_expiry: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                  <DateField required value={vehicleForm.inspection_expiry} onChange={(e) => setVehicleForm({ ...vehicleForm, inspection_expiry: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                 </div>
               </div>
               <div>

@@ -173,7 +173,7 @@ class PriceListController extends Controller
         $ws->setTitle('Prices');
         $ws->setCellValue('A1', $priceList->name);
         $ws->setCellValue('A2', 'Kind: ' . ($priceList->list_kind ?: 'other'));
-        $ws->setCellValue('A3', 'Valid: ' . ($priceList->valid_from?->toDateString() ?? '—') . ' to ' . ($priceList->valid_to?->toDateString() ?? '—'));
+        $ws->setCellValue('A3', 'Valid: ' . (\App\Support\DisplayDate::day($priceList->valid_from) ?: '—') . ' to ' . (\App\Support\DisplayDate::day($priceList->valid_to) ?: '—'));
 
         $headers = ['Code', 'Brand', 'Name', 'Size (L)', 'Unit', 'Unit Price (KES)'];
         foreach ($headers as $i => $h) {

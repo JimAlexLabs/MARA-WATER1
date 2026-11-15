@@ -99,7 +99,7 @@ class VehicleRepairController extends Controller
         }
         $r = 2;
         foreach ($rows as $row) {
-            $ws->setCellValue([1, $r], optional($row->repair_date)->toDateString());
+            $ws->setCellValue([1, $r], \App\Support\DisplayDate::day($row->repair_date));
             $ws->setCellValue([2, $r], $row->vehicle->reg_no ?? '');
             $ws->setCellValue([3, $r], $row->category);
             $ws->setCellValue([4, $r], $row->description);

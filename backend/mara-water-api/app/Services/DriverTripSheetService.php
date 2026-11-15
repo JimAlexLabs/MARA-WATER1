@@ -60,7 +60,7 @@ class DriverTripSheetService
         // AUTHORIZE OFFICER/TIME OUT/TIME IN) -- correctly spelled here
         // rather than propagating that file's "MILAGE" typo.
         $headerBlock = [
-            'Date' => $trip->trip_date->toDateString(),
+            'Date' => \App\Support\DisplayDate::day($trip->trip_date),
             'Driver' => $trip->driver->full_name ?? '',
             'Vehicle' => $trip->vehicle->reg_no ?? '',
             'Route' => $trip->route ?? '',
@@ -175,7 +175,7 @@ class DriverTripSheetService
         $thinBorder = ['borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]]];
 
         $row = 1;
-        $ws->setCellValue("A{$row}", 'TRIP SALES -- ' . $trip->trip_date->toDateString() . ' -- ' . ($trip->vehicle->reg_no ?? ''));
+        $ws->setCellValue("A{$row}", 'TRIP SALES -- ' . \App\Support\DisplayDate::day($trip->trip_date) . ' -- ' . ($trip->vehicle->reg_no ?? ''));
         $ws->getStyle("A{$row}")->applyFromArray($title);
         $row += 2;
 

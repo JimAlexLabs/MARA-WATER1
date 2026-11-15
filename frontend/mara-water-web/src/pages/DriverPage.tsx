@@ -6,6 +6,7 @@ import { api } from '../services/api';
 import { PageShell, PageHero } from '../components/PageShell';
 import { useAuth } from '../contexts/AuthContext';
 import DirectPaybillPanel from '../components/DirectPaybillPanel';
+import { formatDate } from '../utils/dates';
 
 // Ops brief §2.5: driver/sales exec operational tool — KPIs, sell-through,
 // fuel, repairs, customer base, trackable discrepancies/issues.
@@ -172,10 +173,10 @@ const DriverPage: React.FC = () => {
               </h4>
               <ul className="text-sm space-y-1 text-gray-700 dark:text-gray-300">
                 {ops.discrepancies.map(d => (
-                  <li key={d.id}>Discrepancy · {d.date} · {d.category} · {d.status}</li>
+                  <li key={d.id}>Discrepancy · {formatDate(d.date)} · {d.category} · {d.status}</li>
                 ))}
                 {ops.flagged_trips.map(t => (
-                  <li key={t.id}>Flagged trip · {t.trip_date} · {t.route || '—'}</li>
+                  <li key={t.id}>Flagged trip · {formatDate(t.trip_date)} · {t.route || '—'}</li>
                 ))}
                 {ops.open_issues.map(i => (
                   <li key={i.id}>

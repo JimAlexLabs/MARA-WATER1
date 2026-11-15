@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import DateField from '../components/DateField';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Download, Loader2, Plus, RefreshCw, Save, Trash2, AlertTriangle, ArrowLeft } from 'lucide-react';
@@ -400,7 +401,7 @@ const DirectorPlanningPage: React.FC = () => {
         {F('Opening cash (at tracking start)', ['supply', 'opening_cash'], { suffix: 'KES' })}
         <label className="block">
           <span className="text-xs text-gray-500">Cash tracking starts</span>
-          <input type="date" value={draft.supply.cash_tracking_start || ''} onChange={(e) => set(['supply', 'cash_tracking_start'], e.target.value || null)}
+          <DateField value={draft.supply.cash_tracking_start || ''} onChange={(e) => set(['supply', 'cash_tracking_start'], e.target.value || null)}
             className="mt-1 w-full rounded-lg border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-900/60 px-2.5 py-1.5 text-sm" />
           <span className="text-[11px] text-gray-400">Empty = 1st of this month</span>
         </label>

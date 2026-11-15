@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Save, X, Download } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { api } from '../services/api';
+import { formatDate } from '../utils/dates';
 import { usePermissions } from '../contexts/AuthContext';
 import { PageShell, PageHero, HeroButton } from '../components/PageShell';
 
@@ -74,7 +75,7 @@ const downloadBlob = (path: string, filename: string) => {
   }).catch(() => toast.error('Export failed'));
 };
 
-const dateOnly = (v?: string | null) => (v ? String(v).slice(0, 10) : null);
+const dateOnly = (v?: string | null) => (v ? formatDate(v) : null);
 
 const PricingPage: React.FC = () => {
   const { isDirector } = usePermissions();

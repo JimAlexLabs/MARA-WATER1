@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import DateField from '../components/DateField';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus,
@@ -609,7 +610,7 @@ const UsersPage: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date of Birth</label>
-                  <input type="date" value={userForm.date_of_birth} onChange={(e) => setUserForm({ ...userForm, date_of_birth: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <DateField value={userForm.date_of_birth} onChange={(e) => setUserForm({ ...userForm, date_of_birth: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
               <div>
@@ -652,7 +653,7 @@ const UsersPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Employment Date</label>
-                  <input type="date" value={userForm.employment_date} onChange={(e) => setUserForm({ ...userForm, employment_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <DateField value={userForm.employment_date} onChange={(e) => setUserForm({ ...userForm, employment_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Terms of Employment</label>
@@ -757,7 +758,7 @@ const UsersPage: React.FC = () => {
                   Paste rows copied from Excel/Google Sheets, or upload a CSV. One employee per line, columns in this order:
                 </p>
                 <p className="text-xs font-mono bg-gray-100 dark:bg-gray-700 rounded px-2 py-1.5 mb-3 overflow-x-auto whitespace-nowrap">
-                  First Name, Last Name, Phone, ID Number, Department, Role, Employment Date (YYYY-MM-DD), Salary, Status
+                  First Name, Last Name, Phone, ID Number, Department, Role, Employment Date (DD/MM/YYYY), Salary, Status
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                   Department and Role are matched by name or code (e.g. "Fleet Management" or "FLEET"). ID Number, Employment

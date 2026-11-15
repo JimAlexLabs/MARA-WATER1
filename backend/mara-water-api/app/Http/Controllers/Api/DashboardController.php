@@ -221,7 +221,7 @@ class DashboardController extends Controller
                 $alerts[] = [
                     'type' => 'trip_discrepancy',
                     'severity' => 'high',
-                    'message' => "{$driverName}'s trip on {$t->trip_date->toDateString()} has a reconciliation discrepancy",
+                    'message' => "{$driverName}'s trip on ".\App\Support\DisplayDate::day($t->trip_date).' has a reconciliation discrepancy',
                     'route' => '/fleet?tab=trips&q=' . urlencode($t->id),
                 ];
             }
@@ -295,7 +295,7 @@ class DashboardController extends Controller
                         'name' => $user->first_name . ' ' . $user->last_name,
                         'role' => $user->role->name ?? 'Unknown',
                         'department' => $user->department->name ?? 'Unknown',
-                        'last_login' => $user->last_login_at ? $user->last_login_at->format('Y-m-d H:i:s') : 'Never',
+                        'last_login' => $user->last_login_at ? \App\Support\DisplayDate::dayTime($user->last_login_at) : 'Never',
                     ],
                 ],
             ]);

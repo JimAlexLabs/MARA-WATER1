@@ -38,7 +38,7 @@ class PettyCashExportService
         $ws->setCellValue('F2', 'PETTY CASH - JOURNAL DATA SHEET');
         $ws->setCellValue('F3', 'MONTHLY PETTY CASH RECORD');
         $ws->setCellValue('F4', 'SITE NAME: MARA DRINKING WATER');
-        $ws->setCellValue('F5', 'PERIOD: ' . $from->format('d-m-Y') . ' to ' . $to->format('d-m-Y'));
+        $ws->setCellValue('F5', 'PERIOD: ' . \App\Support\DisplayDate::day($from) . ' to ' . \App\Support\DisplayDate::day($to));
         foreach (['F1', 'F2', 'F3', 'F4', 'F5'] as $cell) {
             $ws->getStyle($cell)->applyFromArray($bold);
         }
@@ -63,7 +63,7 @@ class PettyCashExportService
             $totalIn += (float) $entry->amount_in;
             $totalOut += (float) $entry->amount_out;
 
-            $ws->setCellValue([2, $row], $entry->entry_date?->toDateString());
+            $ws->setCellValue([2, $row], \App\Support\DisplayDate::day($entry->entry_date));
             $ws->getStyle([2, $row])->getNumberFormat()->setFormatCode('dd/mm/yyyy');
             $ws->setCellValue([3, $row], $entry->mpesa_reference);
             $ws->setCellValue([4, $row], $entry->account->code ?? null);

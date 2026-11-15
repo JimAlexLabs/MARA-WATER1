@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import DateField from '../components/DateField';
+import { formatDate } from '../utils/dates';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   Plus,
@@ -794,8 +796,7 @@ const FinancePage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Invoice Date</label>
-                  <input
-                    type="date"
+                  <DateField
                     value={invoiceForm.invoice_date}
                     onChange={(e) => setInvoiceForm({...invoiceForm, invoice_date: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -803,8 +804,7 @@ const FinancePage: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Due Date</label>
-                  <input
-                    type="date"
+                  <DateField
                     value={invoiceForm.due_date}
                     onChange={(e) => setInvoiceForm({...invoiceForm, due_date: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -946,9 +946,8 @@ const FinancePage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
-                  <input
+                  <DateField
                     required
-                    type="date"
                     value={pettyCashForm.entry_date}
                     min={director ? undefined : new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' })}
                     max={new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' })}
@@ -1170,7 +1169,7 @@ const FinancePage: React.FC = () => {
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {payablesSummary.entries.map((e) => (
                   <tr key={e.id}>
-                    <td className="px-4 py-3 text-sm whitespace-nowrap">{String(e.entry_date).slice(0, 10)}</td>
+                    <td className="px-4 py-3 text-sm whitespace-nowrap">{formatDate(e.entry_date)}</td>
                     <td className="px-4 py-3 text-sm">{e.supplier_name}</td>
                     <td className="px-4 py-3 text-sm">{e.details}</td>
                     <td className="px-4 py-3 text-sm">{e.reference_no || '—'}</td>
@@ -1193,7 +1192,7 @@ const FinancePage: React.FC = () => {
                   <input required placeholder="Supplier name" value={payableForm.supplier_name}
                     onChange={(e) => setPayableForm({ ...payableForm, supplier_name: e.target.value })}
                     className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
-                  <input required type="date" value={payableForm.entry_date}
+                  <DateField required value={payableForm.entry_date}
                     onChange={(e) => setPayableForm({ ...payableForm, entry_date: e.target.value })}
                     className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
                   <input required placeholder="Details" value={payableForm.details}
@@ -1342,7 +1341,7 @@ const FinancePage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
-                  <input required type="date" value={paymentForm.entry_date}
+                  <DateField required value={paymentForm.entry_date}
                     onChange={(e) => setPaymentForm({...paymentForm, entry_date: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
@@ -1388,7 +1387,7 @@ const FinancePage: React.FC = () => {
             <form onSubmit={handleManualLedgerSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
-                <input required type="date" value={manualLedgerForm.entry_date}
+                <DateField required value={manualLedgerForm.entry_date}
                   onChange={(e) => setManualLedgerForm({...manualLedgerForm, entry_date: e.target.value})}
                   className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
@@ -1444,12 +1443,12 @@ const FinancePage: React.FC = () => {
           <div className="mara-stat flex flex-wrap items-end gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">From</label>
-              <input type="date" value={plDateFrom} onChange={(e) => setPlDateFrom(e.target.value)}
+              <DateField value={plDateFrom} onChange={(e) => setPlDateFrom(e.target.value)}
                 className="mt-1 block border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">To</label>
-              <input type="date" value={plDateTo} onChange={(e) => setPlDateTo(e.target.value)}
+              <DateField value={plDateTo} onChange={(e) => setPlDateTo(e.target.value)}
                 className="mt-1 block border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <button onClick={fetchCosting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Update</button>

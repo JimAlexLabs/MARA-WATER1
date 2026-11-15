@@ -4,7 +4,9 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 import { initMobileShell } from './utils/mobileShell';
+import { installDayMonthYear } from './utils/dates';
 
+installDayMonthYear();
 initMobileShell();
 
 const root = ReactDOM.createRoot(

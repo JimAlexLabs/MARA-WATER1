@@ -110,7 +110,7 @@ class FuelLogController extends Controller
         $headerFill = ['fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'DDEBF7']], 'font' => ['bold' => true]];
         $thin = ['borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]]];
 
-        $ws->setCellValue('A1', 'FUEL LOG ' . $request->date_from . ' to ' . $request->date_to);
+        $ws->setCellValue('A1', 'FUEL LOG ' . \App\Support\DisplayDate::day($request->date_from) . ' to ' . \App\Support\DisplayDate::day($request->date_to));
         $ws->getStyle('A1')->applyFromArray($title);
 
         $headers = ['Date', 'Vehicle', 'Amount Paid (KES)', 'Liters', 'Price/Liter (KES)', 'Odometer'];
@@ -127,7 +127,7 @@ class FuelLogController extends Controller
         $totalLiters = 0;
         foreach ($rows as $log) {
             $cells = [
-                $log->date->toDateString(), $log->vehicle->reg_no ?? '—',
+                \App\Support\DisplayDate::day($log->date), $log->vehicle->reg_no ?? '—',
                 $log->cost, $log->liters, $log->price_per_liter, $log->odometer,
             ];
             $col = 'A';

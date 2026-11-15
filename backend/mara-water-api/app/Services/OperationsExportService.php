@@ -169,7 +169,7 @@ class OperationsExportService
 
         $row = 6;
         foreach ($batches as $b) {
-            $ws->setCellValue("A{$row}", $b->purchase_date?->toDateString());
+            $ws->setCellValue("A{$row}", \App\Support\DisplayDate::day($b->purchase_date));
             $ws->setCellValue("B{$row}", $b->supplier_name ?: ($b->supplier_code ?? ''));
             $ws->setCellValue("C{$row}", $b->batch_number);
             $ws->setCellValue("D{$row}", (float) $b->qty_received);
@@ -386,7 +386,7 @@ class OperationsExportService
             $officer = $t->authorizingOfficer
                 ? trim(($t->authorizingOfficer->first_name ?? '') . ' ' . ($t->authorizingOfficer->last_name ?? ''))
                 : '';
-            $ws->setCellValue("A{$row}", $t->trip_date?->toDateString() ?? $t->trip_date);
+            $ws->setCellValue("A{$row}", \App\Support\DisplayDate::day($t->trip_date));
             $ws->setCellValue("B{$row}", trim(($t->driver->first_name ?? '') . ' ' . ($t->driver->last_name ?? '')));
             $ws->setCellValue("C{$row}", $t->driver->phone ?? '');
             $ws->setCellValue("D{$row}", $t->route ?? '');
@@ -459,7 +459,7 @@ class OperationsExportService
                 $sold = (float) ($soldBySku[$item->sku_id] ?? 0);
                 $returned = max(0, $dispatched - $sold);
                 $price = (float) ($item->unit_price ?? 0);
-                $ws->setCellValue("A{$row}", $trip->trip_date?->toDateString());
+                $ws->setCellValue("A{$row}", \App\Support\DisplayDate::day($trip->trip_date));
                 $ws->setCellValue("B{$row}", $sku->brand ?? $sku->name ?? '');
                 $ws->setCellValue("C{$row}", $sku->size_liters ? ($sku->size_liters . ' L') : ($sku->name ?? ''));
                 $ws->setCellValue("D{$row}", $dispatched);

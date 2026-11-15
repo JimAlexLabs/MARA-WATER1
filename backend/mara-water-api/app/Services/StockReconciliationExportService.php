@@ -86,7 +86,7 @@ class StockReconciliationExportService
 
         $ws->setCellValue('C4', 'HOMA SPRINGS LIMITED');
         $ws->getStyle('C4')->applyFromArray($bold);
-        $ws->setCellValue('A8', 'FINISHED STOCK RECONCILIATION TOOL -- ' . $warehouse->name . ' -- ' . $day->toDateString());
+        $ws->setCellValue('A8', 'FINISHED STOCK RECONCILIATION TOOL -- ' . $warehouse->name . ' -- ' . \App\Support\DisplayDate::day($day));
         $ws->getStyle('A8')->applyFromArray($title);
 
         $headerRow = 9;

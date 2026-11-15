@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import DateField from '../components/DateField';
 import { Link } from 'react-router-dom';
 import { Plus, CheckCircle, XCircle, MapPin, X, Lock, Download, AlertTriangle, Camera } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -530,7 +531,7 @@ const DriverTripsPage: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Trip date (auto)</label>
-                  <input type="date" readOnly value={newTripForm.trip_date} className="mt-1 block w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 rounded-md px-3 py-2 bg-gray-50 cursor-not-allowed" />
+                  <DateField readOnly value={newTripForm.trip_date} className="mt-1 block w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 rounded-md px-3 py-2 bg-gray-50 cursor-not-allowed" />
                   <p className="text-xs text-gray-500 mt-1">Captured by the system when you save — not editable.</p>
                 </div>
                 <div>

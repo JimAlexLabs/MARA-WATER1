@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import DateField from '../components/DateField';
 import { Link } from 'react-router-dom';
 import {
   ResponsiveContainer, AreaChart, Area, ComposedChart, Bar, Line,
@@ -723,7 +724,7 @@ const OperationsPage: React.FC = () => {
               <label className="block"><span className="text-xs text-gray-500">Reference (SO / invoice)</span>
                 <input value={order.reference_no} onChange={(e) => setOrder({ ...order, reference_no: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 px-2 py-2" /></label>
               <label className="block"><span className="text-xs text-gray-500">Order date</span>
-                <input type="date" value={order.order_date} onChange={(e) => setOrder({ ...order, order_date: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 px-2 py-2" /></label>
+                <DateField value={order.order_date} onChange={(e) => setOrder({ ...order, order_date: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 px-2 py-2" /></label>
               <label className="block"><span className="text-xs text-gray-500">Lead time (business days)</span>
                 <input type="number" min={0} value={order.lead_business_days} onChange={(e) => setOrder({ ...order, lead_business_days: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 px-2 py-2" /></label>
               <label className="block"><span className="text-xs text-gray-500">Transport / haulage (KES)</span>

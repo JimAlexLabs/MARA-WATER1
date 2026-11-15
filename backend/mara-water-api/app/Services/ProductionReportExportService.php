@@ -84,7 +84,7 @@ class ProductionReportExportService
         while ($cursor->lte($monthEnd)) {
             $day = $cursor->toDateString();
             $ws->setCellValue('A' . $row, strtoupper($cursor->format('l')));
-            $ws->setCellValue('B' . $row, $day);
+            $ws->setCellValue('B' . $row, \App\Support\DisplayDate::day($day));
             $ws->getStyle('B' . $row)->getNumberFormat()->setFormatCode('dd/mm/yyyy');
             foreach ($skuCol as $skuId => $c) {
                 $qty = $byDaySku[$day][$skuId] ?? null;

@@ -123,7 +123,7 @@ class DiscrepancyController extends Controller
         $headerFill = ['fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'DDEBF7']], 'font' => ['bold' => true]];
         $thin = ['borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]]];
 
-        $ws->setCellValue('A1', 'DISCREPANCY LOG ' . $request->date_from . ' to ' . $request->date_to);
+        $ws->setCellValue('A1', 'DISCREPANCY LOG ' . \App\Support\DisplayDate::day($request->date_from) . ' to ' . \App\Support\DisplayDate::day($request->date_to));
         $ws->getStyle('A1')->applyFromArray($title);
 
         $headers = ['Date', 'Driver', 'Vehicle', 'Category', 'Amount/Qty Off', 'Description', 'Status', 'Resolution Note'];
@@ -138,7 +138,7 @@ class DiscrepancyController extends Controller
 
         foreach ($rows as $d) {
             $cells = [
-                $d->date->toDateString(),
+                \App\Support\DisplayDate::day($d->date),
                 $d->driver->full_name ?? '—',
                 $d->vehicle->reg_no ?? '—',
                 ucfirst($d->category),

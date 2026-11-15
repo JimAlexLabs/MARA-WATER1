@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import DateField from '../components/DateField';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   Plus,
@@ -1320,8 +1321,7 @@ const SalesPage: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Sale date{director || sales7dUnlocked ? ' (catch-up OK)' : ''}
                   </label>
-                  <input
-                    type="date"
+                  <DateField
                     value={saleForm.order_date || todayStr()}
                     max={todayStr()}
                     min={saleDateMin}
@@ -1484,8 +1484,7 @@ const SalesPage: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Repayment date (optional — leave blank for indefinite)</label>
-                    <input
-                      type="date"
+                    <DateField
                       value={saleForm.expected_repayment_date}
                       min={saleForm.order_date || todayStr()}
                       onChange={(e) => setSaleForm({...saleForm, expected_repayment_date: e.target.value})}
@@ -1745,8 +1744,7 @@ const SalesPage: React.FC = () => {
                 {viewingOrder.source !== 'field' && (
                   <div>
                     <label className="block text-gray-600 dark:text-gray-400 mb-1">Date</label>
-                    <input
-                      type="date"
+                    <DateField
                       value={editForm.order_date}
                       max={todayStr()}
                       min={saleDateMin}

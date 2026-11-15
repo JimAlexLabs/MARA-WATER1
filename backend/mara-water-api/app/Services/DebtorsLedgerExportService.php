@@ -66,7 +66,7 @@ class DebtorsLedgerExportService
                 $totalDebit += (float) $entry->debit;
                 $totalCredit += (float) $entry->credit;
 
-                $ws->setCellValue([1, $row], $entry->entry_date?->toDateString());
+                $ws->setCellValue([1, $row], \App\Support\DisplayDate::day($entry->entry_date));
                 $ws->getStyle([1, $row])->getNumberFormat()->setFormatCode('dd/mm/yyyy');
                 $ws->setCellValue([2, $row], $entry->details);
                 $ws->setCellValue([3, $row], $entry->reference_no);

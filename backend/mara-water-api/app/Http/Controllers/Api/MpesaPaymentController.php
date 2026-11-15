@@ -301,7 +301,7 @@ class MpesaPaymentController extends Controller
         foreach ($rows as $p) {
             $who = trim(($p->initiator->first_name ?? '').' '.($p->initiator->last_name ?? ''));
             $ws->fromArray([
-                optional($p->created_at)->format('Y-m-d H:i'),
+                $p->created_at ? \App\Support\DisplayDate::dayTime($p->created_at) : '',
                 $p->source ?: 'stk',
                 $p->reference,
                 $p->bill_ref,

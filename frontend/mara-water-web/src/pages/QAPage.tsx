@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import DateField from '../components/DateField';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus,
@@ -989,8 +990,7 @@ const QAPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Manufacture Date</label>
-                  <input
-                    type="date"
+                  <DateField
                     value={batchForm.manufacture_date}
                     onChange={(e) => setBatchForm({...batchForm, manufacture_date: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -998,8 +998,7 @@ const QAPage: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Expiry Date</label>
-                  <input
-                    type="date"
+                  <DateField
                     value={batchForm.expiry_date}
                     onChange={(e) => setBatchForm({...batchForm, expiry_date: e.target.value})}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1078,13 +1077,13 @@ const QAPage: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Last Serviced</label>
-                      <input type="date" value={equipmentForm.last_service_date}
+                      <DateField value={equipmentForm.last_service_date}
                         onChange={(e) => setEquipmentForm({...equipmentForm, last_service_date: e.target.value})}
                         className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Next Service Due</label>
-                      <input type="date" value={equipmentForm.next_service_due}
+                      <DateField value={equipmentForm.next_service_due}
                         onChange={(e) => setEquipmentForm({...equipmentForm, next_service_due: e.target.value})}
                         className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
@@ -1105,7 +1104,7 @@ const QAPage: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Next Calibration Due</label>
-                    <input type="date" value={equipmentForm.next_service_due}
+                    <DateField value={equipmentForm.next_service_due}
                       onChange={(e) => setEquipmentForm({...equipmentForm, next_service_due: e.target.value})}
                       className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import DateField from '../components/DateField';
 import { useSearchParams } from 'react-router-dom';
 import {
   Settings,
@@ -34,7 +35,7 @@ const DEFAULT_SETTINGS = {
   company_phone: '+254700123456',
   company_address: 'Nairobi, Kenya',
   timezone: 'Africa/Nairobi',
-  date_format: 'Y-m-d',
+  date_format: 'd/m/Y',
   time_format: 'H:i:s',
   language: 'en',
   notifications_enabled: true,
@@ -637,9 +638,7 @@ const SettingsPage: React.FC = () => {
                   <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
                   <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Locale</h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Saved for the app to use going forward. Translations and locale-aware date/time
-                    rendering across pages aren't wired up yet, so changing these doesn't visibly
-                    reformat existing pages today.
+                    Dates on every screen, date box, and downloaded sheet are day, then month, then year (15/11/2026).
                   </p>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -927,11 +926,11 @@ const SettingsPage: React.FC = () => {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
                           <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">Optional date from</label>
-                            <input type="date" value={clearDateFrom} onChange={(e) => setClearDateFrom(e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 dark:bg-gray-700 dark:border-gray-600" />
+                            <DateField value={clearDateFrom} onChange={(e) => setClearDateFrom(e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 dark:bg-gray-700 dark:border-gray-600" />
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">Optional date to</label>
-                            <input type="date" value={clearDateTo} onChange={(e) => setClearDateTo(e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 dark:bg-gray-700 dark:border-gray-600" />
+                            <DateField value={clearDateTo} onChange={(e) => setClearDateTo(e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 dark:bg-gray-700 dark:border-gray-600" />
                           </div>
                         </div>
 

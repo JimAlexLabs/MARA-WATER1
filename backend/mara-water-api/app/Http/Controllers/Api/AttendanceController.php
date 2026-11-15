@@ -831,7 +831,7 @@ class AttendanceController extends Controller
         $r = 2;
         foreach ($rows as $a) {
             $u = $a->user;
-            $ws->setCellValue([1, $r], $a->date?->toDateString() ?? $a->date);
+            $ws->setCellValue([1, $r], \App\Support\DisplayDate::day($a->date));
             $ws->setCellValue([2, $r], $u ? trim(($u->first_name ?? '') . ' ' . ($u->last_name ?? '')) : '');
             $ws->setCellValue([3, $r], optional($u?->role)->name);
             $ws->setCellValue([4, $r], optional($u?->department)->name);

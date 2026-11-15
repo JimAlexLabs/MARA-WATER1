@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import DateField from '../components/DateField';
+import { formatDate } from '../utils/dates';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus,
@@ -416,7 +418,7 @@ const ProductionPage: React.FC = () => {
   };
 
   const filteredDays = dailyDays.filter(d =>
-    !searchTerm || d.date.includes(searchTerm)
+    !searchTerm || d.date.includes(searchTerm) || formatDate(d.date).includes(searchTerm)
   );
 
   const filteredMaterials = materials.filter(m =>
@@ -566,7 +568,7 @@ const ProductionPage: React.FC = () => {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
                 <input
                   type="text"
-                  placeholder={activeTab === 'daily' ? 'Filter by date (YYYY-MM-DD)…' : 'Search materials…'}
+                  placeholder={activeTab === 'daily' ? 'Filter by date (DD/MM/YYYY)…' : 'Search materials…'}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -596,7 +598,7 @@ const ProductionPage: React.FC = () => {
               <form onSubmit={saveRefill} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
                 <label className="text-sm text-gray-700 dark:text-gray-300">
                   Date
-                  <input type="date" required value={refillForm.tally_date} onChange={(e) => setRefillForm({ ...refillForm, tally_date: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2" />
+                  <DateField required value={refillForm.tally_date} onChange={(e) => setRefillForm({ ...refillForm, tally_date: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2" />
                 </label>
                 <label className="text-sm text-gray-700 dark:text-gray-300">
                   Size
@@ -632,7 +634,7 @@ const ProductionPage: React.FC = () => {
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                     {refillRows.map((row) => (
                       <tr key={row.id}>
-                        <td className="px-4 py-3 text-sm">{String(row.tally_date).slice(0, 10)}</td>
+                        <td className="px-4 py-3 text-sm">{formatDate(row.tally_date)}</td>
                         <td className="px-4 py-3 text-sm">{Number(row.size_liters)}L</td>
                         <td className="px-4 py-3 text-sm font-semibold">
                           {Number(row.qty).toLocaleString()} {row.qty_basis === 'bale' ? (Number(row.qty) === 1 ? 'bale' : 'bales') : (Number(row.qty) === 1 ? 'jerrican' : 'jerricans')}
@@ -845,7 +847,7 @@ const ProductionPage: React.FC = () => {
                                 <span className="font-medium text-gray-900 dark:text-gray-100">{b.code || b.id.slice(0, 8)}</span>
                                 <span className="text-gray-500 dark:text-gray-400 ml-2">
                                   {b.sku?.name || ''}{b.planned_qty != null ? ` · ${b.planned_qty} bales` : ''}
-                                  {b.manufacture_date ? ` · ${String(b.manufacture_date).slice(0, 10)}` : ''}
+                                  {b.manufacture_date ? ` · ${formatDate(String(b.manufacture_date))}` : ''}
                                 </span>
                               </div>
                               <button type="button" onClick={() => restoreBatch(b.id)} className="text-xs font-medium text-blue-600 hover:text-blue-800">
@@ -1000,7 +1002,7 @@ const ProductionPage: React.FC = () => {
                                     <span className="font-medium text-gray-900 dark:text-gray-100">{b.code || b.id.slice(0, 8)}</span>
                                     <span className="text-gray-500 dark:text-gray-400 ml-2">
                                       {b.sku?.name || ''}{b.planned_qty != null ? ` · ${b.planned_qty} bales` : ''}
-                                      {b.manufacture_date ? ` · ${String(b.manufacture_date).slice(0, 10)}` : ''}
+                                      {b.manufacture_date ? ` · ${formatDate(String(b.manufacture_date))}` : ''}
                                     </span>
                                   </div>
                                   <button
@@ -1216,9 +1218,8 @@ const ProductionPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Manufacture date</label>
-                <input
+                <DateField
                   required
-                  type="date"
                   value={batchForm.manufacture_date}
                   onChange={(e) => setBatchForm({ ...batchForm, manufacture_date: e.target.value })}
                   className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"

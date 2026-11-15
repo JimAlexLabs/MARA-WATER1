@@ -787,7 +787,7 @@ class DriverTripController extends Controller
         if (!empty($returnedSummary)) {
             $this->notifyManagersDirectors(
                 'Trip closed -- returns computed',
-                "{$trip->driver->full_name}'s trip on {$trip->trip_date->toDateString()} closed. Returned: " . implode(', ', $returnedSummary) . '.'
+                "{$trip->driver->full_name}'s trip on ".\App\Support\DisplayDate::day($trip->trip_date)." closed. Returned: " . implode(', ', $returnedSummary) . '.'
             );
         }
 
@@ -797,7 +797,7 @@ class DriverTripController extends Controller
         if (!empty($discrepancies)) {
             $this->notifyManagersDirectors(
                 'Trip discrepancy flagged',
-                "{$trip->driver->full_name}'s trip on {$trip->trip_date->toDateString()} was closed with " . count($discrepancies) . ' discrepanc' . (count($discrepancies) === 1 ? 'y' : 'ies') . ' -- see the Discrepancies page.'
+                "{$trip->driver->full_name}'s trip on ".\App\Support\DisplayDate::day($trip->trip_date).' was closed with ' . count($discrepancies) . ' discrepanc' . (count($discrepancies) === 1 ? 'y' : 'ies') . ' -- see the Discrepancies page.'
             );
         }
 
@@ -1112,7 +1112,7 @@ class DriverTripController extends Controller
             $recon = $trip->reconciliation;
 
             $base = [
-                $trip->trip_date->toDateString(),
+                \App\Support\DisplayDate::day($trip->trip_date),
                 $trip->status,
                 $trip->driver->full_name ?? '',
                 $trip->vehicle->reg_no ?? '',
@@ -1160,7 +1160,7 @@ class DriverTripController extends Controller
                     $sale->amount,
                     $sale->mpesa_reference,
                     $sale->debt_signatory,
-                    optional($sale->debt_expected_repayment_date)->toDateString(),
+                    \App\Support\DisplayDate::day($sale->debt_expected_repayment_date),
                 ], $trailer);
                 $rows[] = implode(',', array_map($escape, $row));
             }

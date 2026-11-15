@@ -53,7 +53,7 @@ class PayrollExportService
         $ws->setCellValue('D4', 'Homa Springs Limited / Mara Water');
         $ws->setCellValue('F4', 'Staff Nos.');
         $ws->setCellValue('H4', $payslips->count());
-        $ws->setCellValue('D5', $run->month->toDateString());
+        $ws->setCellValue('D5', \App\Support\DisplayDate::day($run->month));
         $ws->setCellValue('D6', 'Payroll Computations (Director excluded — allowance)');
         $ws->setCellValue('F6', 'Gross Salaries');
         $ws->setCellValue('H6', round((float) $payslips->sum('gross_pay'), 2));
@@ -107,7 +107,7 @@ class PayrollExportService
         foreach ($this->operationalPayslips($run) as $p) {
             $u = $p->user;
             $ws->setCellValue("A{$row}", 'Payslip for the month of:');
-            $ws->setCellValue("C{$row}", $run->month->toDateString());
+            $ws->setCellValue("C{$row}", \App\Support\DisplayDate::day($run->month));
             $ws->getStyle("A{$row}")->applyFromArray($bold);
             $row++;
             foreach ([
@@ -155,7 +155,7 @@ class PayrollExportService
         $headerFill = ['fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'DDEBF7']], 'font' => ['bold' => true]];
         $thin = ['borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]]];
 
-        $ws->setCellValue('B4', $run->month->toDateString());
+        $ws->setCellValue('B4', \App\Support\DisplayDate::day($run->month));
         $ws->setCellValue('C4', 'BANK TRANSFER DETAILS');
         $ws->setCellValue('E4', 'Homa Springs Limited');
         $ws->getStyle('C4')->applyFromArray($bold);
@@ -172,7 +172,7 @@ class PayrollExportService
             $u = $p->user;
             $values = [
                 $i + 1, $u->full_name, $u->bank_account_number, $u->bank_name, $u->bank_branch,
-                $u->bank_code, (float) $p->net_salary, $run->month->toDateString(), optional($u->department)->name,
+                $u->bank_code, (float) $p->net_salary, \App\Support\DisplayDate::day($run->month), optional($u->department)->name,
             ];
             foreach ($values as $c => $v) {
                 $ws->setCellValue([$c + 1, $row], $v);

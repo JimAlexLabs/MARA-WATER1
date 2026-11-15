@@ -101,7 +101,7 @@ class DailySalesDebtReportService
 
         for ($d = 1; $d <= $daysInMonth; $d++) {
             $date = $monthStart->copy()->day($d)->toDateString();
-            $ws->setCellValue([1, $row], $date);
+            $ws->setCellValue([1, $row], \App\Support\DisplayDate::day($date));
             $ws->getStyle([1, $row])->getNumberFormat()->setFormatCode('dd/mm/yyyy');
             foreach ($locations as $i => $loc) {
                 $o = $ordersByDayLoc->get($date . '|' . $loc->id, ['sales' => 0, 'debt' => 0, 'distributor' => 0]);
@@ -173,7 +173,7 @@ class DailySalesDebtReportService
 
             for ($d = 1; $d <= $daysInMonth; $d++) {
                 $date = $monthStart->copy()->day($d)->toDateString();
-                $ws->setCellValue([1, $row], $date);
+                $ws->setCellValue([1, $row], \App\Support\DisplayDate::day($date));
                 $ws->getStyle([1, $row])->getNumberFormat()->setFormatCode('dd/mm/yyyy');
                 foreach ($skuCol as $skuId => $c) {
                     $qty = $balesByDayLocSku->get($date . '|' . $loc->id . '|' . $skuId, 0);

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import DateField from '../components/DateField';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   CartesianGrid, XAxis, YAxis, Tooltip, Legend,
@@ -168,9 +169,9 @@ const AnalyticsPage: React.FC = () => {
           : 'Sales, money flow, production, inventory and fleet.'}
         actions={
           <>
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} max={dateTo}
+            <DateField value={dateFrom} onChange={e => setDateFrom(e.target.value)} max={dateTo}
               className="rounded-xl border border-white/25 bg-white/15 text-white px-3 py-2 text-sm backdrop-blur-sm" />
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} min={dateFrom} max={today}
+            <DateField value={dateTo} onChange={e => setDateTo(e.target.value)} min={dateFrom} max={today}
               className="rounded-xl border border-white/25 bg-white/15 text-white px-3 py-2 text-sm backdrop-blur-sm" />
             <select value={groupBy} onChange={e => setGroupBy(e.target.value as any)}
               className="rounded-xl border border-white/25 bg-white/15 text-white px-3 py-2 text-sm backdrop-blur-sm">

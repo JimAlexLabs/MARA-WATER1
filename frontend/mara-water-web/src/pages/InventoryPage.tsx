@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import DateField from '../components/DateField';
 import { Link, useSearchParams } from 'react-router-dom';
 import { 
   Plus, 
@@ -645,12 +646,12 @@ const InventoryPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">From</label>
-                  <input required type="date" value={stockCardForm.date_from} onChange={(e) => setStockCardForm({ ...stockCardForm, date_from: e.target.value })}
+                  <DateField required value={stockCardForm.date_from} onChange={(e) => setStockCardForm({ ...stockCardForm, date_from: e.target.value })}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-2 text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">To</label>
-                  <input required type="date" value={stockCardForm.date_to} onChange={(e) => setStockCardForm({ ...stockCardForm, date_to: e.target.value })}
+                  <DateField required value={stockCardForm.date_to} onChange={(e) => setStockCardForm({ ...stockCardForm, date_to: e.target.value })}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-2 py-2 text-sm" />
                 </div>
               </div>

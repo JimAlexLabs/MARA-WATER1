@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import DateField from '../components/DateField';
 import { useNavigate, Link } from 'react-router-dom';
 import { X, Camera, Smartphone, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -654,7 +655,7 @@ const DriverLogSalePage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Expected Repayment (max 7 days)</label>
-                <input required type="date" value={saleForm.debt_expected_repayment_date} onChange={e => setSaleForm({ ...saleForm, debt_expected_repayment_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                <DateField required value={saleForm.debt_expected_repayment_date} onChange={e => setSaleForm({ ...saleForm, debt_expected_repayment_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
               </div>
             </div>
           )}

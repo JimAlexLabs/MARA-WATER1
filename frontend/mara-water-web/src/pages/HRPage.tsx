@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import DateField from '../components/DateField';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   Plus,
@@ -1209,8 +1210,7 @@ const HRPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
-                <input
-                  type="date"
+                <DateField
                   value={attendanceForm.date}
                   onChange={(e) => setAttendanceForm({...attendanceForm, date: e.target.value})}
                   className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1435,7 +1435,7 @@ const HRPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Issued Date</label>
-                <input required type="date" value={loanForm.issued_date} onChange={(e) => setLoanForm({ ...loanForm, issued_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <DateField required value={loanForm.issued_date} onChange={(e) => setLoanForm({ ...loanForm, issued_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
