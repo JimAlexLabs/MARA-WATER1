@@ -63,7 +63,8 @@ class OrderController extends Controller
                             ->orWhereBetween('size_liters', [1.45, 1.55]);
                     })->where(function ($brand) {
                         $brand->whereNull('brand')->orWhere('brand', 'not like', '%Refill%');
-                    })->where('code', 'not like', 'REFILL%');
+                    })->where('code', 'not like', 'REFILL%')
+                        ->where('code', 'not like', '%CUSTOM%');
                 });
             });
 
@@ -72,6 +73,7 @@ class OrderController extends Controller
             $orders->getCollection()->transform(function (Order $order) {
                 $items = $order->items
                     ->filter(fn ($item) => \App\Services\SaleCatalog::isBottled($item->sku))
+                    ->reject(fn ($item) => str_contains(strtoupper((string) ($item->sku->code ?? '')), 'CUSTOM'))
                     ->values();
                 $order->setRelation('items', $items);
                 $order->setAttribute('total_amount', round($items->sum(
@@ -117,7 +119,8 @@ class OrderController extends Controller
             ->get()
             ->map(function ($sale) {
                 $driver = $sale->trip?->driver;
-                $lines = $sale->items->filter(fn ($line) => \App\Services\SaleCatalog::isBottled($line->sku))->values();
+                $lines = $sale->items->filter(fn ($line) => \App\Services\SaleCatalog::isBottled($line->sku)
+                    && !str_contains(strtoupper((string) ($line->sku->code ?? '')), 'CUSTOM'))->values();
                 if ($lines->isEmpty()) {
                     return null;
                 }

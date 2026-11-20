@@ -32,8 +32,20 @@ class FinanceLedgerService
             ')
             ->first();
 
-        $pettyIn = (float) PettyCashEntry::whereBetween('entry_date', [$from, $to])->sum('amount_in');
-        $pettyOut = (float) PettyCashEntry::whereBetween('entry_date', [$from, $to])->sum('amount_out');
+        $petty = PettyCashEntry::whereNull('deleted_at')->whereBetween('entry_date', [$from, $to]);
+        $notTokens = function ($q) {
+            $q->where('description', 'not like', '%token%')
+                ->whereDoesntHave('account', fn ($account) => $account->where('code', '5460'));
+        };
+        $onlyTokens = function ($q) {
+            $q->where(function ($inner) {
+                $inner->where('description', 'like', '%token%')
+                    ->orWhereHas('account', fn ($account) => $account->where('code', '5460'));
+            });
+        };
+        $pettyIn = (float) (clone $petty)->where($notTokens)->sum('amount_in');
+        $pettyOut = (float) (clone $petty)->where($notTokens)->sum('amount_out');
+        $tokensOut = (float) (clone $petty)->where($onlyTokens)->sum('amount_out');
 
         $debtorDebits = (float) DebtorLedgerEntry::whereBetween('entry_date', [$from, $to])->sum('debit');
         $debtorCredits = (float) DebtorLedgerEntry::whereBetween('entry_date', [$from, $to])->sum('credit');
@@ -59,6 +71,9 @@ class FinanceLedgerService
                 'in' => round($pettyIn, 2),
                 'out' => round($pettyOut, 2),
                 'net' => round($pettyIn - $pettyOut, 2),
+            ],
+            'tokens' => [
+                'out' => round($tokensOut, 2),
             ],
             'debtors' => [
                 'period_debits' => round($debtorDebits, 2),

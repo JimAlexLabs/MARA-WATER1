@@ -99,13 +99,22 @@ class FinanceController extends Controller
 
         $pettyCashOut = round((float) PettyCashEntry::whereNull('deleted_at')
             ->whereBetween('entry_date', [$from, $to])
+            ->where('description', 'not like', '%token%')
+            ->whereDoesntHave('account', fn ($account) => $account->where('code', '5460'))
+            ->sum('amount_out'), 2);
+        $tokensOut = round((float) PettyCashEntry::whereNull('deleted_at')
+            ->whereBetween('entry_date', [$from, $to])
+            ->where(function ($q) {
+                $q->where('description', 'like', '%token%')
+                    ->orWhereHas('account', fn ($account) => $account->where('code', '5460'));
+            })
             ->sum('amount_out'), 2);
 
         $fuelCost = round((float) DriverTrip::whereNull('deleted_at')
             ->whereBetween('trip_date', [$from, $to])
             ->sum('fuel_cost'), 2);
 
-        $other = round($pettyCashOut + $fuelCost, 2);
+        $other = round($pettyCashOut + $tokensOut + $fuelCost, 2);
         $profit = round($grossRevenue - $cogs - $salaries - $other, 2);
 
         return response()->json([
@@ -131,6 +140,7 @@ class FinanceController extends Controller
                 'other_deductions' => $other,
                 'other_breakdown' => [
                     'petty_cash_out' => $pettyCashOut,
+                    'tokens_out' => $tokensOut,
                     'fuel_cost' => $fuelCost,
                     'vat_tracked' => false,
                     'repairs_note' => 'Included only when coded as petty cash OUT',

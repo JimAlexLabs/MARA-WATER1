@@ -330,7 +330,7 @@ const SalesPage: React.FC = () => {
     try {
       setLoading(true);
       const [customersResponse, ordersResponse, fieldResponse] = await Promise.all([
-        api.get('/sales/customers'),
+        api.get('/sales/customers', { params: { limit: 500 } }),
         api.get('/sales/orders', { params: { limit: 100 } }),
         api.get('/sales/field-sales', { params: { limit: 100 } }).catch(() => ({ data: { data: [] } })),
       ]);
@@ -816,7 +816,7 @@ const SalesPage: React.FC = () => {
           <div className="flex items-center">
             <ShoppingCart className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Orders</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Tickets on this list</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{orders.length}</p>
             </div>
           </div>
@@ -825,7 +825,7 @@ const SalesPage: React.FC = () => {
           <div className="flex items-center">
             <DollarSign className="w-8 h-8 text-green-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Revenue</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Bottled tickets</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 KES {orders.reduce((sum, order) => sum + Number(order.total_amount), 0).toLocaleString()}
               </p>
@@ -853,6 +853,9 @@ const SalesPage: React.FC = () => {
           </div>
         </div>
       </div>
+      <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
+        These cards add every 0.5L, 1L and 1.5L ticket on this list, including credit that is not yet paid. Analytics uses the dates you pick, and only what has been paid. Premium Custom is left out of both.
+      </p>
 
       {/* Tabs */}
       <div className="mara-panel">

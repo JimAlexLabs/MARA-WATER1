@@ -33,10 +33,21 @@ class PettyCashController extends Controller
                 ->whereNull('deleted_at')
                 ->when($fuelIds->isNotEmpty(), fn ($q) => $q->whereNotIn('account_id', $fuelIds));
 
+            $tokenScope = function ($q) use ($tokenId) {
+                $q->where(function ($inner) use ($tokenId) {
+                    if ($tokenId) {
+                        $inner->where('account_id', $tokenId);
+                    }
+                    $inner->orWhere('description', 'like', '%token%');
+                });
+            };
+
             if ($request->get('section') === 'tokens') {
-                $query->where('account_id', $tokenId ?: 'none');
-            } elseif ($tokenId) {
-                $query->where('account_id', '!=', $tokenId);
+                $query->where($tokenScope);
+            } else {
+                $query->where(function ($q) use ($tokenScope) {
+                    $q->whereNot($tokenScope);
+                });
             }
 
             if ($request->filled('date_from')) {
@@ -57,8 +68,12 @@ class PettyCashController extends Controller
             if ($request->filled('date_from')) {
                 $before = PettyCashEntry::whereNull('deleted_at')
                     ->when($fuelIds->isNotEmpty(), fn ($q) => $q->whereNotIn('account_id', $fuelIds))
-                    ->when($request->get('section') === 'tokens', fn ($q) => $q->where('account_id', $tokenId ?: 'none'))
-                    ->when($request->get('section') !== 'tokens' && $tokenId, fn ($q) => $q->where('account_id', '!=', $tokenId))
+                    ->when($request->get('section') === 'tokens', fn ($q) => $q->where($tokenScope))
+                    ->when($request->get('section') !== 'tokens', function ($q) use ($tokenScope) {
+                        $q->where(function ($inner) use ($tokenScope) {
+                            $inner->whereNot($tokenScope);
+                        });
+                    })
                     ->whereDate('entry_date', '<', $request->date_from);
                 $openingBalance = (float) $before->sum('amount_in') - (float) $before->sum('amount_out');
             }
@@ -110,6 +125,13 @@ class PettyCashController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Fuel is recorded on the fleet fuel log, not in petty cash.',
+            ], 422);
+        }
+        $looksLikeTokens = str_contains(strtolower((string) $request->description), 'token');
+        if ($looksLikeTokens && (!$account || $account->code !== '5460')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tokens are recorded on the Tokens page, not in petty cash.',
             ], 422);
         }
 
@@ -208,6 +230,12 @@ class PettyCashController extends Controller
 
             $rows = PettyCashEntry::whereNull('deleted_at')
                 ->whereBetween('entry_date', [$dateFrom, $dateTo])
+                ->where('description', 'not like', '%token%')
+                ->whereDoesntHave('account', function ($account) {
+                    $account->where('code', '5200')
+                        ->orWhere('code', '5460')
+                        ->orWhere('description', 'like', '%Fuel%');
+                })
                 ->selectRaw('account_id, SUM(amount_in) as total_in, SUM(amount_out) as total_out, COUNT(*) as entries_count')
                 ->groupBy('account_id')
                 ->with('account')
@@ -249,5 +277,18 @@ class PettyCashController extends Controller
         }
 
         return (new \App\Services\PettyCashExportService())->generate($request->date_from, $request->date_to);
+    }
+
+    public function exportTokens(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'date_from' => 'required|date',
+            'date_to' => 'required|date|after_or_equal:date_from',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        return (new \App\Services\PettyCashExportService())->generateTokens($request->date_from, $request->date_to);
     }
 }

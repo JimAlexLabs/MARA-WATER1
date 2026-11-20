@@ -188,8 +188,8 @@ const AnalyticsPage: React.FC = () => {
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        <KpiCard icon={<DollarSign className="w-6 h-6 text-violet-600" />} label="Revenue (period)" value={money(overview.sales.total_revenue)} />
-        <KpiCard icon={<TrendingUp className="w-6 h-6 text-green-600" />} label="Cash + M-Pesa Collected" value={money(overview.money_flow.collected.total)} />
+        <KpiCard icon={<DollarSign className="w-6 h-6 text-violet-600" />} label="Revenue (period)" value={money(overview.sales.total_revenue)} sub="0.5L, 1L and 1.5L logged in these dates. Custom bottles are not included." />
+        <KpiCard icon={<TrendingUp className="w-6 h-6 text-green-600" />} label="Cash + M-Pesa Collected" value={money(overview.money_flow.collected.total)} sub="Credit stays out of this box." />
         <KpiCard icon={<AlertTriangle className="w-6 h-6 text-red-600" />} label="Outstanding Debt" value={money(overview.money_flow.outstanding_debt.total_balance)} sub={`${overview.money_flow.outstanding_debt.overdue_count} overdue`} />
         <KpiCard icon={<Package className="w-6 h-6 text-blue-600" />} label="Production (period)" value={`${Number(overview.production_vs_sales.total_production_bales || 0).toLocaleString()} bales · ${Number(overview.production_vs_sales.total_production_liters || 0).toLocaleString()} L`} />
         <KpiCard icon={<Truck className="w-6 h-6 text-orange-600" />} label="Fleet distance (period)" value={`${(fleetStats?.total_km ?? 0).toLocaleString()} km`} sub={`${fleetStats?.total_trips ?? 0} trips`} />

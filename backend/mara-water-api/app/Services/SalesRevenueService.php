@@ -230,6 +230,7 @@ class SalesRevenueService
               OR {$alias}.size_liters BETWEEN 1.45 AND 1.55)
             AND ({$alias}.brand IS NULL OR {$alias}.brand NOT LIKE '%Refill%')
             AND {$alias}.code NOT LIKE 'REFILL%'
+            AND {$alias}.code NOT LIKE '%CUSTOM%'
         )";
     }
 

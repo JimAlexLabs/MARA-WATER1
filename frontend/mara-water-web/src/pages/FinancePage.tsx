@@ -167,10 +167,11 @@ const FinancePage: React.FC = () => {
     tax_amount: '',
     notes: ''
   });
-  type FinanceTab = 'invoices' | 'pettycash' | 'debtors' | 'payables' | 'costing';
+  type FinanceTab = 'invoices' | 'pettycash' | 'tokens' | 'debtors' | 'payables' | 'costing';
   const FINANCE_TAB_LOCK: Record<FinanceTab, ManagerLockKey> = {
     invoices: 'finance_invoices',
     pettycash: 'finance_pettycash',
+    tokens: 'finance_pettycash',
     debtors: 'finance_debtors',
     payables: 'finance_payables',
     costing: 'finance_costing',
@@ -178,11 +179,12 @@ const FinancePage: React.FC = () => {
   const allFinanceTabs: { key: FinanceTab; label: string }[] = [
     { key: 'invoices', label: 'Invoices' },
     { key: 'pettycash', label: 'Petty cash' },
+    { key: 'tokens', label: 'Tokens' },
     { key: 'debtors', label: 'Receivables' },
     { key: 'payables', label: 'Payables' },
     { key: 'costing', label: 'Costing & P&L' },
   ];
-  const adminOnlyFinance = new Set<FinanceTab>(['pettycash', 'payables']);
+  const adminOnlyFinance = new Set<FinanceTab>(['pettycash', 'tokens', 'payables']);
   const visibleFinanceTabs = allFinanceTabs.filter((t) => {
     if (adminOnlyFinance.has(t.key) && !director) return false;
     if (!director && isLocked(managerLocks, FINANCE_TAB_LOCK[t.key])) return false;
@@ -271,6 +273,7 @@ const FinancePage: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'pettycash') fetchPettyCash();
+    if (activeTab === 'tokens') fetchTokens();
     if (activeTab === 'payables') fetchPayables();
     if (activeTab === 'costing') fetchCosting();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -347,21 +350,26 @@ const FinancePage: React.FC = () => {
 
   const fetchPettyCash = async () => {
     try {
-      const [res, tokens] = await Promise.all([
-        api.get('/finance/petty-cash'),
-        api.get('/finance/petty-cash', { params: { section: 'tokens' } }),
-      ]);
+      const res = await api.get('/finance/petty-cash');
       setPettyCashEntries(res.data.data.entries);
       setPettyCashOpening(res.data.data.opening_balance);
       setPettyCashClosing(res.data.data.closing_balance);
-      setTokenEntries(tokens.data.data.entries || []);
-      const spent = (tokens.data.data.entries || []).reduce(
-        (sum: number, row: PettyCashEntryRow) => sum + Number(row.amount_out || 0) - Number(row.amount_in || 0),
-        0,
-      );
-      setTokenTotal(spent);
     } catch (error) {
       toast.error('Failed to fetch petty cash');
+    }
+  };
+
+  const fetchTokens = async () => {
+    try {
+      const tokens = await api.get('/finance/petty-cash', { params: { section: 'tokens' } });
+      const rows = tokens.data.data.entries || [];
+      setTokenEntries(rows);
+      setTokenTotal(rows.reduce(
+        (sum: number, row: PettyCashEntryRow) => sum + Number(row.amount_out || 0) - Number(row.amount_in || 0),
+        0,
+      ));
+    } catch (error) {
+      toast.error('Failed to fetch tokens');
     }
   };
 
@@ -384,7 +392,7 @@ const FinancePage: React.FC = () => {
       });
       toast.success('Token recorded');
       setTokenForm({ entry_date: new Date().toISOString().slice(0, 10), description: '', amount: '' });
-      fetchPettyCash();
+      fetchTokens();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to record token');
     }
@@ -621,6 +629,7 @@ const FinancePage: React.FC = () => {
           { label: 'Revenue', value: `KES ${Number(ledgerSummary.revenue || 0).toLocaleString()}` },
           { label: 'Invoiced / paid', value: `${Number(ledgerSummary.invoices?.invoiced_total || 0).toLocaleString()} / ${Number(ledgerSummary.invoices?.paid_total || 0).toLocaleString()}` },
           { label: 'Petty net', value: `KES ${Number(ledgerSummary.petty_cash?.net || 0).toLocaleString()}` },
+          { label: 'Tokens', value: `KES ${Number(ledgerSummary.tokens?.out || 0).toLocaleString()}` },
           { label: 'Receivables', value: `KES ${Number(ledgerSummary.debtors?.open_balance || 0).toLocaleString()}` },
           { label: 'Payables', value: `KES ${Number(ledgerSummary.payables?.open_balance || 0).toLocaleString()}` },
         ] : undefined}
@@ -904,44 +913,69 @@ const FinancePage: React.FC = () => {
       )}
 
       {/* Petty Cash Tab */}
+      {activeTab === 'tokens' && (
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Daily operational expense. These rows are not part of petty cash.</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">KES {tokenTotal.toLocaleString()}</p>
+            </div>
+            <button
+              onClick={() => {
+                const from = '2026-10-01';
+                const to = new Date().toISOString().slice(0, 10);
+                downloadBlob('/finance/tokens/export', { date_from: from, date_to: to }, `tokens-${from}-to-${to}.xlsx`, () => toast.error('Failed to export tokens'));
+              }}
+              className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700"
+            >
+              Export tokens
+            </button>
+          </div>
+          {canEditFinance && (
+            <form onSubmit={saveToken} className="mara-panel p-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+              <label className="text-xs text-gray-500">
+                Date
+                <DateField value={tokenForm.entry_date} onChange={(e) => setTokenForm({ ...tokenForm, entry_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5 text-sm" />
+              </label>
+              <label className="text-xs text-gray-500 sm:col-span-2">
+                What it was for
+                <input value={tokenForm.description} onChange={(e) => setTokenForm({ ...tokenForm, description: e.target.value })} placeholder="Daily tokens" className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5 text-sm" />
+              </label>
+              <label className="text-xs text-gray-500">
+                Amount (KES)
+                <input required type="number" min="1" step="0.01" value={tokenForm.amount} onChange={(e) => setTokenForm({ ...tokenForm, amount: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5 text-sm" />
+              </label>
+              <button type="submit" className="sm:col-span-4 justify-self-end px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">Record token</button>
+            </form>
+          )}
+          <div className="mara-panel overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-900/40">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">What it was for</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {tokenEntries.length === 0 && (
+                  <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">No tokens recorded yet.</td></tr>
+                )}
+                {tokenEntries.map((entry) => (
+                  <tr key={entry.id}>
+                    <td className="px-4 py-2">{formatDate(entry.entry_date)}</td>
+                    <td className="px-4 py-2">{entry.description}</td>
+                    <td className="px-4 py-2 text-right font-medium">KES {Number(entry.amount_out).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'pettycash' && (
         <div className="space-y-6">
-          <div className="mara-panel p-4 space-y-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Tokens</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Daily operational expense. Fuel stays on the trip fuel log.</p>
-              </div>
-              <p className="text-lg font-bold text-gray-900 dark:text-gray-100">KES {tokenTotal.toLocaleString()}</p>
-            </div>
-            {canEditFinance && (
-              <form onSubmit={saveToken} className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
-                <label className="text-xs text-gray-500">
-                  Date
-                  <DateField value={tokenForm.entry_date} onChange={(e) => setTokenForm({ ...tokenForm, entry_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5 text-sm" />
-                </label>
-                <label className="text-xs text-gray-500 sm:col-span-2">
-                  What it was for
-                  <input value={tokenForm.description} onChange={(e) => setTokenForm({ ...tokenForm, description: e.target.value })} placeholder="Daily tokens" className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5 text-sm" />
-                </label>
-                <label className="text-xs text-gray-500">
-                  Amount (KES)
-                  <input required type="number" min="1" step="0.01" value={tokenForm.amount} onChange={(e) => setTokenForm({ ...tokenForm, amount: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5 text-sm" />
-                </label>
-                <button type="submit" className="sm:col-span-4 justify-self-end px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">Record token</button>
-              </form>
-            )}
-            {tokenEntries.length > 0 && (
-              <ul className="text-sm divide-y divide-gray-100 dark:divide-gray-700">
-                {tokenEntries.map((entry) => (
-                  <li key={entry.id} className="flex justify-between gap-3 py-1.5">
-                    <span>{new Date(entry.entry_date).toLocaleDateString()} · {entry.description}</span>
-                    <span className="font-medium">KES {Number(entry.amount_out).toLocaleString()}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
           <div className="flex justify-end">
             <button
               onClick={() => {

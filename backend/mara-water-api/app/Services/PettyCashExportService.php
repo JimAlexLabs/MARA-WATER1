@@ -52,6 +52,13 @@ class PettyCashExportService
 
         $entries = PettyCashEntry::with('account')->whereNull('deleted_at')
             ->whereBetween('entry_date', [$from->toDateString(), $to->toDateString()])
+            ->where(function ($q) {
+                $q->whereDoesntHave('account', function ($account) {
+                    $account->where('code', '5200')
+                        ->orWhere('code', '5460')
+                        ->orWhere('description', 'like', '%Fuel%');
+                })->where('description', 'not like', '%token%');
+            })
             ->orderBy('entry_date')->orderBy('created_at')->get();
 
         $row = $headerRow + 1;
@@ -97,6 +104,74 @@ class PettyCashExportService
         }, 200, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Disposition' => "attachment; filename=\"petty-cash-{$from->format('Y-m-d')}-to-{$to->format('Y-m-d')}.xlsx\"",
+        ]);
+    }
+
+    public function generateTokens(string $dateFrom, string $dateTo): StreamedResponse
+    {
+        $spreadsheet = new Spreadsheet();
+        $ws = $spreadsheet->getActiveSheet();
+        $ws->setTitle('Tokens');
+
+        $bold = ['font' => ['bold' => true]];
+        $headerFill = ['fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'DDEBF7']], 'font' => ['bold' => true]];
+        $thin = ['borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]]];
+
+        $from = Carbon::parse($dateFrom);
+        $to = Carbon::parse($dateTo);
+
+        $ws->setCellValue('A1', 'HOMA SPRINGS LIMITED');
+        $ws->setCellValue('A2', 'TOKENS LOG');
+        $ws->setCellValue('A3', 'SITE NAME: MARA DRINKING WATER');
+        $ws->setCellValue('A4', 'PERIOD: ' . \App\Support\DisplayDate::day($from) . ' to ' . \App\Support\DisplayDate::day($to));
+        foreach (['A1', 'A2', 'A3', 'A4'] as $cell) {
+            $ws->getStyle($cell)->applyFromArray($bold);
+        }
+
+        $headerRow = 6;
+        foreach (['DATE', 'WHAT IT WAS FOR', 'AMOUNT (KES)', 'RUNNING TOTAL'] as $i => $label) {
+            $ws->setCellValue([$i + 1, $headerRow], $label);
+            $ws->getStyle([$i + 1, $headerRow])->applyFromArray($headerFill + $thin);
+        }
+
+        $entries = PettyCashEntry::with('account')->whereNull('deleted_at')
+            ->whereBetween('entry_date', [$from->toDateString(), $to->toDateString()])
+            ->where(function ($q) {
+                $q->whereHas('account', fn ($account) => $account->where('code', '5460'))
+                    ->orWhere('description', 'like', '%token%');
+            })
+            ->orderBy('entry_date')->orderBy('created_at')->get();
+
+        $row = $headerRow + 1;
+        $running = 0;
+        foreach ($entries as $entry) {
+            $amount = (float) $entry->amount_out;
+            $running += $amount;
+            $ws->setCellValue([1, $row], \App\Support\DisplayDate::day($entry->entry_date));
+            $ws->getStyle([1, $row])->getNumberFormat()->setFormatCode('dd/mm/yyyy');
+            $ws->setCellValue([2, $row], $entry->description);
+            $ws->setCellValue([3, $row], $amount);
+            $ws->setCellValue([4, $row], $running);
+            for ($c = 1; $c <= 4; $c++) {
+                $ws->getStyle([$c, $row])->applyFromArray($thin);
+            }
+            $row++;
+        }
+
+        $ws->setCellValue([2, $row], 'TOTAL');
+        $ws->setCellValue([3, $row], $running);
+        $ws->getStyle([2, $row])->applyFromArray($bold);
+        $ws->getStyle([3, $row])->applyFromArray($bold);
+        foreach (range('A', 'D') as $c) {
+            $ws->getColumnDimension($c)->setAutoSize(true);
+        }
+
+        $writer = new Xlsx($spreadsheet);
+        return new StreamedResponse(function () use ($writer) {
+            $writer->save('php://output');
+        }, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => "attachment; filename=\"tokens-{$from->format('Y-m-d')}-to-{$to->format('Y-m-d')}.xlsx\"",
         ]);
     }
 }

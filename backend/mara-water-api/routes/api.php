@@ -484,6 +484,7 @@ Route::prefix('v1')->group(function () {
         Route::middleware('tier:director')->prefix('finance')->group(function () {
             Route::get('/petty-cash/utilization', [PettyCashController::class, 'utilization']);
             Route::get('/petty-cash/export', [PettyCashController::class, 'export']);
+            Route::get('/tokens/export', [PettyCashController::class, 'exportTokens']);
             Route::get('/petty-cash', [PettyCashController::class, 'index']);
             Route::post('/petty-cash', [PettyCashController::class, 'store']);
             Route::delete('/petty-cash/{id}', [PettyCashController::class, 'destroy']);
