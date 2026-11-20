@@ -496,6 +496,7 @@ class OrderController extends Controller
                 'requested_date' => $orderDate,
                 'payment_method' => $request->payment_method,
                 'payment_status' => $paymentStatus,
+                'sale_channel' => $request->input('sale_channel'),
                 'stock_posted' => ! $deferStock,
                 'payment_reference' => $request->payment_reference,
                 'created_by' => Auth::id(),
@@ -689,7 +690,7 @@ class OrderController extends Controller
 
             DB::commit();
 
-            if ($request->input('sale_channel') === 'field' && $request->payment_method === 'cash') {
+            if ($request->input('sale_channel') === 'field' && in_array($request->payment_method, ['cash', 'mpesa'], true) && $order->payment_status === 'paid') {
                 try {
                     app(\App\Services\FieldTripSaleService::class)->attach($order->fresh(['items.sku', 'customer']));
                 } catch (\Throwable $e) {
@@ -1042,6 +1043,7 @@ class OrderController extends Controller
         ]);
 
         $sale->refresh()->load(['customer', 'trip.driver', 'items.sku']);
+        app(\App\Services\FieldTripSaleService::class)->syncMoney($sale);
 
         return response()->json([
             'success' => true,

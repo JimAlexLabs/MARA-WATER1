@@ -25,6 +25,7 @@ class Order extends Model
         'total_amount',
         'payment_method',
         'payment_status',
+        'sale_channel',
         'stock_posted',
         'payment_reference',
         'created_by',

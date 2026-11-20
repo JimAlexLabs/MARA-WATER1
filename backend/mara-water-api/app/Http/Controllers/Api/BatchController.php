@@ -329,8 +329,33 @@ class BatchController extends Controller
                         'batch_count' => (int) $row->batch_count,
                     ];
                 })
-                ->sortByDesc('total_bales')
+                ->filter(function ($row) {
+                    $code = strtoupper((string) ($row['sku_code'] ?? ''));
+                    $size = round((float) ($row['size_liters'] ?? 0), 2);
+                    if (str_starts_with($code, 'REFILL') || $code === 'PREM-5L' || abs($size - 5) < 0.011) {
+                        return false;
+                    }
+
+                    return true;
+                })
                 ->values();
+
+            $custom = $producedBySku->first(fn ($row) => strtoupper((string) $row['sku_code']) === 'PREM-CUSTOM-0.5L');
+            if ($custom) {
+                $producedBySku = $producedBySku
+                    ->reject(fn ($row) => strtoupper((string) $row['sku_code']) === 'PREM-CUSTOM-0.5L')
+                    ->map(function ($row) use ($custom) {
+                        if (strtoupper((string) $row['sku_code']) === 'PREM-0.5L') {
+                            $row['total_bales'] += (int) $custom['total_bales'];
+                            $row['batch_count'] += (int) $custom['batch_count'];
+                        }
+
+                        return $row;
+                    })
+                    ->values();
+            }
+
+            $producedBySku = $producedBySku->sortByDesc('total_bales')->values();
 
             $producedBySize = $producedBySku
                 ->groupBy(function ($row) {
@@ -352,7 +377,12 @@ class BatchController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => $days,
-                'unsold' => app(\App\Services\FinishedGoodsService::class)->balances(),
+                'unsold' => collect(app(\App\Services\FinishedGoodsService::class)->balances())
+                    ->reject(function ($row) {
+                        $code = strtoupper((string) ($row['sku_code'] ?? ''));
+                        return $code === 'PREM-5L' || str_starts_with($code, 'REFILL');
+                    })
+                    ->values(),
                 'produced_totals' => [
                     'by_sku' => $producedBySku,
                     'by_size' => $producedBySize,

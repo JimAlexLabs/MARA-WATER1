@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import DateField from '../components/DateField';
+import FuelForecastCard from '../components/FuelForecastCard';
 import { formatDate } from '../utils/dates';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
@@ -503,7 +504,7 @@ const FleetPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="flex space-x-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1 w-fit">
-        {[{ id: 'vehicles', name: 'Vehicles' }, { id: 'trips', name: 'Driver Trips' }, { id: 'fuel', name: 'Fuel Logs' }, { id: 'repairs', name: 'Repairs' }, { id: 'mileage', name: 'Mileage Logs' }].map(tab => (
+        {[{ id: 'vehicles', name: 'Vehicles' }, { id: 'trips', name: 'Driver Trips' }, { id: 'fuel', name: 'Fuel Logs' }, { id: 'forecast', name: 'Forecast' }, { id: 'repairs', name: 'Repairs' }, { id: 'mileage', name: 'Mileage Logs' }].map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -851,8 +852,9 @@ const FleetPage: React.FC = () => {
                 <p className="text-xs text-gray-500 dark:text-gray-400">Price/liter (computed): KES {(parseFloat(fuelForm.cost) / parseFloat(fuelForm.liters)).toFixed(2)}</p>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Odometer (optional)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Mileage at this fill</label>
                 <input type="number" min="0" value={fuelForm.odometer} onChange={e => setFuelForm({ ...fuelForm, odometer: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2" />
+                <p className="text-xs text-gray-500 mt-1">Write the kilometres on the clock as you fill. The forecast uses this and the litres.</p>
               </div>
             </div>
             <div className="flex justify-end space-x-3 pt-4">
@@ -861,6 +863,10 @@ const FleetPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {activeTab === 'forecast' && (
+        <FuelForecastCard />
       )}
 
       {/* Ops brief §2.5: major/minor vehicle repairs */}

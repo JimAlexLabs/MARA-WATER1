@@ -90,6 +90,41 @@ class FieldTripSaleService
     }
 
     /**
+     * Admin changed the sale total. The fleet log and the driver
+     * dashboard read the line totals, so those have to move with it.
+     */
+    public function syncMoney(DriverTripSale $sale): void
+    {
+        $sale->loadMissing('items');
+        $lines = $sale->items;
+        $target = round((float) $sale->amount, 2);
+        $current = round((float) $lines->sum('line_total'), 2);
+        if ($lines->isNotEmpty() && $current > 0 && abs($current - $target) > 0.01) {
+            $factor = $target / $current;
+            $running = 0.0;
+            $last = $lines->count() - 1;
+            foreach ($lines->values() as $index => $line) {
+                $lineTotal = $index === $last
+                    ? round($target - $running, 2)
+                    : round((float) $line->line_total * $factor, 2);
+                $running += $lineTotal;
+                $qty = (float) $line->qty_bales;
+                $line->update([
+                    'line_total' => $lineTotal,
+                    'unit_price' => $qty > 0 ? round($lineTotal / $qty, 2) : $line->unit_price,
+                ]);
+            }
+        }
+
+        if ($sale->driver_trip_id) {
+            $trip = DriverTrip::with('items')->find($sale->driver_trip_id);
+            if ($trip) {
+                $this->refreshReturned($trip);
+            }
+        }
+    }
+
+    /**
      * @param  \Illuminate\Support\Collection<int, \App\Models\OrderItem>  $lines
      */
     private function matchTrip(Order $order, $lines): ?DriverTrip
@@ -168,16 +203,32 @@ class FieldTripSaleService
             ->all();
     }
 
-    private function refreshReturned(DriverTrip $trip): void
+    public function refreshReturned(DriverTrip $trip): void
     {
         $sold = $this->soldBySku($trip->id);
+        $prices = DriverTripSaleItem::query()
+            ->whereHas('sale', function ($q) use ($trip) {
+                $q->where('driver_trip_id', $trip->id)
+                    ->whereNull('deleted_at')
+                    ->where(function ($q) {
+                        $q->whereNull('payment_method')->orWhereNotIn('payment_method', ['debt', 'credit']);
+                    });
+            })
+            ->selectRaw('sku_id, SUM(qty_bales * unit_price) / NULLIF(SUM(qty_bales), 0) as price')
+            ->groupBy('sku_id')
+            ->pluck('price', 'sku_id');
+
         foreach ($trip->items as $item) {
             $soldBales = (float) ($sold[$item->sku_id] ?? 0);
             $dispatched = (float) $item->qty_carried_bales;
-            $item->update([
+            $patch = [
                 'qty_returned_bales' => (int) max(0, floor($dispatched - $soldBales)),
                 'qty_sold' => (int) min($soldBales, $dispatched),
-            ]);
+            ];
+            if (isset($prices[$item->sku_id]) && $prices[$item->sku_id] !== null) {
+                $patch['unit_price'] = round((float) $prices[$item->sku_id], 2);
+            }
+            $item->update($patch);
         }
     }
 }

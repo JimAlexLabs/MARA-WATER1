@@ -782,7 +782,15 @@ class ReportsController extends Controller
             ->get();
         $forecastRevenue = 0.0;
         foreach ($recentRuns as $run) {
-            $unit = $prices[$run->sku_id] ?? 0;
+            $sku = $run->sku;
+            if (! $sku || $sku->isRefill()) {
+                continue;
+            }
+            $size = round((float) $sku->size_liters, 2);
+            if (! in_array($size, [0.5, 1.0, 1.5], true) || str_contains(strtoupper((string) $sku->code), 'CUSTOM')) {
+                continue;
+            }
+            $unit = (float) ($prices[$run->sku_id] ?? ($size === 1.5 ? 370 : 360));
             $forecastRevenue += ((float) $run->good_qty) * $unit;
         }
         // Scale 30-day production value to a calendar month (30 days).
@@ -825,7 +833,7 @@ class ReportsController extends Controller
                     'expected_revenue' => $forecastMonthlyRevenue,
                     'tax_rate' => $taxRate,
                     'expected_tax' => $forecastTax,
-                    'basis' => 'Recent 30-day packaging good_qty × default price list',
+                    'basis' => 'Recent 30-day 0.5L, 1L and 1.5L production × current list price',
                 ],
             ],
         ]);

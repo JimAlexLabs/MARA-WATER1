@@ -182,7 +182,7 @@ const EMPTY_SALE_FORM = {
   items: [newSaleItem()],
   signatory: '',
   expected_repayment_date: '',
-  sale_channel: 'walk_in' as 'walk_in' | 'field' | 'outlet',
+  sale_channel: 'field' as 'walk_in' | 'field' | 'outlet',
   buyer_name: '',
   buyer_phone: '',
 };
@@ -507,6 +507,7 @@ const SalesPage: React.FC = () => {
     setSaleForm({
       ...EMPTY_SALE_FORM,
       warehouse_id: main?.id || '',
+      sale_channel: director ? 'field' : 'walk_in',
       price_list_id: defaultList?.id || '',
       items: [newSaleItem()],
     });
@@ -1309,13 +1310,33 @@ const SalesPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Outlet / Branch</label>
-                  <input
-                    readOnly
-                    value={warehouses.find(w => w.id === saleForm.warehouse_id)?.name
-                      || pickMainWarehouse(warehouses)?.name
-                      || 'Main warehouse'}
-                    className="mt-1 block w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-800 rounded-md px-3 py-2 bg-gray-50 text-gray-700 dark:text-gray-300 cursor-not-allowed"
-                  />
+                  {director ? (
+                    <select
+                      value={saleForm.sale_channel === 'field' ? 'field' : (saleForm.warehouse_id || 'field')}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === 'field') {
+                          setSaleForm((f) => ({ ...f, sale_channel: 'field' }));
+                        } else {
+                          setSaleForm((f) => ({ ...f, sale_channel: 'outlet', warehouse_id: value }));
+                        }
+                      }}
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2"
+                    >
+                      <option value="field">Field work</option>
+                      {warehouses.map((w) => (
+                        <option key={w.id} value={w.id}>{w.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      readOnly
+                      value={warehouses.find(w => w.id === saleForm.warehouse_id)?.name
+                        || pickMainWarehouse(warehouses)?.name
+                        || 'Main warehouse'}
+                      className="mt-1 block w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-800 rounded-md px-3 py-2 bg-gray-50 text-gray-700 dark:text-gray-300 cursor-not-allowed"
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">

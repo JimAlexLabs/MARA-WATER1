@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ChartOfAccount;
 use App\Models\PettyCashEntry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -21,7 +22,22 @@ class PettyCashController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = PettyCashEntry::with(['account', 'requestor'])->whereNull('deleted_at');
+            $fuelIds = ChartOfAccount::query()
+                ->where(function ($q) {
+                    $q->where('code', '5200')->orWhere('description', 'like', '%Fuel%');
+                })
+                ->pluck('id');
+            $tokenId = ChartOfAccount::where('code', '5460')->value('id');
+
+            $query = PettyCashEntry::with(['account', 'requestor'])
+                ->whereNull('deleted_at')
+                ->when($fuelIds->isNotEmpty(), fn ($q) => $q->whereNotIn('account_id', $fuelIds));
+
+            if ($request->get('section') === 'tokens') {
+                $query->where('account_id', $tokenId ?: 'none');
+            } elseif ($tokenId) {
+                $query->where('account_id', '!=', $tokenId);
+            }
 
             if ($request->filled('date_from')) {
                 $query->whereDate('entry_date', '>=', $request->date_from);
@@ -40,6 +56,9 @@ class PettyCashController extends Controller
             $openingBalance = 0;
             if ($request->filled('date_from')) {
                 $before = PettyCashEntry::whereNull('deleted_at')
+                    ->when($fuelIds->isNotEmpty(), fn ($q) => $q->whereNotIn('account_id', $fuelIds))
+                    ->when($request->get('section') === 'tokens', fn ($q) => $q->where('account_id', $tokenId ?: 'none'))
+                    ->when($request->get('section') !== 'tokens' && $tokenId, fn ($q) => $q->where('account_id', '!=', $tokenId))
                     ->whereDate('entry_date', '<', $request->date_from);
                 $openingBalance = (float) $before->sum('amount_in') - (float) $before->sum('amount_out');
             }
@@ -84,6 +103,14 @@ class PettyCashController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        $account = ChartOfAccount::find($request->account_id);
+        if ($account && ($account->code === '5200' || str_contains(strtolower((string) $account->description), 'fuel'))) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Fuel is recorded on the fleet fuel log, not in petty cash.',
+            ], 422);
         }
 
         $amountIn = (float) ($request->amount_in ?? 0);

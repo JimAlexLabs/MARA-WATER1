@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\FuelLog;
+use App\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -23,6 +24,69 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class FuelLogController extends Controller
 {
+    /** First fill that has a mileage reading we trust for the range. */
+    public const FORECAST_FROM = '2026-11-20';
+
+    public function forecast()
+    {
+        $kmPerLitre = $this->kmPerLitre();
+        $logs = FuelLog::with('vehicle')
+            ->whereNull('deleted_at')
+            ->whereDate('date', '>=', self::FORECAST_FROM)
+            ->whereNotNull('odometer')
+            ->orderBy('date')
+            ->orderBy('odometer')
+            ->get();
+
+        $rows = $logs->map(function (FuelLog $log) use ($kmPerLitre) {
+            $liters = (float) $log->liters;
+            $odometer = (int) $log->odometer;
+            $distance = round($liters * $kmPerLitre, 1);
+
+            return [
+                'id' => $log->id,
+                'date' => optional($log->date)->toDateString() ?? (string) $log->date,
+                'vehicle' => $log->vehicle?->reg_no,
+                'liters' => $liters,
+                'cost' => (float) $log->cost,
+                'odometer' => $odometer,
+                'distance_km' => $distance,
+                'empty_at_km' => round($odometer + $distance, 1),
+            ];
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'from' => self::FORECAST_FROM,
+                'km_per_litre' => $kmPerLitre,
+                'rows' => $rows,
+            ],
+        ]);
+    }
+
+    public function updateRate(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'km_per_litre' => 'required|numeric|min:1|max:40',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        Setting::putMany(['fuel_km_per_litre' => round((float) $request->km_per_litre, 2)]);
+
+        return $this->forecast();
+    }
+
+    private function kmPerLitre(): float
+    {
+        $stored = Setting::allAsMap()['fuel_km_per_litre'] ?? 10;
+        $km = (float) $stored;
+
+        return $km > 0 ? $km : 10.0;
+    }
+
     public function index(Request $request)
     {
         $query = FuelLog::with('vehicle');

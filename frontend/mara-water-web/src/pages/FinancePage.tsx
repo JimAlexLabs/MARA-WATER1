@@ -233,6 +233,13 @@ const FinancePage: React.FC = () => {
   const [pettyCashEntries, setPettyCashEntries] = useState<PettyCashEntryRow[]>([]);
   const [pettyCashOpening, setPettyCashOpening] = useState(0);
   const [pettyCashClosing, setPettyCashClosing] = useState(0);
+  const [tokenEntries, setTokenEntries] = useState<PettyCashEntryRow[]>([]);
+  const [tokenTotal, setTokenTotal] = useState(0);
+  const [tokenForm, setTokenForm] = useState({
+    entry_date: new Date().toISOString().slice(0, 10),
+    description: '',
+    amount: '',
+  });
   const [showPettyCashForm, setShowPettyCashForm] = useState(false);
   const [pettyCashForm, setPettyCashForm] = useState({
     entry_date: new Date().toISOString().slice(0, 10), mpesa_reference: '', account_id: '',
@@ -340,12 +347,46 @@ const FinancePage: React.FC = () => {
 
   const fetchPettyCash = async () => {
     try {
-      const res = await api.get('/finance/petty-cash');
+      const [res, tokens] = await Promise.all([
+        api.get('/finance/petty-cash'),
+        api.get('/finance/petty-cash', { params: { section: 'tokens' } }),
+      ]);
       setPettyCashEntries(res.data.data.entries);
       setPettyCashOpening(res.data.data.opening_balance);
       setPettyCashClosing(res.data.data.closing_balance);
+      setTokenEntries(tokens.data.data.entries || []);
+      const spent = (tokens.data.data.entries || []).reduce(
+        (sum: number, row: PettyCashEntryRow) => sum + Number(row.amount_out || 0) - Number(row.amount_in || 0),
+        0,
+      );
+      setTokenTotal(spent);
     } catch (error) {
       toast.error('Failed to fetch petty cash');
+    }
+  };
+
+  const tokenAccount = accounts.find((a) => a.code === '5460');
+  const pettyAccounts = accounts.filter((a) => a.code !== '5200' && a.code !== '5460' && !/fuel/i.test(a.description || ''));
+
+  const saveToken = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tokenAccount) {
+      toast.error('Tokens account is not ready yet. Refresh after the update finishes.');
+      return;
+    }
+    try {
+      await api.post('/finance/petty-cash', {
+        entry_date: tokenForm.entry_date,
+        account_id: tokenAccount.id,
+        description: tokenForm.description || 'Daily tokens',
+        amount_in: 0,
+        amount_out: tokenForm.amount,
+      });
+      toast.success('Token recorded');
+      setTokenForm({ entry_date: new Date().toISOString().slice(0, 10), description: '', amount: '' });
+      fetchPettyCash();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to record token');
     }
   };
 
@@ -865,6 +906,42 @@ const FinancePage: React.FC = () => {
       {/* Petty Cash Tab */}
       {activeTab === 'pettycash' && (
         <div className="space-y-6">
+          <div className="mara-panel p-4 space-y-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Tokens</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Daily operational expense. Fuel stays on the trip fuel log.</p>
+              </div>
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-100">KES {tokenTotal.toLocaleString()}</p>
+            </div>
+            {canEditFinance && (
+              <form onSubmit={saveToken} className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+                <label className="text-xs text-gray-500">
+                  Date
+                  <DateField value={tokenForm.entry_date} onChange={(e) => setTokenForm({ ...tokenForm, entry_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5 text-sm" />
+                </label>
+                <label className="text-xs text-gray-500 sm:col-span-2">
+                  What it was for
+                  <input value={tokenForm.description} onChange={(e) => setTokenForm({ ...tokenForm, description: e.target.value })} placeholder="Daily tokens" className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5 text-sm" />
+                </label>
+                <label className="text-xs text-gray-500">
+                  Amount (KES)
+                  <input required type="number" min="1" step="0.01" value={tokenForm.amount} onChange={(e) => setTokenForm({ ...tokenForm, amount: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5 text-sm" />
+                </label>
+                <button type="submit" className="sm:col-span-4 justify-self-end px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">Record token</button>
+              </form>
+            )}
+            {tokenEntries.length > 0 && (
+              <ul className="text-sm divide-y divide-gray-100 dark:divide-gray-700">
+                {tokenEntries.map((entry) => (
+                  <li key={entry.id} className="flex justify-between gap-3 py-1.5">
+                    <span>{new Date(entry.entry_date).toLocaleDateString()} · {entry.description}</span>
+                    <span className="font-medium">KES {Number(entry.amount_out).toLocaleString()}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <div className="flex justify-end">
             <button
               onClick={() => {
@@ -973,7 +1050,7 @@ const FinancePage: React.FC = () => {
                   onChange={(e) => setPettyCashForm({...pettyCashForm, account_id: e.target.value})}
                   className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                   <option value="">Select account</option>
-                  {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.description}</option>)}
+                  {pettyAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.description}</option>)}
                 </select>
               </div>
               <div>

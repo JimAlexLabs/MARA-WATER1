@@ -7,6 +7,7 @@ import { PageShell, PageHero } from '../components/PageShell';
 import { useAuth } from '../contexts/AuthContext';
 import DirectPaybillPanel from '../components/DirectPaybillPanel';
 import { formatDate } from '../utils/dates';
+import FuelForecastCard from '../components/FuelForecastCard';
 
 // Ops brief §2.5: driver/sales exec operational tool — KPIs, sell-through,
 // fuel, repairs, customer base, trackable discrepancies/issues.
@@ -106,6 +107,8 @@ const DriverPage: React.FC = () => {
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{money(summary?.this_month.total_collected ?? 0)}</p>
         </div>
       </div>
+
+      <FuelForecastCard />
 
       {ops && (
         <div className="mara-panel p-6">

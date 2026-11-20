@@ -7,6 +7,7 @@ import {
 import { useAuth, usePermissions } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { PageShell, PageHero } from '../components/PageShell';
+import FuelForecastCard from '../components/FuelForecastCard';
 import { toast } from 'react-hot-toast';
 import {
   Droplets,
@@ -345,6 +346,8 @@ const DashboardPage: React.FC = () => {
               />
             </div>
           </div>
+
+          <FuelForecastCard />
 
           {/* Operational snapshot -- everything the previous dashboard surfaced, kept */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

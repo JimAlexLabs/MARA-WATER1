@@ -563,6 +563,8 @@ Route::prefix('v1')->group(function () {
             // same route-registration-order lesson as Round 2 Phase 11's
             // /users/roles bug: a wildcard registered first silently
             // swallows a same-shaped fixed segment registered after it.
+            Route::get('/fuel-forecast', [FuelLogController::class, 'forecast']);
+            Route::put('/fuel-forecast', [FuelLogController::class, 'updateRate']);
             Route::get('/trips/recent-routes', [DriverTripController::class, 'recentRoutes']);
 
             // Driver trips (the worksheet replacement) -- index/show/update/

@@ -416,6 +416,13 @@ class MpesaStkService
             if ($order && $order->payment_status !== 'paid') {
                 $order->update(['payment_method' => 'cash', 'payment_status' => 'paid', 'status' => 'delivered']);
                 $this->postOrderStock($order);
+                if (($order->sale_channel ?? null) === 'field') {
+                    try {
+                        app(\App\Services\FieldTripSaleService::class)->attach($order->fresh(['items.sku', 'customer']));
+                    } catch (\Throwable $e) {
+                        report($e);
+                    }
+                }
             }
         }
         if ($payment->driver_trip_sale_id) {
@@ -646,6 +653,14 @@ class MpesaStkService
                     'status' => 'delivered',
                 ]);
                 $this->postOrderStock($order->fresh());
+                $paid = $order->fresh();
+                if (($paid->sale_channel ?? null) === 'field') {
+                    try {
+                        app(\App\Services\FieldTripSaleService::class)->attach($paid->load(['items.sku', 'customer']));
+                    } catch (\Throwable $e) {
+                        report($e);
+                    }
+                }
             }
         }
         if ($payment->driver_trip_sale_id) {
