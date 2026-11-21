@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\AccountsPositionService;
 use App\Services\OperationsModelService;
 use App\Services\ReorderAdvisorService;
 use Illuminate\Http\Request;
@@ -47,6 +48,11 @@ class OperationsModelController extends Controller
             'message' => 'Model reset to Excel defaults.',
             'data' => $this->model->snapshot($defaults),
         ]);
+    }
+
+    public function accounts(AccountsPositionService $accounts)
+    {
+        return response()->json(['success' => true, 'data' => $accounts->build()]);
     }
 
     public function advisor()

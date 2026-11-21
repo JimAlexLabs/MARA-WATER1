@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { Download, Loader2, Plus, RefreshCw, Save, Trash2, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { api } from '../services/api';
 import { PageShell, PageHero } from '../components/PageShell';
+import AccountsPositionPanel from './AccountsPositionPanel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -105,6 +106,7 @@ const Table: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 );
 
 const TABS = [
+  { id: 'accounts', label: 'Accounts' },
   { id: 'assumptions', label: 'Assumptions' },
   { id: 'cost', label: 'Cost Build' },
   { id: 'margins', label: 'SKU Margins' },
@@ -117,7 +119,7 @@ type TabId = typeof TABS[number]['id'];
 const DirectorPlanningPage: React.FC = () => {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [draft, setDraft] = useState<any>(null);
-  const [tab, setTab] = useState<TabId>('assumptions');
+  const [tab, setTab] = useState<TabId>('accounts');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [marginView, setMarginView] = useState<'both' | 'vat' | 'nonvat'>('both');
@@ -737,6 +739,7 @@ const DirectorPlanningPage: React.FC = () => {
         ))}
       </div>
 
+      {tab === 'accounts' && <AccountsPositionPanel />}
       {tab === 'assumptions' && assumptionsTab}
       {tab === 'cost' && costTab}
       {tab === 'margins' && marginsTab}

@@ -132,6 +132,7 @@ Route::prefix('v1')->group(function () {
 
             // MARA WATER Hypothesis Model (Assumptions / Cost Build / SKU Margins / Trip P&L /
             // Profit Split / Funding & Startup) — application prices, admin-only.
+            Route::get('/accounts', [\App\Http\Controllers\Api\OperationsModelController::class, 'accounts']);
             Route::get('/model', [\App\Http\Controllers\Api\OperationsModelController::class, 'show']);
             Route::put('/model', [\App\Http\Controllers\Api\OperationsModelController::class, 'update']);
             Route::post('/model/reset', [\App\Http\Controllers\Api\OperationsModelController::class, 'reset']);
