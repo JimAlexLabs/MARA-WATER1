@@ -73,6 +73,7 @@ class AccountsPositionService
         $assumptions = $this->model->effective();
         $loan = round((float) ($assumptions['loan']['principal'] ?? 0), 2);
         $pending = round((float) ($assumptions['capital']['derrick_pending'] ?? 0), 2);
+        $borrowing = $this->borrowing($financeLines, $bills, $purchases['lines'], $collections, $balance);
 
         $movements = [];
         foreach ($rows as $row) {
@@ -134,15 +135,104 @@ class AccountsPositionService
             'should_be_holding' => $shouldHold,
             'debts' => $debts,
             'debts_total' => $debtTotal,
+            'borrowing' => $borrowing,
             'finance_to_repay' => [
                 'on_statement' => $financeTotal,
                 'outside_loan' => $loan,
                 'outside_loan_due' => (string) ($assumptions['loan']['due'] ?? ''),
                 'outside_loan_rate' => (float) ($assumptions['loan']['rate'] ?? 0),
-                'total_to_repay' => round($financeTotal + $loan, 2),
+                'outside_deficit' => $borrowing['outside_deficit'],
+                'total_to_repay' => round($financeTotal + $borrowing['outside_deficit'], 2),
                 'promised_not_taken' => $pending,
             ],
             'movements' => $movements,
+        ];
+    }
+
+    /**
+     * Derrick's 250,000 and 65,000 paid bottles, caps and transport.
+     * The balance of that, plus Diana's 40,000 and Derrick's further 50,000,
+     * paid labels, label transport and the company phones.
+     * Every later deduction funded operations and the other purchases.
+     * The outside deficit is the part of that later spend the customer
+     * paybills did not cover.
+     *
+     * @param  list<array<string,mixed>>  $financeLines
+     * @param  array<string,mixed>  $bills
+     * @param  list<array<string,mixed>>  $purchaseLines
+     * @return array<string,mixed>
+     */
+    private function borrowing(array $financeLines, array $bills, array $purchaseLines, float $collections, float $balance): array
+    {
+        $derrickFirst = 0.0;
+        $derrickTopUp = 0.0;
+        $diana = 0.0;
+        foreach ($financeLines as $line) {
+            $amount = (float) $line['paid_in'];
+            $party = strtolower((string) $line['party']);
+            if (str_contains($party, 'langat')) {
+                if ($amount >= 60000) {
+                    $derrickFirst += $amount;
+                } else {
+                    $derrickTopUp += $amount;
+                }
+                continue;
+            }
+            $diana += $amount;
+        }
+
+        $paid = function (callable $match) use ($purchaseLines): float {
+            $sum = 0.0;
+            foreach ($purchaseLines as $line) {
+                if ($match(strtolower((string) $line['label']))) {
+                    $sum += (float) $line['paid'];
+                }
+            }
+
+            return round($sum, 2);
+        };
+        $bottles = $paid(fn ($label) => str_contains($label, 'bottle') && ! str_contains($label, 'transport'));
+        $transport = $paid(fn ($label) => str_contains($label, 'transport'));
+        $labels = $paid(fn ($label) => str_contains($label, 'label'));
+        $startupPurchases = round($bottles + $transport + $labels, 2);
+        $otherPurchases = round(array_sum(array_column($purchaseLines, 'paid')) - $startupPurchases, 2);
+
+        $phones = 0.0;
+        foreach ($bills['lines'] as $line) {
+            $description = strtolower((string) ($line['description'] ?? ''));
+            if (str_contains($description, 'phone') && ! str_contains($description, 'internet') && ! str_contains($description, 'minute')) {
+                $phones += (float) $line['amount'];
+            }
+        }
+        $phones = round($phones, 2);
+
+        $pot1 = round($derrickFirst, 2);
+        $pot1Balance = round($pot1 - $bottles - $transport, 2);
+        $pot2 = round($pot1Balance + $diana + $derrickTopUp, 2);
+        $labelTransport = round($pot2 - $labels - $phones, 2);
+
+        $laterOperations = round((float) $bills['total'] - $phones, 2);
+        $laterSpend = round($laterOperations + $otherPurchases, 2);
+        $customerUsed = round(max(0, $collections - min($balance, $collections)), 2);
+        $outside = round($laterSpend - $customerUsed + max(0, -$labelTransport), 2);
+
+        return [
+            'in_account' => round($pot1 + $diana + $derrickTopUp, 2),
+            'pot1_in' => $pot1,
+            'bottles' => $bottles,
+            'transport' => $transport,
+            'pot1_balance' => $pot1Balance,
+            'diana' => round($diana, 2),
+            'derrick_topup' => round($derrickTopUp, 2),
+            'pot2_in' => $pot2,
+            'labels' => $labels,
+            'phones' => $phones,
+            'label_transport' => max(0, $labelTransport),
+            'later_operations' => $laterOperations,
+            'other_purchases' => $otherPurchases,
+            'later_spend' => $laterSpend,
+            'customer_money_used' => $customerUsed,
+            'outside_deficit' => max(0, $outside),
         ];
     }
 

@@ -24,7 +24,13 @@ type Position = {
   should_be_holding: number;
   debts: { customer: string; balance: number; due: string | null }[];
   debts_total: number;
-  finance_to_repay: { on_statement: number; outside_loan: number; outside_loan_due: string; outside_loan_rate: number; total_to_repay: number; promised_not_taken: number };
+  borrowing: {
+    in_account: number; pot1_in: number; bottles: number; transport: number; pot1_balance: number;
+    diana: number; derrick_topup: number; pot2_in: number; labels: number; phones: number;
+    label_transport: number; later_operations: number; other_purchases: number; later_spend: number;
+    customer_money_used: number; outside_deficit: number;
+  };
+  finance_to_repay: { on_statement: number; outside_loan: number; outside_loan_due: string; outside_loan_rate: number; outside_deficit: number; total_to_repay: number; promised_not_taken: number };
   movements: Movement[];
 };
 
@@ -67,6 +73,7 @@ const AccountsPositionPanel: React.FC = () => {
   if (!data) return <p className="text-sm text-gray-500">Could not load the accounts.</p>;
 
   const f = data.finance_to_repay;
+  const b = data.borrowing;
   const movements = showAll ? data.movements : data.movements.slice(0, 12);
 
   return (
@@ -84,7 +91,7 @@ const AccountsPositionPanel: React.FC = () => {
         <Stat label="In the BS account" value={money(data.account.balance)} note="Closing balance on the statement" tone="good" />
         <Stat label="Cash we should be holding" value={money(data.should_be_holding)} note="Account balance, plus cash sales, after spending that did not go through this account" />
         <Stat label="Customers still owe" value={money(data.debts_total)} note="Taken off the cash figure. This is not money in the account." tone="warn" />
-        <Stat label="Finance to pay back" value={money(f.total_to_repay)} note={`${money(f.on_statement)} raised on the statement, ${money(f.outside_loan)} taken outside it`} tone="warn" />
+        <Stat label="Outside deficit to pay" value={money(data.borrowing.outside_deficit)} note="Operations and the other purchases the customer paybills did not cover. This is the outside money to repay." tone="warn" />
       </div>
 
       <section className="mara-panel p-5 space-y-3">
@@ -112,34 +119,43 @@ const AccountsPositionPanel: React.FC = () => {
         </div>
         <p className="text-xs text-gray-500">
           Cash sales recorded outside this account: {money(data.cash_sales.total)} ({money(data.cash_sales.orders)} on outlet tickets, {money(data.cash_sales.trips)} on field trips).
-          The {money(data.paid_outside_account)} of purchases the account did not cover is taken off that cash.
           M-Pesa already on the statement ({money(data.cash_sales.mpesa_already_on_statement)} in the sales book) is not added again.
           Customer debts of {money(data.debts_total)} are not in the cash we should be holding.
         </p>
       </section>
 
       <section className="mara-panel p-5 space-y-3">
-        <h3 className="text-sm font-semibold">Finance that has to be paid back</h3>
-        <ul className="text-sm divide-y divide-gray-100 dark:divide-gray-700">
-          {data.money_in.finance_lines.map((line) => (
-            <li key={`${line.date}-${line.amount}-${line.account}`} className="flex justify-between gap-3 py-1.5">
-              <span>{formatDate(line.date)} · {line.party}{line.account ? ` · ${line.account}` : ''}</span>
-              <span className="tabular-nums font-medium">{money(line.amount)}</span>
-            </li>
-          ))}
-          <li className="flex justify-between gap-3 py-1.5">
-            <span>Raised on the statement</span>
-            <span className="tabular-nums font-semibold">{money(f.on_statement)}</span>
-          </li>
-          <li className="flex justify-between gap-3 py-1.5">
-            <span>Taken outside the statement — loan at {(f.outside_loan_rate * 100).toFixed(0)}%, due {f.outside_loan_due}</span>
-            <span className="tabular-nums font-semibold">{money(f.outside_loan)}</span>
-          </li>
-          <li className="flex justify-between gap-3 py-1.5 text-gray-500">
-            <span>Promised and not yet received</span>
-            <span className="tabular-nums">{money(f.promised_not_taken)}</span>
-          </li>
-        </ul>
+        <h3 className="text-sm font-semibold">In-account borrowing, and the outside deficit</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div className="space-y-1.5">
+            <p className="font-medium">Derrick’s first {money(b.pot1_in)} — bottles, caps and transport</p>
+            <Row label="Bottles and caps" value={b.bottles} />
+            <Row label="Transport, Nairobi to Rongo" value={b.transport} />
+            <Row label="Balance carried forward" value={b.pot1_balance} strong />
+          </div>
+          <div className="space-y-1.5">
+            <p className="font-medium">That balance, plus Diana {money(b.diana)} and Derrick’s further {money(b.derrick_topup)}</p>
+            <Row label="Pot" value={b.pot2_in} />
+            <Row label="Labels" value={b.labels} />
+            <Row label="Company phone on the books" value={b.phones} />
+            <Row label="Label transport and the rest of this pot" value={b.label_transport} strong />
+          </div>
+        </div>
+        <div className="space-y-1.5 text-sm border-t border-gray-100 dark:border-gray-700 pt-3">
+          <p className="font-medium">After that, the other deductions funded operations and the remaining purchases</p>
+          <Row label="Operations (tokens, fuel, petty cash without the phone)" value={b.later_operations} />
+          <Row label="Other purchases (both Shadey payments, wiring, restart fuel)" value={b.other_purchases} />
+          <Row label="Later spend" value={b.later_spend} strong />
+          <Row label="Customer paybills already used" value={-b.customer_money_used} />
+          <Row label="Outside deficit to pay" value={b.outside_deficit} strong />
+        </div>
+        <p className="text-xs text-gray-500">
+          The {money(b.in_account)} put into the account by Derrick and Diana is still owed to them.
+          Together with the outside deficit, the money to repay is {money(f.total_to_repay)}.
+          The planning sheet’s {money(f.outside_loan)} loan at {(f.outside_loan_rate * 100).toFixed(0)}%, due {f.outside_loan_due}, sits inside the outside deficit.
+          Derrick’s further {money(f.promised_not_taken)} was promised and has not come in.
+          There is no separate label-transport invoice, so the rest of the second pot is that transport and any other phone.
+        </p>
       </section>
 
       <section className="mara-panel p-5 space-y-3">
