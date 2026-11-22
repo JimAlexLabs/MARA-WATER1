@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Download, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../services/api';
 import { formatDate } from '../utils/dates';
@@ -26,11 +26,17 @@ type Position = {
   debts_total: number;
   borrowing: {
     in_account: number; pot1_in: number; bottles: number; transport: number; pot1_balance: number;
-    diana: number; derrick_topup: number; pot2_in: number; labels: number; phones: number;
+    diana: number; derrick_topup: number; pot2_in: number; labels: number; phones: number; capital_extra: number;
     label_transport: number; later_operations: number; other_purchases: number; later_spend: number;
     customer_money_used: number; outside_deficit: number;
   };
   finance_to_repay: { on_statement: number; outside_loan: number; outside_loan_due: string; outside_loan_rate: number; outside_deficit: number; total_to_repay: number; promised_not_taken: number };
+  ops: {
+    capital_extra: number; customer_paybills_used: number; noted_withdrawals: number;
+    withdrawn_for_operations: number; expenses: number; difference: number;
+    outside_borrowed: number; still_to_pay: number; to_pay_out: number;
+  };
+  ledger: { id?: string | null; date: string; section: string; title: string; amount: number; explanation: string; source: string }[];
   movements: Movement[];
 };
 
@@ -48,6 +54,7 @@ const AccountsPositionPanel: React.FC = () => {
   const [data, setData] = useState<Position | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAll, setShowAll] = useState(false);
+  const [form, setForm] = useState({ entry_date: new Date().toISOString().slice(0, 10), kind: 'expense', title: '', explanation: '', amount: '' });
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -66,6 +73,41 @@ const AccountsPositionPanel: React.FC = () => {
     const timer = window.setInterval(() => load(true), 30000);
     return () => window.clearInterval(timer);
   }, [load]);
+
+  const saveLine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await api.post('/operations/accounts/entries', form);
+      setData(res.data.data);
+      setForm({ ...form, title: '', explanation: '', amount: '' });
+      toast.success('Added. The totals have been recalculated.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Could not add that line');
+    }
+  };
+
+  const removeLine = async (id: string) => {
+    try {
+      const res = await api.delete(`/operations/accounts/entries/${id}`);
+      setData(res.data.data);
+    } catch {
+      toast.error('Could not remove that line');
+    }
+  };
+
+  const download = async () => {
+    try {
+      const res = await api.get('/operations/accounts/export', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'mara-accounts.csv';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Could not download the CSV');
+    }
+  };
 
   if (loading && !data) {
     return <div className="flex items-center justify-center h-40"><Loader2 className="w-7 h-7 animate-spin text-blue-600" /></div>;
@@ -91,7 +133,10 @@ const AccountsPositionPanel: React.FC = () => {
         <Stat label="In the BS account" value={money(data.account.balance)} note="Closing balance on the statement" tone="good" />
         <Stat label="Cash we should be holding" value={money(data.should_be_holding)} note="Account balance, plus cash sales, after spending that did not go through this account" />
         <Stat label="Customers still owe" value={money(data.debts_total)} note="Taken off the cash figure. This is not money in the account." tone="warn" />
-        <Stat label="Outside deficit to pay" value={money(data.borrowing.outside_deficit)} note="Operations and the other purchases the customer paybills did not cover. This is the outside money to repay." tone="warn" />
+        <Stat label="Withdrawn for operations" value={money(data.ops.withdrawn_for_operations)} note={`${money(data.ops.capital_extra)} left from the capital pot, plus ${money(data.ops.customer_paybills_used)} of customer paybills already used`} />
+        <Stat label="Expenses so far" value={money(data.ops.expenses)} note="Fuel once, tokens, petty cash without the phone, both Shadey payments, wiring, plus anything you add" />
+        <Stat label="Difference" value={money(data.ops.difference)} note="Withdrawn for operations, minus expenses. A minus means the expenses ran ahead of what left the account." tone={data.ops.difference < 0 ? 'warn' : 'good'} />
+        <Stat label="To pay out" value={money(data.ops.to_pay_out)} note="Outside loans and amounts still to pay. Diana, Derrick and customer debts are not in this." tone="warn" />
       </div>
 
       <section className="mara-panel p-5 space-y-3">
@@ -138,24 +183,78 @@ const AccountsPositionPanel: React.FC = () => {
             <Row label="Pot" value={b.pot2_in} />
             <Row label="Labels" value={b.labels} />
             <Row label="Company phone on the books" value={b.phones} />
-            <Row label="Label transport and the rest of this pot" value={b.label_transport} strong />
+            <Row label="Extra left in the account, moved into operations" value={b.capital_extra} strong />
           </div>
         </div>
-        <div className="space-y-1.5 text-sm border-t border-gray-100 dark:border-gray-700 pt-3">
-          <p className="font-medium">After that, the other deductions funded operations and the remaining purchases</p>
-          <Row label="Operations (tokens, fuel, petty cash without the phone)" value={b.later_operations} />
-          <Row label="Other purchases (both Shadey payments, wiring, restart fuel)" value={b.other_purchases} />
-          <Row label="Later spend" value={b.later_spend} strong />
-          <Row label="Customer paybills already used" value={-b.customer_money_used} />
-          <Row label="Outside deficit to pay" value={b.outside_deficit} strong />
-        </div>
         <p className="text-xs text-gray-500">
-          The {money(b.in_account)} put into the account by Derrick and Diana is still owed to them.
-          Together with the outside deficit, the money to repay is {money(f.total_to_repay)}.
-          The planning sheet’s {money(f.outside_loan)} loan at {(f.outside_loan_rate * 100).toFixed(0)}%, due {f.outside_loan_due}, sits inside the outside deficit.
-          Derrick’s further {money(f.promised_not_taken)} was promised and has not come in.
-          There is no separate label-transport invoice, so the rest of the second pot is that transport and any other phone.
+          That extra {money(b.capital_extra)} is added to the {money(b.customer_money_used)} of customer paybills already used.
+          Together that is {money(data.ops.withdrawn_for_operations)} taken from the account for operations.
+          The {money(b.in_account)} from Derrick and Diana is still their capital. It is not part of the amount to pay out below.
+          Customer debts of {money(data.debts_total)} are money still to collect, not money we pay out.
+          Derrick’s further {money(f.promised_not_taken)} has not come in.
         </p>
+      </section>
+
+      <section className="mara-panel p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">The account, line by line</h3>
+          <button type="button" onClick={download} className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm bg-green-700 text-white">
+            <Download className="w-3.5 h-3.5 mr-1.5" /> Download CSV
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">Add an expense, a withdrawal from the account, money borrowed outside, or an amount still to pay. The totals above recalculate from the live books plus these lines.</p>
+        <form onSubmit={saveLine} className="grid grid-cols-1 md:grid-cols-6 gap-2 items-end text-sm">
+          <label className="text-xs text-gray-500">Date
+            <input type="date" required value={form.entry_date} onChange={(e) => setForm({ ...form, entry_date: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5" />
+          </label>
+          <label className="text-xs text-gray-500">Kind
+            <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5">
+              <option value="expense">Expense</option>
+              <option value="withdrawal">Withdrawal from the account</option>
+              <option value="outside_loan">Borrowed outside</option>
+              <option value="payable">Still to pay</option>
+            </select>
+          </label>
+          <label className="text-xs text-gray-500 md:col-span-2">What
+            <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5" />
+          </label>
+          <label className="text-xs text-gray-500">Amount
+            <input required type="number" min="1" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5" />
+          </label>
+          <button type="submit" className="px-3 py-1.5 bg-blue-600 text-white rounded-md">Add</button>
+          <label className="text-xs text-gray-500 md:col-span-6">Why
+            <input required value={form.explanation} onChange={(e) => setForm({ ...form, explanation: e.target.value })} className="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md px-2 py-1.5" />
+          </label>
+        </form>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-xs uppercase tracking-wide text-gray-500">
+                <th className="text-left py-1 pr-2">Date</th>
+                <th className="text-left py-1 pr-2">Section</th>
+                <th className="text-left py-1 pr-2">What</th>
+                <th className="text-right py-1 px-2">Amount</th>
+                <th className="text-left py-1 pl-2">Why</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.ledger.map((row, i) => (
+                <tr key={`${row.section}-${row.title}-${i}`} className="border-t border-gray-100 dark:border-gray-700 align-top">
+                  <td className="py-1.5 pr-2 whitespace-nowrap">{row.date ? formatDate(row.date) : ''}</td>
+                  <td className="py-1.5 pr-2 whitespace-nowrap">{row.section}</td>
+                  <td className="py-1.5 pr-2">{row.title}</td>
+                  <td className="py-1.5 px-2 text-right tabular-nums whitespace-nowrap">{money(row.amount)}</td>
+                  <td className="py-1.5 pl-2 text-gray-600 dark:text-gray-300">
+                    {row.explanation}
+                    {row.source === 'Added by admin' && row.id && (
+                      <button type="button" onClick={() => removeLine(row.id as string)} className="ml-2 text-red-600" title="Remove this line"><Trash2 className="w-3.5 h-3.5 inline" /></button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="mara-panel p-5 space-y-3">

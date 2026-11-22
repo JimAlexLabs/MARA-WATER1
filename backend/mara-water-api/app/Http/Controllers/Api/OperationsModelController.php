@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\DirectorLedgerEntry;
 use App\Services\AccountsPositionService;
 use App\Services\OperationsModelService;
 use App\Services\ReorderAdvisorService;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -53,6 +55,60 @@ class OperationsModelController extends Controller
     public function accounts(AccountsPositionService $accounts)
     {
         return response()->json(['success' => true, 'data' => $accounts->build()]);
+    }
+
+    public function storeLedgerEntry(Request $request, AccountsPositionService $accounts)
+    {
+        $data = $request->validate([
+            'entry_date' => 'required|date',
+            'kind' => 'required|in:expense,withdrawal,outside_loan,payable',
+            'title' => 'required|string|max:200',
+            'explanation' => 'required|string|max:1000',
+            'amount' => 'required|numeric|min:0.01',
+        ]);
+
+        DirectorLedgerEntry::query()->create([
+            'entry_date' => $data['entry_date'],
+            'kind' => $data['kind'],
+            'title' => $data['title'],
+            'explanation' => $data['explanation'],
+            'amount' => $data['amount'],
+            'created_by' => Auth::id(),
+        ]);
+
+        return response()->json(['success' => true, 'data' => $accounts->build()]);
+    }
+
+    public function destroyLedgerEntry(string $id, AccountsPositionService $accounts)
+    {
+        $row = DirectorLedgerEntry::query()->whereNull('deleted_at')->find($id);
+        if (! $row) {
+            return response()->json(['success' => false, 'message' => 'Line not found'], 404);
+        }
+        $row->delete();
+
+        return response()->json(['success' => true, 'data' => $accounts->build()]);
+    }
+
+    public function exportAccounts(AccountsPositionService $accounts)
+    {
+        $ledger = $accounts->build()['ledger'];
+
+        return response()->streamDownload(function () use ($ledger) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Date', 'Section', 'What happened', 'Amount KES', 'Why', 'Where it comes from']);
+            foreach ($ledger as $row) {
+                fputcsv($out, [
+                    $row['date'] !== '' ? \App\Support\DisplayDate::day($row['date']) : '',
+                    $row['section'],
+                    $row['title'],
+                    $row['amount'],
+                    $row['explanation'],
+                    $row['source'],
+                ]);
+            }
+            fclose($out);
+        }, 'mara-accounts.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
     public function advisor()

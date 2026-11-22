@@ -3,9 +3,11 @@
 namespace App\Services;
 
 use App\Models\Debt;
+use App\Models\DirectorLedgerEntry;
 use App\Models\FuelLog;
 use App\Models\PettyCashEntry;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Director financial position. The utility-account statement is the
@@ -74,6 +76,8 @@ class AccountsPositionService
         $loan = round((float) ($assumptions['loan']['principal'] ?? 0), 2);
         $pending = round((float) ($assumptions['capital']['derrick_pending'] ?? 0), 2);
         $borrowing = $this->borrowing($financeLines, $bills, $purchases['lines'], $collections, $balance);
+        $notes = $this->notes();
+        $ops = $this->operations($borrowing, $bills, $notes);
 
         $movements = [];
         foreach ($rows as $row) {
@@ -136,6 +140,8 @@ class AccountsPositionService
             'debts' => $debts,
             'debts_total' => $debtTotal,
             'borrowing' => $borrowing,
+            'ops' => $ops,
+            'ledger' => $this->ledger($borrowing, $bills, $ops, $cashSales, $debtTotal, $notes, $collections, $balance),
             'finance_to_repay' => [
                 'on_statement' => $financeTotal,
                 'outside_loan' => $loan,
@@ -194,8 +200,9 @@ class AccountsPositionService
         $bottles = $paid(fn ($label) => str_contains($label, 'bottle') && ! str_contains($label, 'transport'));
         $transport = $paid(fn ($label) => str_contains($label, 'transport'));
         $labels = $paid(fn ($label) => str_contains($label, 'label'));
+        $restartFuel = $paid(fn ($label) => str_contains($label, 'fuel'));
         $startupPurchases = round($bottles + $transport + $labels, 2);
-        $otherPurchases = round(array_sum(array_column($purchaseLines, 'paid')) - $startupPurchases, 2);
+        $otherPurchases = round(array_sum(array_column($purchaseLines, 'paid')) - $startupPurchases - $restartFuel, 2);
 
         $phones = 0.0;
         foreach ($bills['lines'] as $line) {
@@ -227,6 +234,7 @@ class AccountsPositionService
             'pot2_in' => $pot2,
             'labels' => $labels,
             'phones' => $phones,
+            'capital_extra' => max(0, $labelTransport),
             'label_transport' => max(0, $labelTransport),
             'later_operations' => $laterOperations,
             'other_purchases' => $otherPurchases,
@@ -234,6 +242,200 @@ class AccountsPositionService
             'customer_money_used' => $customerUsed,
             'outside_deficit' => max(0, $outside),
         ];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function notes(): array
+    {
+        if (! Schema::hasTable('director_ledger_entries')) {
+            return [];
+        }
+
+        return DirectorLedgerEntry::query()
+            ->whereNull('deleted_at')
+            ->orderBy('entry_date')
+            ->orderBy('created_at')
+            ->get()
+            ->map(fn (DirectorLedgerEntry $row) => [
+                'id' => $row->id,
+                'date' => optional($row->entry_date)->toDateString(),
+                'kind' => $row->kind,
+                'title' => $row->title,
+                'explanation' => $row->explanation,
+                'amount' => round((float) $row->amount, 2),
+            ])
+            ->all();
+    }
+
+    /**
+     * @param  array<string,mixed>  $borrowing
+     * @param  array<string,mixed>  $bills
+     * @param  list<array<string,mixed>>  $notes
+     * @return array<string,mixed>
+     */
+    private function operations(array $borrowing, array $bills, array $notes): array
+    {
+        $added = 0.0;
+        $withdrawals = 0.0;
+        $loans = 0.0;
+        $payables = 0.0;
+        foreach ($notes as $note) {
+            $amount = (float) $note['amount'];
+            if ($note['kind'] === 'expense') {
+                $added += $amount;
+            } elseif ($note['kind'] === 'withdrawal') {
+                $withdrawals += $amount;
+            } elseif ($note['kind'] === 'outside_loan') {
+                $loans += $amount;
+            } elseif ($note['kind'] === 'payable') {
+                $payables += $amount;
+            }
+        }
+
+        $book = round((float) $borrowing['later_operations'] + (float) $borrowing['other_purchases'], 2);
+        $expenses = round($book + $added, 2);
+        $withdrawn = round((float) $borrowing['capital_extra'] + (float) $borrowing['customer_money_used'] + $withdrawals, 2);
+
+        return [
+            'capital_extra' => (float) $borrowing['capital_extra'],
+            'customer_paybills_used' => (float) $borrowing['customer_money_used'],
+            'noted_withdrawals' => round($withdrawals, 2),
+            'withdrawn_for_operations' => $withdrawn,
+            'book_expenses' => $book,
+            'added_expenses' => round($added, 2),
+            'expenses' => $expenses,
+            'difference' => round($withdrawn - $expenses, 2),
+            'outside_borrowed' => round($loans, 2),
+            'still_to_pay' => round($payables, 2),
+            'to_pay_out' => round($loans + $payables, 2),
+            'in_account' => 0,
+        ];
+    }
+
+    /**
+     * @param  array<string,mixed>  $borrowing
+     * @param  array<string,mixed>  $bills
+     * @param  array<string,mixed>  $ops
+     * @param  array<string,mixed>  $cashSales
+     * @param  list<array<string,mixed>>  $notes
+     * @return list<array<string,mixed>>
+     */
+    private function ledger(array $borrowing, array $bills, array $ops, array $cashSales, float $debtTotal, array $notes, float $collections, float $balance): array
+    {
+        $rows = [];
+        $add = function (string $date, string $section, string $title, float $amount, string $why, string $source, ?string $id = null) use (&$rows) {
+            $rows[] = [
+                'id' => $id,
+                'date' => $date,
+                'section' => $section,
+                'title' => $title,
+                'amount' => round($amount, 2),
+                'explanation' => $why,
+                'source' => $source,
+            ];
+        };
+
+        $add('2026-10-10', 'Capital', 'Derrick, first money in', (float) $borrowing['pot1_in'], 'Paid the bottles and caps and the transport from Nairobi to Rongo. This stays owed to Derrick. It is not an operating expense.', 'Statement');
+        $add('2026-10-10', 'Capital', 'Bottles and caps, Intripet', (float) $borrowing['bottles'], 'Paid from Derrick’s first money.', 'Purchase account');
+        $add('2026-10-10', 'Capital', 'Transport, Nairobi to Rongo', (float) $borrowing['transport'], 'Paid from Derrick’s first money.', 'Purchase account');
+        $add('2026-10-10', 'Capital', 'Balance carried into the next pot', (float) $borrowing['pot1_balance'], 'What was left after bottles, caps and transport.', 'Computed');
+        $add('2026-10-19', 'Capital', 'Diana', (float) $borrowing['diana'], 'Added to the balance, with Derrick’s further 50,000, for labels and the company phone.', 'Statement');
+        $add('2026-10-19', 'Capital', 'Derrick, further money in', (float) $borrowing['derrick_topup'], 'Added to Diana’s money and the balance carried forward.', 'Statement');
+        $add('2026-10-22', 'Capital', 'Labels, NEOPACK', (float) $borrowing['labels'], 'Paid from that second pot.', 'Purchase account');
+        $add('2026-11-04', 'Capital', 'Company phone', (float) $borrowing['phones'], 'The handset was paid from the second pot, so it is left out of operating petty cash.', 'Petty cash');
+        $add('2026-10-19', 'Account', 'Extra from the capital pot, used for operations', (float) $borrowing['capital_extra'], 'Left over after labels and the phone. It was still in the account and is added to the operational withdrawal.', 'Computed');
+
+        $add('', 'Sales', 'Cash sales, not paid into this account', (float) $cashSales['total'], 'Outlet cash plus field cash. This did not all hit the utility account.', 'Sales book');
+        $add('', 'Sales', 'Customer paybills received', $collections, 'Paid into the utility account by customers. Some of it is still sitting there.', 'Statement');
+        $add('', 'Account', 'Still in the utility account', $balance, 'Closing balance on the statement.', 'Statement');
+        $add('', 'Account', 'Customer paybills already used', (float) $ops['customer_paybills_used'], 'Paybills received, minus what is still in the account.', 'Computed');
+        $add('', 'Sales', 'Customer debts still unpaid', $debtTotal, 'Not cash. Left out of the money to pay back, and left out of what we already collected.', 'Debt book');
+        $add('', 'Summary', 'Withdrawn from the account for operations', (float) $ops['withdrawn_for_operations'], 'The extra from the capital pot, plus the customer paybills already used, plus any withdrawal an admin has noted. Do not add this to the expense lines.', 'Computed');
+        $add('', 'Summary', 'Operating expenses', (float) $ops['expenses'], 'Fuel, tokens, petty cash with the phone left out, both Shadey payments, the wiring, and any expense an admin has added. Restart fuel is not added on top of the fuel log. Do not add this to the lines above.', 'Computed');
+        $add('', 'Summary', 'Difference, withdrawn minus expenses', (float) $ops['difference'], 'A minus figure means expenses were higher than the money taken out of the account. That gap was covered by cash sales or by money borrowed outside.', 'Computed');
+        $add('', 'Summary', 'To pay out, excluding Diana, Derrick and customer debts', (float) $ops['to_pay_out'], 'Outside loans plus amounts still to pay, such as the rest of a salary. Diana and Derrick’s capital is not in this figure.', 'Computed');
+
+        foreach (FuelLog::query()->whereNull('deleted_at')->orderBy('date')->get() as $fuel) {
+            $add((string) optional($fuel->date)->toDateString(), 'Expense', 'Fuel', (float) $fuel->cost, 'Diesel from the fuel log. '.round((float) $fuel->liters, 2).' litres. Petty-cash fuel lines are not added again, and the old restart-fuel figure is not added on top.', 'Fuel log');
+        }
+
+        foreach ($bills['lines'] as $line) {
+            $description = (string) ($line['description'] ?? '');
+            $low = strtolower($description);
+            if (($line['bucket'] ?? '') === 'Tokens') {
+                $add((string) $line['date'], 'Expense', $description, (float) $line['amount'], 'Daily tokens. Counted once, from the tokens log.', 'Tokens');
+                continue;
+            }
+            if (str_contains($low, 'phone') && ! str_contains($low, 'internet') && ! str_contains($low, 'minute')) {
+                continue;
+            }
+            $add((string) $line['date'], 'Expense', $description, (float) $line['amount'], $this->explainPetty($low), 'Petty cash');
+        }
+
+        $add('2026-10-08', 'Expense', 'Shadey Plumbing, first payment', 0, 'placeholder', 'Petty cash');
+        $add('2026-10-23', 'Expense', 'Shadey Plumbing, second payment', 0, 'placeholder', 'Petty cash');
+        $add('2026-10-23', 'Expense', 'Wiring cable', 0, 'placeholder', 'Petty cash');
+
+        foreach ($notes as $note) {
+            $section = match ($note['kind']) {
+                'withdrawal' => 'Withdrawal',
+                'outside_loan' => 'Outside loan',
+                'payable' => 'Still to pay',
+                default => 'Expense',
+            };
+            $add((string) $note['date'], $section, (string) $note['title'], (float) $note['amount'], (string) $note['explanation'], 'Added by admin', (string) $note['id']);
+        }
+
+        return $this->fillPurchaseAmounts($rows, $bills);
+    }
+
+    /** @param list<array<string,mixed>> $rows */
+    private function fillPurchaseAmounts(array $rows, array $bills): array
+    {
+        $shadey1 = (float) ($bills['purchase_cash']['shadey_1'] ?? 0);
+        $shadey2 = (float) ($bills['purchase_cash']['shadey_2'] ?? 0);
+        $wiring = (float) ($bills['purchase_cash']['wiring'] ?? 0);
+        foreach ($rows as &$row) {
+            if ($row['title'] === 'Shadey Plumbing, first payment') {
+                $row['amount'] = $shadey1;
+                $row['explanation'] = 'First Shadey payment for the Rongo plant. Counted as an operating purchase, not as Diana or Derrick capital.';
+            } elseif ($row['title'] === 'Shadey Plumbing, second payment') {
+                $row['amount'] = $shadey2;
+                $row['explanation'] = 'Second Shadey payment. Both payments are in the operating expenses.';
+            } elseif ($row['title'] === 'Wiring cable') {
+                $row['amount'] = $wiring;
+                $row['explanation'] = 'Extra wiring, 1.25mm flex, 20 metres, bought at the cash-book amount.';
+            }
+        }
+
+        return array_values(array_filter($rows, fn ($row) => abs((float) $row['amount']) > 0));
+    }
+
+    private function explainPetty(string $description): string
+    {
+        if (str_contains($description, 'print') && str_contains($description, 'custom')) {
+            return 'Printing of Premium Custom and advertisement stickers, as entered in petty cash.';
+        }
+        if (str_contains($description, 'charger') || str_contains($description, 'barcode') || str_contains($description, 'recorder')) {
+            return 'Barcode recorder charger.';
+        }
+        if (str_contains($description, 'wage') || str_contains($description, 'production')) {
+            return 'Wages for the production ladies.';
+        }
+        if (str_contains($description, 'parcel')) {
+            return 'Parcel fee.';
+        }
+        if (str_contains($description, 'parking') || str_contains($description, 'toll')) {
+            return 'Parking. Country tolls are added as their own line when the amount is recorded.';
+        }
+        if (str_contains($description, 'internet') || str_contains($description, 'minute')) {
+            return 'Phone airtime and minutes. The handset itself is in the capital pot, not here.';
+        }
+        if (str_contains($description, 'price')) {
+            return 'Printing the price lists.';
+        }
+
+        return 'Petty cash. The phone handset, fuel, tokens, Shadey and wiring are kept out of this line so they are not counted twice.';
     }
 
     /** @param array<string,mixed> $row */

@@ -132,6 +132,9 @@ Route::prefix('v1')->group(function () {
 
             // MARA WATER Hypothesis Model (Assumptions / Cost Build / SKU Margins / Trip P&L /
             // Profit Split / Funding & Startup) — application prices, admin-only.
+            Route::get('/accounts/export', [\App\Http\Controllers\Api\OperationsModelController::class, 'exportAccounts']);
+            Route::post('/accounts/entries', [\App\Http\Controllers\Api\OperationsModelController::class, 'storeLedgerEntry']);
+            Route::delete('/accounts/entries/{id}', [\App\Http\Controllers\Api\OperationsModelController::class, 'destroyLedgerEntry']);
             Route::get('/accounts', [\App\Http\Controllers\Api\OperationsModelController::class, 'accounts']);
             Route::get('/model', [\App\Http\Controllers\Api\OperationsModelController::class, 'show']);
             Route::put('/model', [\App\Http\Controllers\Api\OperationsModelController::class, 'update']);
