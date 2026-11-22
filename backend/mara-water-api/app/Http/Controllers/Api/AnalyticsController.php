@@ -177,10 +177,12 @@ class AnalyticsController extends Controller
 
         return [
             'trend' => $trend,
-            'total_revenue' => $lifetime['revenue'],
+            'total_revenue' => $lifetime['total_sales'],
             'period_revenue' => round((float) $trend->sum('total_revenue'), 2),
             'total_sales' => $lifetime['total_sales'],
+            'revenue_after_debts' => $lifetime['revenue'],
             'open_debts' => $lifetime['debts'],
+            'bales' => $lifetime['bales'],
             'by_brand' => $byBrand,
             'by_outlet' => $byOutlet,
             'by_route' => $byRoute,

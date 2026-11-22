@@ -303,7 +303,7 @@ class AccountsPositionService
             'debts' => $debtTotal,
             'cash_outside_account' => $cashOutside,
             'revenue' => $volume['revenue'],
-            'note' => '0.5L, 1L and 1.5L bales only, at 360 / 360 / 370. Refills and Premium Custom are left out. Dashboard revenue is total sales minus open debts.',
+            'note' => '0.5L, 1L and 1.5L bales only, at 360 / 360 / 370. Refills and Premium Custom are left out. Total sales is the figure every dashboard shows.',
         ];
     }
 

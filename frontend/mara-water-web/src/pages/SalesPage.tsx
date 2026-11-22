@@ -211,6 +211,7 @@ const SalesPage: React.FC = () => {
     !!order && (director || canManagerEditSale(order));
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [volumeSales, setVolumeSales] = useState<{ total_sales: number; bales: number; open_debts?: number; note?: string } | null>(null);
   const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null);
   const [editingSale, setEditingSale] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -329,10 +330,11 @@ const SalesPage: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [customersResponse, ordersResponse, fieldResponse] = await Promise.all([
+      const [customersResponse, ordersResponse, fieldResponse, statsResponse] = await Promise.all([
         api.get('/sales/customers', { params: { limit: 500 } }),
         api.get('/sales/orders', { params: { limit: 100 } }),
         api.get('/sales/field-sales', { params: { limit: 100 } }).catch(() => ({ data: { data: [] } })),
+        api.get('/sales/orders/statistics', { params: { date_from: '2020-01-01', date_to: '2035-12-31' } }).catch(() => null),
       ]);
 
       setCustomers(customersResponse.data.data);
@@ -340,6 +342,15 @@ const SalesPage: React.FC = () => {
       const field = (fieldResponse.data?.data || []).map((row: Order) => ({ ...row, source: 'field' as const }));
       const outletTagged = outlet.map((row: Order) => ({ ...row, source: row.source || 'outlet' as const }));
       setOrders([...field, ...outletTagged].sort((a, b) => String(b.order_date || '').localeCompare(String(a.order_date || ''))));
+      const stats = statsResponse?.data?.data?.statistics;
+      if (stats?.total_sales != null) {
+        setVolumeSales({
+          total_sales: Number(stats.total_sales),
+          bales: Number(stats.bales || 0),
+          open_debts: Number(stats.open_debts || 0),
+          note: stats.note,
+        });
+      }
     } catch (error) {
       toast.error('Failed to fetch sales data');
     } finally {
@@ -825,9 +836,9 @@ const SalesPage: React.FC = () => {
           <div className="flex items-center">
             <DollarSign className="w-8 h-8 text-green-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Bottled tickets</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total sales (bales × price)</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                KES {orders.reduce((sum, order) => sum + Number(order.total_amount), 0).toLocaleString()}
+                KES {(volumeSales?.total_sales ?? 0).toLocaleString()}
               </p>
             </div>
           </div>
@@ -845,16 +856,17 @@ const SalesPage: React.FC = () => {
           <div className="flex items-center">
             <TrendingUp className="w-8 h-8 text-orange-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Avg Order Value</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Bottled bales sold</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                KES {orders.length > 0 ? (orders.reduce((sum, order) => sum + Number(order.total_amount), 0) / orders.length).toFixed(0) : 0}
+                {(volumeSales?.bales ?? 0).toLocaleString()}
               </p>
             </div>
           </div>
         </div>
       </div>
       <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
-        These cards add every 0.5L, 1L and 1.5L ticket on this list, including credit that is not yet paid. Analytics uses the dates you pick, and only what has been paid. Premium Custom is left out of both.
+        {volumeSales?.note || '0.5L, 1L and 1.5L only at 360 / 360 / 370. Refills stay on the refill section. Same total sales figure as the main dashboard and Planning → Accounts.'}
+        {volumeSales?.open_debts != null ? ` Open debts KES ${Number(volumeSales.open_debts).toLocaleString()}.` : ''}
       </p>
 
       {/* Tabs */}

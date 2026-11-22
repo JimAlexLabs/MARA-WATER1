@@ -138,8 +138,10 @@ class InvestorController extends Controller
                 ],
                 'all_time' => [
                     'total_sales' => $volumeRevenue['total_sales'],
-                    'revenue' => $volumeRevenue['revenue'],
+                    'revenue' => $volumeRevenue['total_sales'],
+                    'revenue_after_debts' => $volumeRevenue['revenue'],
                     'open_debts' => $volumeRevenue['debts'],
+                    'bales' => $volumeRevenue['bales'],
                 ],
                 'sales_trend' => $salesTrend,
                 'production_trend' => $productionTrend,

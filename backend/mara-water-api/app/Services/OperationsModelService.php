@@ -587,12 +587,26 @@ class OperationsModelService
         $a = $assumptions ?? $this->effective();
         $prices = $this->appPrices($a);
         $live = $this->liveBailingSheets();
+        $volume = app(SalesRevenueService::class)->collectedVolumeRevenue();
+        $rows = UtilityAccountStatement::rows();
+        $accountBalance = round((float) ($rows[0]['balance'] ?? 0), 2);
 
         return [
             'assumptions' => $a,
             'defaults' => self::defaults(),
             'app_prices' => $prices,
             'computed' => $this->compute($a, $prices, $live),
+            'live' => [
+                'total_sales' => $volume['total_sales'],
+                'bales' => $volume['bales'],
+                'lines' => $volume['lines'],
+                'open_debts' => $volume['debts'],
+                'revenue_after_debts' => $volume['revenue'],
+                'account_balance' => $accountBalance,
+                'prices' => '360 / 360 / 370',
+                'note' => '0.5L, 1L and 1.5L bales × floor price. Refills stay on the refill section only.',
+                'as_of' => now('Africa/Nairobi')->toDateTimeString(),
+            ],
         ];
     }
 

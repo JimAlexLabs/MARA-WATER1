@@ -10,7 +10,23 @@ import AccountsPositionPanel from './AccountsPositionPanel';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 type Path = (string | number)[];
-type Snapshot = { assumptions: any; defaults: any; app_prices: any[]; computed: any };
+type Snapshot = {
+  assumptions: any;
+  defaults: any;
+  app_prices: any[];
+  computed: any;
+  live?: {
+    total_sales: number;
+    bales: number;
+    open_debts: number;
+    revenue_after_debts: number;
+    account_balance: number;
+    prices: string;
+    note: string;
+    as_of: string;
+    lines?: { code: string; name: string; bales: number; price: number; amount: number }[];
+  };
+};
 
 const SIZES = ['0.5L', '1L', '1.5L', '5L', '10L', '20L'];
 const BOTTLED = ['0.5L', '1L', '1.5L'];
@@ -148,6 +164,17 @@ const DirectorPlanningPage: React.FC = () => {
     [snap, draft],
   );
 
+  useEffect(() => {
+    if (tab === 'accounts') return;
+    const timer = window.setInterval(() => {
+      api.get('/operations/model').then((res) => {
+        const data = res.data.data as Snapshot;
+        setSnap((prev) => (prev ? { ...prev, live: data.live, computed: dirty ? prev.computed : data.computed, app_prices: data.app_prices } : data));
+      }).catch(() => {});
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [tab, dirty]);
+
   const set = (path: Path, v: any) => setDraft((d: any) => setPath(d, path, v));
   const F = (label: string, path: Path, opts: Partial<React.ComponentProps<typeof Field>> = {}) => (
     <Field key={path.join('.')} label={label} value={getPath(draft, path)} onChange={(v) => set(path, v)} {...opts} />
@@ -208,11 +235,29 @@ const DirectorPlanningPage: React.FC = () => {
   const sums = (k: string) => PARTNERS.reduce((s, p) => s + Number(getPath(draft, ['profit_split', k, p]) || 0), 0);
 
   /* ───────────────────────── Assumptions ───────────────────────── */
+  const live = snap.live;
+  const liveFacts = live ? (
+    <section className="mara-panel p-4 space-y-2 border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">Live books (auto-refresh)</h3>
+        <p className="text-[11px] text-emerald-800/80 dark:text-emerald-200/80">Updated {live.as_of}</p>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div><p className="text-xs text-gray-500">Total sales (bales × price)</p><p className="font-bold tabular-nums">{money(live.total_sales)}</p></div>
+        <div><p className="text-xs text-gray-500">Bottled bales</p><p className="font-bold tabular-nums">{Number(live.bales).toLocaleString()}</p></div>
+        <div><p className="text-xs text-gray-500">Open debts</p><p className="font-bold tabular-nums">{money(live.open_debts)}</p></div>
+        <div><p className="text-xs text-gray-500">Still in BS account</p><p className="font-bold tabular-nums">{money(live.account_balance)}</p></div>
+      </div>
+      <p className="text-xs text-gray-600 dark:text-gray-300">{live.note} Floor prices {live.prices}. Same total sales figure as Sales, Admin and Manager dashboards.</p>
+    </section>
+  ) : null;
+
   const assumptionsTab = (
     <div className="space-y-4">
+      {liveFacts}
       <p className="text-xs text-gray-500">
         Blue cells are editable. Press <strong>Save &amp; recalculate</strong> and every other sheet updates.
-        Selling prices are <strong>not</strong> taken from the Excel — they come from the application price list.
+        Selling prices for the model sheets come from the application price list; the live sales total above is always bales × 360 / 360 / 370.
       </p>
 
       <Card title="Bottle + cap — Intripet Limited (ex-VAT)" note="Intripet charges 16% VAT on the total of each purchase. 5L / 10L / 20L use the Blowplast quote (final, VAT-inclusive) — Intripet can be quoted later.">
@@ -414,6 +459,8 @@ const DirectorPlanningPage: React.FC = () => {
 
   /* ───────────────────────── Cost Build ───────────────────────── */
   const costTab = (
+    <div className="space-y-4">
+    {liveFacts}
     <section className="mara-panel p-5 space-y-3">
       <div>
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Cost Build — per bottle</h3>
@@ -447,15 +494,18 @@ const DirectorPlanningPage: React.FC = () => {
         5L / 10L / 20L bottle+cap is the Blowplast quote; their label uses the historical flat rate (no current quote). Wage and transport allocation apply to the sizes actually on the trip (0.5L / 1L / 1.5L).
       </p>
     </section>
+    </div>
   );
 
   /* ───────────────────────── SKU Margins ───────────────────────── */
   const marginsTab = (
+    <div className="space-y-4">
+    {liveFacts}
     <section className="mara-panel p-5 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">SKU prices &amp; margins — application prices</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Cost/bottle is materials only (as in the Excel). “After full cost” also deducts wage + transport share.</p>
+          <p className="text-xs text-gray-500 mt-0.5">Cost/bottle is materials only (as in the Excel). “After full cost” also deducts wage + transport share. Live bottled sales above use floor prices 360 / 360 / 370.</p>
         </div>
         <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 p-0.5 text-xs">
           {([['both', 'Both'], ['vat', 'VAT-registered'], ['nonvat', 'Non-VAT (now)']] as const).map(([k, l]) => (
@@ -489,6 +539,7 @@ const DirectorPlanningPage: React.FC = () => {
         VAT-registered applies Kenya’s 16% VAT to the selling side only (net = gross margin − VAT fraction of it). Non-VAT is the current position below the registration threshold. Purchase-side VAT is already inside cost/bottle.
       </p>
     </section>
+    </div>
   );
 
   /* ───────────────────────── Trip P&L ───────────────────────── */
@@ -504,6 +555,7 @@ const DirectorPlanningPage: React.FC = () => {
   ];
   const tripTab = (
     <div className="space-y-4">
+      {liveFacts}
       <section className="mara-panel p-5 space-y-3">
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">A. Cost of production per bottle &amp; revenue — one trip</h3>
@@ -584,6 +636,7 @@ const DirectorPlanningPage: React.FC = () => {
   const d = split.derrick;
   const splitTab = (
     <div className="space-y-4">
+      {liveFacts}
       <p className="text-xs text-gray-500">
         Basis: <strong>{split.basis_label}</strong>. Phase 1 at exactly 1 trip: Jim {pct(draft.profit_split.phase1_one.Jim, 0)} / Derrick {pct(draft.profit_split.phase1_one.Derrick, 0)} / Diana {pct(draft.profit_split.phase1_one.Diana, 0)} / Onroy {pct(draft.profit_split.phase1_one.Onroy, 0)} / Company {pct(draft.profit_split.phase1_one.Company, 0)};
         at 2–5 trips: Jim {pct(draft.profit_split.phase1_multi.Jim, 0)} / Derrick {pct(draft.profit_split.phase1_multi.Derrick, 0)} / Diana {pct(draft.profit_split.phase1_multi.Diana, 0)} / Onroy {pct(draft.profit_split.phase1_multi.Onroy, 0)} / Company {pct(draft.profit_split.phase1_multi.Company, 0)}.
@@ -623,6 +676,7 @@ const DirectorPlanningPage: React.FC = () => {
   /* ───────────────────────── Funding & Startup ───────────────────────── */
   const fundingTab = (
     <div className="space-y-4">
+      {liveFacts}
       <section className="mara-panel p-5 space-y-3">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">A. Total spend to date</h3>
         <Table>
@@ -698,7 +752,7 @@ const DirectorPlanningPage: React.FC = () => {
         tone="ink"
         eyebrow="Admin · Feasibility model"
         title="Planning"
-        description="MARA WATER Hypothesis Model — live, using the application’s own selling prices."
+        description="MARA WATER Hypothesis Model — live sales from bottled bales × 360 / 360 / 370, plus editable cost assumptions."
         actions={
           <>
             <Link to="/operations" className="inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-semibold bg-white/15 text-white border border-white/30 hover:bg-white/25">
@@ -717,9 +771,9 @@ const DirectorPlanningPage: React.FC = () => {
           </>
         }
         stats={[
-          { label: 'Trip revenue', value: money(A.revenue) },
-          { label: 'Trip gross margin', value: money(A.gross_profit_non_vat) },
-          { label: 'Net / mo @ 2 trips', value: money(trip.b[1][split.basis]) },
+          { label: 'Total sales (live)', value: money(live?.total_sales) },
+          { label: 'Trip model revenue', value: money(A.revenue) },
+          { label: 'Open debts', value: money(live?.open_debts) },
           { label: 'Funding buffer', value: money(fund.reconciliation.buffer) },
         ]}
       />

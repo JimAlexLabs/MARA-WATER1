@@ -136,8 +136,8 @@ const AccountsPositionPanel: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        <Stat label="Total sales (bales × price)" value={money(data.sales.total_sales)} note={`${data.sales.bales} bottled bales at 360 / 360 / 370. No refills.`} />
-        <Stat label="Dashboard revenue" value={money(data.sales.revenue)} note="Total sales minus open debt sales. This is the revenue figure." tone="good" />
+        <Stat label="Total sales (bales × price)" value={money(data.sales.total_sales)} note={`${data.sales.bales} bottled bales at 360 / 360 / 370. No refills. Same figure on every dashboard.`} tone="good" />
+        <Stat label="After open debts" value={money(data.sales.revenue)} note="Total sales minus debt sales still unpaid" />
         <Stat label="In the BS account" value={money(data.account.balance)} note="Left untouched for now" tone="good" />
         <Stat label="Customers still owe" value={money(data.debts_total)} note="Debt sales still to collect" tone="warn" />
         <Stat label="Withdrawn for operations" value={money(data.ops.withdrawn_for_operations)} note={`${money(data.ops.capital_extra)} capital extra + ${money(data.ops.customer_paybills_used)} paybills used`} />
@@ -153,8 +153,8 @@ const AccountsPositionPanel: React.FC = () => {
             {data.sales.lines.map((line) => (
               <Row key={line.code} label={`${line.name} · ${line.bales} × ${line.price}`} value={line.amount} />
             ))}
-            <Row label="Total sales" value={data.sales.total_sales} strong />
-            <Row label="Dashboard revenue (minus debts)" value={data.sales.revenue} strong />
+            <Row label="Total sales (same on every dashboard)" value={data.sales.total_sales} strong />
+            <Row label="After open debts" value={data.sales.revenue} />
           </div>
           <div className="space-y-1.5">
             <Row label="Hit the paybill" value={data.sales.hit_paybill} />

@@ -106,8 +106,8 @@ const InvestorPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <DollarSign className="w-7 h-7 text-violet-600" />
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Revenue (bales × price − debts)</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{money(data.all_time?.revenue ?? data.this_month.revenue)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Total sales (bales × price)</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{money(data.all_time?.total_sales ?? data.all_time?.revenue ?? data.this_month.revenue)}</p>
             </div>
           </div>
         </div>

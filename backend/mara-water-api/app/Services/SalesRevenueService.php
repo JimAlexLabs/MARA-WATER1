@@ -213,6 +213,26 @@ class SalesRevenueService
         END)";
     }
 
+    /** Floor bale price for a bottled SKU, or 0 if it is not 0.5 / 1 / 1.5. */
+    public static function floorPriceForSku(?\App\Models\Sku $sku): float
+    {
+        if (! $sku) {
+            return 0.0;
+        }
+        $size = (float) $sku->size_liters;
+        if ($size >= 0.45 && $size <= 0.55) {
+            return 360.0;
+        }
+        if ($size >= 0.95 && $size <= 1.05) {
+            return 360.0;
+        }
+        if ($size >= 1.45 && $size <= 1.55) {
+            return 370.0;
+        }
+
+        return 0.0;
+    }
+
     public static function bottledOrderRevenueSql(string $orderAlias = 'orders'): string
     {
         return '(SELECT COALESCE(SUM((oi.qty - COALESCE(oi.qty_returned, 0)) * '.self::bottledFloorPriceSql('sk').'), 0)

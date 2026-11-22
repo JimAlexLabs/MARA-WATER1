@@ -127,7 +127,7 @@ class DashboardController extends Controller
             $monthOrdersCount = Order::completedSale()->where('order_date', '>=', $monthStart)->count();
             $monthBatches = Batch::where('manufacture_date', '>=', $monthStart)->count();
             $monthWaterTests = WaterTest::where('recorded_at', '>=', $monthStart)->count();
-            // Canonical revenue: bottled bales × 360/360/370, minus open debts.
+            // Canonical sales: bottled bales × 360/360/370. No refills, no custom.
             $volumeRevenue = $revenue->collectedVolumeRevenue($debtorBalanceOutstanding);
 
             // --- 7-day trends ---
@@ -286,7 +286,9 @@ class DashboardController extends Controller
                         'active_vehicles' => $activeVehicles,
                         'total_vehicles' => $totalVehicles,
                         'total_sales' => $volumeRevenue['total_sales'],
-                        'revenue' => $volumeRevenue['revenue'],
+                        'revenue' => $volumeRevenue['total_sales'],
+                        'revenue_after_debts' => $volumeRevenue['revenue'],
+                        'bales' => $volumeRevenue['bales'],
                     ],
                     'trends' => [
                         'sales_7d' => $salesTrend,

@@ -77,7 +77,7 @@ class OrderController extends Controller
                     ->values();
                 $order->setRelation('items', $items);
                 $order->setAttribute('total_amount', round($items->sum(
-                    fn ($item) => (float) $item->qty * (float) $item->unit_price
+                    fn ($item) => (float) $item->qty * \App\Services\SalesRevenueService::floorPriceForSku($item->sku)
                 ), 2));
 
                 return $order;
@@ -130,7 +130,9 @@ class OrderController extends Controller
                     'order_date' => optional($sale->trip)->trip_date,
                     'status' => 'delivered',
                     'source' => 'field',
-                    'total_amount' => (string) $lines->sum('line_total'),
+                    'total_amount' => (string) round($lines->sum(
+                        fn ($line) => (float) $line->qty_bales * \App\Services\SalesRevenueService::floorPriceForSku($line->sku)
+                    ), 2),
                     'payment_method' => $sale->payment_method === 'debt' ? 'credit' : $sale->payment_method,
                     'payment_reference' => $sale->mpesa_reference,
                     'customer' => $sale->customer ? [
@@ -1481,6 +1483,9 @@ class OrderController extends Controller
                 ? round((($stats->delivered_orders + $stats->partially_returned_orders) / $stats->total_orders) * 100, 2) 
                 : 0;
 
+            $volume = (new \App\Services\SalesRevenueService())->bottledVolumeSales();
+            $debts = (float) \App\Models\Debt::query()->whereNull('deleted_at')->where('balance', '>', 0)->sum('balance');
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -1496,9 +1501,15 @@ class OrderController extends Controller
                         'delivered_orders' => $stats->delivered_orders,
                         'returned_orders' => $stats->returned_orders,
                         'cancelled_orders' => $stats->cancelled_orders,
-                        'total_revenue' => round($stats->total_revenue, 2),
-                        'avg_order_value' => round($stats->avg_order_value, 2),
+                        'total_revenue' => $volume['total'],
+                        'period_revenue' => round((float) $stats->total_revenue, 2),
+                        'avg_order_value' => round((float) $stats->avg_order_value, 2),
                         'delivery_rate' => $deliveryRate,
+                        'total_sales' => $volume['total'],
+                        'bales' => $volume['bales'],
+                        'lines' => $volume['lines'],
+                        'open_debts' => round($debts, 2),
+                        'note' => '0.5L, 1L and 1.5L only at 360 / 360 / 370. Refills and Premium Custom are left out.',
                     ]
                 ]
             ]);

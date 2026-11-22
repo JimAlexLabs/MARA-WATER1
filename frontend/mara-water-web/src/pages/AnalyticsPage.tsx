@@ -20,7 +20,7 @@ interface SalesTrendPoint { period: string; orders_revenue: number; driver_trip_
 interface ByBrand { brand: string; qty_sold: number; revenue: number; }
 interface ByOutlet { id: string; name: string; revenue: number; orders: number; }
 interface ByRoute { route: string; revenue: number; }
-interface SalesSection { trend: SalesTrendPoint[]; total_revenue: number; period_revenue?: number; total_sales?: number; open_debts?: number; by_brand: ByBrand[]; by_outlet: ByOutlet[]; by_route: ByRoute[]; }
+interface SalesSection { trend: SalesTrendPoint[]; total_revenue: number; period_revenue?: number; total_sales?: number; open_debts?: number; bales?: number; by_brand: ByBrand[]; by_outlet: ByOutlet[]; by_route: ByRoute[]; }
 
 interface MoneyFlow {
   sold: { cash: number; mpesa: number; debt: number; total: number };
@@ -188,7 +188,7 @@ const AnalyticsPage: React.FC = () => {
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        <KpiCard icon={<DollarSign className="w-6 h-6 text-violet-600" />} label="Revenue" value={money(overview.sales.total_revenue)} sub={`Bales × 360/360/370, minus debts${overview.sales.total_sales != null ? ` · sales ${money(overview.sales.total_sales)}` : ''}${overview.sales.period_revenue != null ? ` · period ${money(overview.sales.period_revenue)}` : ''}. No refills or custom.`} />
+        <KpiCard icon={<DollarSign className="w-6 h-6 text-violet-600" />} label="Total sales (bales × price)" value={money(overview.sales.total_sales ?? overview.sales.total_revenue)} sub={`0.5L / 1L / 1.5L at 360 / 360 / 370${overview.sales.bales != null ? ` · ${overview.sales.bales} bales` : ''}${overview.sales.open_debts != null ? ` · debts ${money(overview.sales.open_debts)}` : ''}. No refills or custom.`} />
         <KpiCard icon={<TrendingUp className="w-6 h-6 text-green-600" />} label="Cash + M-Pesa Collected" value={money(overview.money_flow.collected.total)} sub="Credit stays out of this box." />
         <KpiCard icon={<AlertTriangle className="w-6 h-6 text-red-600" />} label="Outstanding Debt" value={money(overview.money_flow.outstanding_debt.total_balance)} sub={`${overview.money_flow.outstanding_debt.overdue_count} overdue`} />
         <KpiCard icon={<Package className="w-6 h-6 text-blue-600" />} label="Production (period)" value={`${Number(overview.production_vs_sales.total_production_bales || 0).toLocaleString()} bales · ${Number(overview.production_vs_sales.total_production_liters || 0).toLocaleString()} L`} />
