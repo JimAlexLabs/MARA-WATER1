@@ -21,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext';
 interface Summary {
   today: { revenue: number; production_liters: number };
   this_month: { revenue: number; production_liters: number; cash_collected: number; mpesa_collected: number };
+  all_time?: { total_sales: number; revenue: number; open_debts: number };
   sales_trend: { date: string; revenue: number }[];
   production_trend: { date: string; liters: number }[];
   financial_health: { cash_and_mpesa_collected_month: number; outstanding_debt_total: number };
@@ -105,8 +106,8 @@ const InvestorPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <DollarSign className="w-7 h-7 text-violet-600" />
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Revenue This Month</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{money(data.this_month.revenue)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Revenue (bales × price − debts)</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{money(data.all_time?.revenue ?? data.this_month.revenue)}</p>
             </div>
           </div>
         </div>

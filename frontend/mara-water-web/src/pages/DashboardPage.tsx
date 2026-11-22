@@ -59,6 +59,8 @@ interface Overview {
     pending_orders: number;
     active_vehicles: number;
     total_vehicles: number;
+    total_sales?: number;
+    revenue?: number;
   };
   trends: {
     sales_7d: { date: string; amount: string; orders: number }[];
@@ -327,7 +329,8 @@ const DashboardPage: React.FC = () => {
           <div>
             <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Today</h2>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-              <KpiCard label="Sales Today" value={money(d.today.sales_amount)} icon={TrendingUp} color="from-sky-700 to-cyan-600" onClick={() => navigate('/sales?tab=orders')} />
+              <KpiCard label="Revenue" value={money(d.snapshot.revenue ?? d.this_month.revenue)} icon={TrendingUp} color="from-sky-700 to-cyan-600" onClick={() => navigate('/sales?tab=orders')} />
+              <KpiCard label="Sales Today" value={money(d.today.sales_amount)} icon={TrendingUp} color="from-cyan-700 to-teal-600" onClick={() => navigate('/sales?tab=orders')} />
               <KpiCard label="Litres Produced" value={`${d.today.production_liters.toLocaleString()} L`} icon={Droplets} color="from-blue-500 to-blue-600" onClick={() => navigate('/production')} />
               <KpiCard
                 label="Stock Alerts"
