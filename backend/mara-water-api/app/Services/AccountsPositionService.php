@@ -16,8 +16,10 @@ use Illuminate\Support\Facades\Schema;
  */
 class AccountsPositionService
 {
-    public function __construct(private readonly OperationsModelService $model)
-    {
+    public function __construct(
+        private readonly OperationsModelService $model,
+        private readonly SalesRevenueService $salesRevenue,
+    ) {
     }
 
     public function build(): array
@@ -77,7 +79,8 @@ class AccountsPositionService
         $pending = round((float) ($assumptions['capital']['derrick_pending'] ?? 0), 2);
         $borrowing = $this->borrowing($financeLines, $bills, $purchases['lines'], $collections, $balance);
         $notes = $this->notes();
-        $ops = $this->operations($borrowing, $bills, $notes);
+        $sales = $this->salesSplit($collections, $balance, $debtTotal);
+        $ops = $this->operations($borrowing, $bills, $notes, $sales);
 
         $movements = [];
         foreach ($rows as $row) {
@@ -140,15 +143,17 @@ class AccountsPositionService
             'debts' => $debts,
             'debts_total' => $debtTotal,
             'borrowing' => $borrowing,
+            'sales' => $sales,
             'ops' => $ops,
-            'ledger' => $this->ledger($borrowing, $bills, $ops, $cashSales, $debtTotal, $notes, $collections, $balance),
+            'ledger' => $this->ledger($borrowing, $bills, $ops, $cashSales, $debtTotal, $notes, $collections, $balance, $sales),
             'finance_to_repay' => [
                 'on_statement' => $financeTotal,
                 'outside_loan' => $loan,
                 'outside_loan_due' => (string) ($assumptions['loan']['due'] ?? ''),
                 'outside_loan_rate' => (float) ($assumptions['loan']['rate'] ?? 0),
                 'outside_deficit' => $borrowing['outside_deficit'],
-                'total_to_repay' => round($financeTotal + $borrowing['outside_deficit'], 2),
+                'admin_owed' => $ops['admin_owed'],
+                'total_to_repay' => round($financeTotal + (float) $ops['to_pay_out'], 2),
                 'promised_not_taken' => $pending,
             ],
             'movements' => $movements,
@@ -273,7 +278,36 @@ class AccountsPositionService
      * @param  list<array<string,mixed>>  $notes
      * @return array<string,mixed>
      */
-    private function operations(array $borrowing, array $bills, array $notes): array
+    /**
+     * Bottled bales × floor price, split against the utility account.
+     * Dashboard revenue is total sales minus open debts.
+     *
+     * @return array<string,mixed>
+     */
+    private function salesSplit(float $collections, float $balance, float $debtTotal): array
+    {
+        $volume = $this->salesRevenue->collectedVolumeRevenue($debtTotal);
+        $stillInAccount = round(min($balance, $collections), 2);
+        $used = round(max(0, $collections - $stillInAccount), 2);
+        $notThroughPaybill = round(max(0, $volume['total_sales'] - $collections), 2);
+        $cashOutside = round(max(0, $notThroughPaybill - $debtTotal), 2);
+
+        return [
+            'total_sales' => $volume['total_sales'],
+            'bales' => $volume['bales'],
+            'lines' => $volume['lines'],
+            'hit_paybill' => $collections,
+            'still_in_account' => $stillInAccount,
+            'paybills_used' => $used,
+            'did_not_hit_paybill' => $notThroughPaybill,
+            'debts' => $debtTotal,
+            'cash_outside_account' => $cashOutside,
+            'revenue' => $volume['revenue'],
+            'note' => '0.5L, 1L and 1.5L bales only, at 360 / 360 / 370. Refills and Premium Custom are left out. Dashboard revenue is total sales minus open debts.',
+        ];
+    }
+
+    private function operations(array $borrowing, array $bills, array $notes, array $sales): array
     {
         $added = 0.0;
         $withdrawals = 0.0;
@@ -295,6 +329,11 @@ class AccountsPositionService
         $book = round((float) $borrowing['later_operations'] + (float) $borrowing['other_purchases'], 2);
         $expenses = round($book + $added, 2);
         $withdrawn = round((float) $borrowing['capital_extra'] + (float) $borrowing['customer_money_used'] + $withdrawals, 2);
+        $shortfall = round(max(0, $expenses - $withdrawn), 2);
+        $cashOutside = (float) $sales['cash_outside_account'];
+        // Money the director/admin pumped in so the 101,120 stayed untouched,
+        // after using the cash sales that never hit the account.
+        $adminOwed = round(max(0, $shortfall - $cashOutside - $loans), 2);
 
         return [
             'capital_extra' => (float) $borrowing['capital_extra'],
@@ -305,9 +344,12 @@ class AccountsPositionService
             'added_expenses' => round($added, 2),
             'expenses' => $expenses,
             'difference' => round($withdrawn - $expenses, 2),
+            'shortfall' => $shortfall,
+            'cash_outside_used_against_shortfall' => round(min($cashOutside, $shortfall), 2),
+            'admin_owed' => $adminOwed,
             'outside_borrowed' => round($loans, 2),
             'still_to_pay' => round($payables, 2),
-            'to_pay_out' => round($loans + $payables, 2),
+            'to_pay_out' => round($loans + $payables + $adminOwed, 2),
             'in_account' => 0,
         ];
     }
@@ -320,7 +362,7 @@ class AccountsPositionService
      * @param  list<array<string,mixed>>  $notes
      * @return list<array<string,mixed>>
      */
-    private function ledger(array $borrowing, array $bills, array $ops, array $cashSales, float $debtTotal, array $notes, float $collections, float $balance): array
+    private function ledger(array $borrowing, array $bills, array $ops, array $cashSales, float $debtTotal, array $notes, float $collections, float $balance, array $sales): array
     {
         $rows = [];
         $add = function (string $date, string $section, string $title, float $amount, string $why, string $source, ?string $id = null) use (&$rows) {
@@ -345,15 +387,23 @@ class AccountsPositionService
         $add('2026-11-04', 'Capital', 'Company phone', (float) $borrowing['phones'], 'The handset was paid from the second pot, so it is left out of operating petty cash.', 'Petty cash');
         $add('2026-10-19', 'Account', 'Extra from the capital pot, used for operations', (float) $borrowing['capital_extra'], 'Left over after labels and the phone. It was still in the account and is added to the operational withdrawal.', 'Computed');
 
-        $add('', 'Sales', 'Cash sales, not paid into this account', (float) $cashSales['total'], 'Outlet cash plus field cash. This did not all hit the utility account.', 'Sales book');
-        $add('', 'Sales', 'Customer paybills received', $collections, 'Paid into the utility account by customers. Some of it is still sitting there.', 'Statement');
-        $add('', 'Account', 'Still in the utility account', $balance, 'Closing balance on the statement.', 'Statement');
+        foreach ($sales['lines'] as $line) {
+            $add('', 'Sales', $line['name'].' — '.$line['bales'].' bales × '.$line['price'], (float) $line['amount'], 'Bottled sales only, at the floor price. Refills and Premium Custom are not in this line.', 'Bales × price');
+        }
+        $add('', 'Sales', 'Total sales, bales × price', (float) $sales['total_sales'], '0.5L, 1L and 1.5L only. This is the sales figure used on the accounts.', 'Computed');
+        $add('', 'Sales', 'Dashboard revenue, after debts', (float) $sales['revenue'], 'Total sales minus open debt sales. This is the revenue figure that should match the dashboards.', 'Computed');
+        $add('', 'Sales', 'Hit the paybill', (float) $sales['hit_paybill'], 'Customer money paid into the utility account. Derrick and Diana capital is not in this figure.', 'Statement');
+        $add('', 'Sales', 'Did not hit the paybill', (float) $sales['did_not_hit_paybill'], 'Total sales minus what hit the paybill.', 'Computed');
+        $add('', 'Sales', 'Of which, still debt', (float) $sales['debts'], 'Debt sales still to collect. Not cash.', 'Debt book');
+        $add('', 'Sales', 'Of which, cash outside the account', (float) $sales['cash_outside_account'], 'Sales that did not hit the paybill, after debts. This is the cash that never passed through the account.', 'Computed');
+        $add('', 'Account', 'Still in the utility account', $balance, 'Closing balance on the statement. Left untouched for now.', 'Statement');
         $add('', 'Account', 'Customer paybills already used', (float) $ops['customer_paybills_used'], 'Paybills received, minus what is still in the account.', 'Computed');
-        $add('', 'Sales', 'Customer debts still unpaid', $debtTotal, 'Not cash. Left out of the money to pay back, and left out of what we already collected.', 'Debt book');
-        $add('', 'Summary', 'Withdrawn from the account for operations', (float) $ops['withdrawn_for_operations'], 'The extra from the capital pot, plus the customer paybills already used, plus any withdrawal an admin has noted. Do not add this to the expense lines.', 'Computed');
-        $add('', 'Summary', 'Operating expenses', (float) $ops['expenses'], 'Fuel, tokens, petty cash with the phone left out, both Shadey payments, the wiring, and any expense an admin has added. Restart fuel is not added on top of the fuel log. Do not add this to the lines above.', 'Computed');
-        $add('', 'Summary', 'Difference, withdrawn minus expenses', (float) $ops['difference'], 'A minus figure means expenses were higher than the money taken out of the account. That gap was covered by cash sales or by money borrowed outside.', 'Computed');
-        $add('', 'Summary', 'To pay out, excluding Diana, Derrick and customer debts', (float) $ops['to_pay_out'], 'Outside loans plus amounts still to pay, such as the rest of a salary. Diana and Derrick’s capital is not in this figure.', 'Computed');
+        $add('', 'Summary', 'Withdrawn from the account for operations', (float) $ops['withdrawn_for_operations'], 'The extra from the capital pot, plus the customer paybills already used, plus any withdrawal an admin has noted.', 'Computed');
+        $add('', 'Summary', 'Operating expenses', (float) $ops['expenses'], 'Fuel once, tokens, petty cash with the phone left out, both Shadey payments, the wiring, and any expense an admin has added. Expense records stay as they are.', 'Computed');
+        $add('', 'Summary', 'Ops shortfall', (float) $ops['shortfall'], 'Expenses minus what was taken from the account for operations. The 101,120 still in the account is not used here.', 'Computed');
+        $add('', 'Summary', 'Cash outside used against that shortfall', (float) $ops['cash_outside_used_against_shortfall'], 'Cash sales that never hit the account, applied against the shortfall.', 'Computed');
+        $add('', 'Summary', 'Admin / director owed for surplus expenses', (float) $ops['admin_owed'], 'What still had to be pumped in from outside sales and outside the paybill so the account balance stayed untouched. Separate from Diana and Derrick capital, and separate from customer debts.', 'Computed');
+        $add('', 'Summary', 'To pay out, excluding Diana, Derrick and customer debts', (float) $ops['to_pay_out'], 'Admin owed, plus outside loans noted by admin, plus amounts still to pay such as the rest of a salary.', 'Computed');
 
         foreach (FuelLog::query()->whereNull('deleted_at')->orderBy('date')->get() as $fuel) {
             $add((string) optional($fuel->date)->toDateString(), 'Expense', 'Fuel', (float) $fuel->cost, 'Diesel from the fuel log. '.round((float) $fuel->liters, 2).' litres. Petty-cash fuel lines are not added again, and the old restart-fuel figure is not added on top.', 'Fuel log');

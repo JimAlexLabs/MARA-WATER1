@@ -56,6 +56,7 @@ class InvestorController extends Controller
 
         $todayRevenue = round((float) $ordersRevenue($today, $today) + (float) $tripRevenue($today, $today), 2);
         $monthRevenue = round((float) $ordersRevenue($monthStart, $today) + (float) $tripRevenue($monthStart, $today), 2);
+        $volumeRevenue = $sales->collectedVolumeRevenue();
 
         // Sales trend -- one total per day, no by-customer/by-brand
         // breakdown; that level of detail is exactly what's excluded here.
@@ -134,6 +135,11 @@ class InvestorController extends Controller
                     'production_liters' => round($productionLiters($monthStart, $today), 1),
                     'cash_collected' => $cashCollectedMonth,
                     'mpesa_collected' => $mpesaCollectedMonth,
+                ],
+                'all_time' => [
+                    'total_sales' => $volumeRevenue['total_sales'],
+                    'revenue' => $volumeRevenue['revenue'],
+                    'open_debts' => $volumeRevenue['debts'],
                 ],
                 'sales_trend' => $salesTrend,
                 'production_trend' => $productionTrend,

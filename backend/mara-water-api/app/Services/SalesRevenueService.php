@@ -30,13 +30,13 @@ class SalesRevenueService
     public function ordersRevenueBetween(string $from, string $to): float
     {
         return (float) $this->bottledOrderLines($from, $to)
-            ->sum(\Illuminate\Support\Facades\DB::raw('(order_items.qty - COALESCE(order_items.qty_returned, 0)) * order_items.unit_price'));
+            ->sum(\Illuminate\Support\Facades\DB::raw('(order_items.qty - COALESCE(order_items.qty_returned, 0)) * '.self::bottledFloorPriceSql('skus')));
     }
 
     public function tripRevenueBetween(string $from, string $to): float
     {
         return (float) $this->bottledTripLines($from, $to)
-            ->sum(\Illuminate\Support\Facades\DB::raw('driver_trip_sale_items.qty_bales * driver_trip_sale_items.unit_price'));
+            ->sum(\Illuminate\Support\Facades\DB::raw('driver_trip_sale_items.qty_bales * '.self::bottledFloorPriceSql('skus')));
     }
 
     public function combinedRevenueBetween(string $from, string $to): float
@@ -52,11 +52,11 @@ class SalesRevenueService
     public function dailyTrend(string $from, string $to): Collection
     {
         $orders = $this->bottledOrderLines($from, $to)
-            ->selectRaw('orders.order_date as date, SUM((order_items.qty - COALESCE(order_items.qty_returned, 0)) * order_items.unit_price) as revenue, COUNT(DISTINCT orders.id) as orders_count')
+            ->selectRaw('orders.order_date as date, SUM((order_items.qty - COALESCE(order_items.qty_returned, 0)) * '.self::bottledFloorPriceSql('skus').') as revenue, COUNT(DISTINCT orders.id) as orders_count')
             ->groupBy('date')->get()->keyBy('date');
 
         $trips = $this->bottledTripLines($from, $to)
-            ->selectRaw('driver_trips.trip_date as date, SUM(driver_trip_sale_items.qty_bales * driver_trip_sale_items.unit_price) as revenue')
+            ->selectRaw('driver_trips.trip_date as date, SUM(driver_trip_sale_items.qty_bales * '.self::bottledFloorPriceSql('skus').') as revenue')
             ->groupBy('date')->get()->keyBy('date');
 
         $dates = collect($orders->keys())->merge($trips->keys())->unique()->sort()->values();
@@ -83,11 +83,11 @@ class SalesRevenueService
     public function netQtyAndRevenueBySku(string $from, string $to): Collection
     {
         $orderRows = $this->bottledOrderLines($from, $to)
-            ->selectRaw('order_items.sku_id, SUM(order_items.qty - order_items.qty_returned) as net_qty, SUM((order_items.qty - order_items.qty_returned) * order_items.unit_price) as revenue')
+            ->selectRaw('order_items.sku_id, SUM(order_items.qty - order_items.qty_returned) as net_qty, SUM((order_items.qty - order_items.qty_returned) * '.self::bottledFloorPriceSql('skus').') as revenue')
             ->groupBy('order_items.sku_id')->get()->keyBy('sku_id');
 
         $tripRows = $this->bottledTripLines($from, $to)
-            ->selectRaw('driver_trip_sale_items.sku_id, SUM(driver_trip_sale_items.qty_bales) as net_qty, SUM(driver_trip_sale_items.qty_bales * driver_trip_sale_items.unit_price) as revenue')
+            ->selectRaw('driver_trip_sale_items.sku_id, SUM(driver_trip_sale_items.qty_bales) as net_qty, SUM(driver_trip_sale_items.qty_bales * '.self::bottledFloorPriceSql('skus').') as revenue')
             ->groupBy('driver_trip_sale_items.sku_id')->get()->keyBy('sku_id');
 
         $skuIds = collect($orderRows->keys())->merge($tripRows->keys())->unique()->values();
@@ -200,12 +200,22 @@ class SalesRevenueService
     }
 
     /**
-     * Sales figures are 0.5L, 1L and 1.5L only. Refill lines stay on the
-     * admin refill tab and are not part of revenue.
+     * Sales figures are 0.5L, 1L and 1.5L only, at the floor prices
+     * (360 / 360 / 370). Refills and Premium Custom stay out of revenue.
      */
+    public static function bottledFloorPriceSql(string $skuAlias = 'sk'): string
+    {
+        return "(CASE
+            WHEN {$skuAlias}.size_liters BETWEEN 0.45 AND 0.55 THEN 360
+            WHEN {$skuAlias}.size_liters BETWEEN 0.95 AND 1.05 THEN 360
+            WHEN {$skuAlias}.size_liters BETWEEN 1.45 AND 1.55 THEN 370
+            ELSE 0
+        END)";
+    }
+
     public static function bottledOrderRevenueSql(string $orderAlias = 'orders'): string
     {
-        return '(SELECT COALESCE(SUM((oi.qty - COALESCE(oi.qty_returned, 0)) * oi.unit_price), 0)
+        return '(SELECT COALESCE(SUM((oi.qty - COALESCE(oi.qty_returned, 0)) * '.self::bottledFloorPriceSql('sk').'), 0)
             FROM order_items oi
             INNER JOIN skus sk ON sk.id = oi.sku_id
             WHERE oi.order_id = '.$orderAlias.'.id
@@ -215,7 +225,7 @@ class SalesRevenueService
 
     public static function bottledTripRevenueSql(string $saleAlias = 'driver_trip_sales'): string
     {
-        return '(SELECT COALESCE(SUM(ti.qty_bales * ti.unit_price), 0)
+        return '(SELECT COALESCE(SUM(ti.qty_bales * '.self::bottledFloorPriceSql('sk').'), 0)
             FROM driver_trip_sale_items ti
             INNER JOIN skus sk ON sk.id = ti.sku_id
             WHERE ti.driver_trip_sale_id = '.$saleAlias.'.id
@@ -232,6 +242,88 @@ class SalesRevenueService
             AND {$alias}.code NOT LIKE 'REFILL%'
             AND {$alias}.code NOT LIKE '%CUSTOM%'
         )";
+    }
+
+    /**
+     * Every bottled bale sold so far × floor price. No refills, no custom,
+     * trip copies of outlet tickets left out. Debts are not removed here.
+     *
+     * @return array{total: float, lines: list<array<string,mixed>>, bales: float}
+     */
+    public function bottledVolumeSales(): array
+    {
+        $rows = \Illuminate\Support\Facades\DB::select("
+            SELECT sk.code, sk.name, sk.size_liters,
+              COALESCE(o.bales, 0) + COALESCE(t.bales, 0) AS bales
+            FROM skus sk
+            LEFT JOIN (
+              SELECT oi.sku_id, SUM(oi.qty - COALESCE(oi.qty_returned, 0)) AS bales
+              FROM order_items oi
+              INNER JOIN orders o ON o.id = oi.order_id
+              WHERE oi.deleted_at IS NULL AND o.deleted_at IS NULL
+              GROUP BY oi.sku_id
+            ) o ON o.sku_id = sk.id
+            LEFT JOIN (
+              SELECT ti.sku_id, SUM(ti.qty_bales) AS bales
+              FROM driver_trip_sale_items ti
+              INNER JOIN driver_trip_sales ts ON ts.id = ti.driver_trip_sale_id
+              WHERE ts.deleted_at IS NULL AND ts.source_order_id IS NULL
+              GROUP BY ti.sku_id
+            ) t ON t.sku_id = sk.id
+            WHERE ".self::bottledSkuSql('sk')."
+              AND COALESCE(o.bales, 0) + COALESCE(t.bales, 0) > 0
+            ORDER BY sk.size_liters, sk.code
+        ");
+
+        $lines = [];
+        $total = 0.0;
+        $bales = 0.0;
+        foreach ($rows as $row) {
+            $qty = (float) $row->bales;
+            $size = (float) $row->size_liters;
+            $price = $size >= 1.45 && $size <= 1.55 ? 370.0 : 360.0;
+            $value = round($qty * $price, 2);
+            $lines[] = [
+                'code' => $row->code,
+                'name' => $row->name,
+                'bales' => $qty,
+                'price' => $price,
+                'amount' => $value,
+            ];
+            $total += $value;
+            $bales += $qty;
+        }
+
+        return [
+            'total' => round($total, 2),
+            'bales' => $bales,
+            'lines' => $lines,
+        ];
+    }
+
+    /**
+     * Dashboard revenue: bottled bales × floor price, minus open debt sales.
+     */
+    public function collectedVolumeRevenue(?float $openDebts = null): array
+    {
+        $volume = $this->bottledVolumeSales();
+        $debts = $openDebts;
+        if ($debts === null) {
+            $debts = (float) \App\Models\Debt::query()
+                ->whereNull('deleted_at')
+                ->where('balance', '>', 0)
+                ->sum('balance');
+        }
+        $debts = round($debts, 2);
+        $revenue = round(max(0, $volume['total'] - $debts), 2);
+
+        return [
+            'total_sales' => $volume['total'],
+            'bales' => $volume['bales'],
+            'lines' => $volume['lines'],
+            'debts' => $debts,
+            'revenue' => $revenue,
+        ];
     }
 
     private function bottledOrderLines(string $from, string $to)

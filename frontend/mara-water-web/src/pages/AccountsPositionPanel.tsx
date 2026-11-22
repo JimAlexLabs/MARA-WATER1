@@ -30,12 +30,18 @@ type Position = {
     label_transport: number; later_operations: number; other_purchases: number; later_spend: number;
     customer_money_used: number; outside_deficit: number;
   };
-  finance_to_repay: { on_statement: number; outside_loan: number; outside_loan_due: string; outside_loan_rate: number; outside_deficit: number; total_to_repay: number; promised_not_taken: number };
+  sales: {
+    total_sales: number; bales: number; revenue: number; hit_paybill: number; still_in_account: number;
+    paybills_used: number; did_not_hit_paybill: number; debts: number; cash_outside_account: number; note: string;
+    lines: { code: string; name: string; bales: number; price: number; amount: number }[];
+  };
   ops: {
     capital_extra: number; customer_paybills_used: number; noted_withdrawals: number;
-    withdrawn_for_operations: number; expenses: number; difference: number;
+    withdrawn_for_operations: number; expenses: number; difference: number; shortfall: number;
+    cash_outside_used_against_shortfall: number; admin_owed: number;
     outside_borrowed: number; still_to_pay: number; to_pay_out: number;
   };
+  finance_to_repay: { on_statement: number; outside_loan: number; outside_loan_due: string; outside_loan_rate: number; outside_deficit: number; admin_owed: number; total_to_repay: number; promised_not_taken: number };
   ledger: { id?: string | null; date: string; section: string; title: string; amount: number; explanation: string; source: string }[];
   movements: Movement[];
 };
@@ -130,17 +136,50 @@ const AccountsPositionPanel: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        <Stat label="In the BS account" value={money(data.account.balance)} note="Closing balance on the statement" tone="good" />
-        <Stat label="Cash we should be holding" value={money(data.should_be_holding)} note="Account balance, plus cash sales, after spending that did not go through this account" />
-        <Stat label="Customers still owe" value={money(data.debts_total)} note="Taken off the cash figure. This is not money in the account." tone="warn" />
-        <Stat label="Withdrawn for operations" value={money(data.ops.withdrawn_for_operations)} note={`${money(data.ops.capital_extra)} left from the capital pot, plus ${money(data.ops.customer_paybills_used)} of customer paybills already used`} />
-        <Stat label="Expenses so far" value={money(data.ops.expenses)} note="Fuel once, tokens, petty cash without the phone, both Shadey payments, wiring, plus anything you add" />
-        <Stat label="Difference" value={money(data.ops.difference)} note="Withdrawn for operations, minus expenses. A minus means the expenses ran ahead of what left the account." tone={data.ops.difference < 0 ? 'warn' : 'good'} />
-        <Stat label="To pay out" value={money(data.ops.to_pay_out)} note="Outside loans and amounts still to pay. Diana, Derrick and customer debts are not in this." tone="warn" />
+        <Stat label="Total sales (bales × price)" value={money(data.sales.total_sales)} note={`${data.sales.bales} bottled bales at 360 / 360 / 370. No refills.`} />
+        <Stat label="Dashboard revenue" value={money(data.sales.revenue)} note="Total sales minus open debt sales. This is the revenue figure." tone="good" />
+        <Stat label="In the BS account" value={money(data.account.balance)} note="Left untouched for now" tone="good" />
+        <Stat label="Customers still owe" value={money(data.debts_total)} note="Debt sales still to collect" tone="warn" />
+        <Stat label="Withdrawn for operations" value={money(data.ops.withdrawn_for_operations)} note={`${money(data.ops.capital_extra)} capital extra + ${money(data.ops.customer_paybills_used)} paybills used`} />
+        <Stat label="Expenses so far" value={money(data.ops.expenses)} note="Fuel once, tokens, petty without the phone, both Shadey payments, wiring, plus lines you add" />
+        <Stat label="Ops shortfall" value={money(data.ops.shortfall)} note="Expenses ahead of what left the account" tone="warn" />
+        <Stat label="Admin owed" value={money(data.ops.admin_owed)} note="Pumped in so the account balance stayed untouched, after using cash outside the account" tone="warn" />
       </div>
 
       <section className="mara-panel p-5 space-y-3">
-        <h3 className="text-sm font-semibold">How the cash figure is built</h3>
+        <h3 className="text-sm font-semibold">Sales split</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div className="space-y-1.5">
+            {data.sales.lines.map((line) => (
+              <Row key={line.code} label={`${line.name} · ${line.bales} × ${line.price}`} value={line.amount} />
+            ))}
+            <Row label="Total sales" value={data.sales.total_sales} strong />
+            <Row label="Dashboard revenue (minus debts)" value={data.sales.revenue} strong />
+          </div>
+          <div className="space-y-1.5">
+            <Row label="Hit the paybill" value={data.sales.hit_paybill} />
+            <Row label="Still in the account" value={data.sales.still_in_account} />
+            <Row label="Paybills already used" value={data.sales.paybills_used} />
+            <Row label="Did not hit the paybill" value={data.sales.did_not_hit_paybill} />
+            <Row label="Of which, still debt" value={data.sales.debts} />
+            <Row label="Of which, cash outside the account" value={data.sales.cash_outside_account} strong />
+          </div>
+        </div>
+        <div className="space-y-1.5 text-sm border-t border-gray-100 dark:border-gray-700 pt-3">
+          <p className="font-medium">Ops gap, account left untouched</p>
+          <Row label="Taken from the account for ops" value={data.ops.withdrawn_for_operations} />
+          <Row label="Expenses" value={data.ops.expenses} />
+          <Row label="Shortfall" value={data.ops.shortfall} />
+          <Row label="Covered by cash outside the account" value={-data.ops.cash_outside_used_against_shortfall} />
+          <Row label="Admin / director owed" value={data.ops.admin_owed} strong />
+          <Row label="Still to pay on the books (salary etc.)" value={data.ops.still_to_pay} />
+          <Row label="To pay out, excluding Diana, Derrick and customer debts" value={data.ops.to_pay_out} strong />
+        </div>
+        <p className="text-xs text-gray-500">{data.sales.note}</p>
+      </section>
+
+      <section className="mara-panel p-5 space-y-3">
+        <h3 className="text-sm font-semibold">How the utility account is built</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div className="space-y-1.5">
             <p className="font-medium">Money that came into the account</p>

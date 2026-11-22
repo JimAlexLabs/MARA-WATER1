@@ -117,7 +117,7 @@ class AnalyticsController extends Controller
             ->whereBetween('orders.order_date', [$dateFrom, $dateTo])
             ->selectRaw('COALESCE(skus.brand, "Uncategorized") as brand,
                 SUM(order_items.qty - order_items.qty_returned) as qty_sold,
-                SUM((order_items.qty - order_items.qty_returned) * order_items.unit_price) as revenue')
+                SUM((order_items.qty - order_items.qty_returned) * '.SalesRevenueService::bottledFloorPriceSql('skus').') as revenue')
             ->groupBy('brand')->get()->keyBy('brand');
 
         $tripByBrand = \App\Models\DriverTripSaleItem::query()
@@ -131,7 +131,7 @@ class AnalyticsController extends Controller
             ->whereBetween('driver_trips.trip_date', [$dateFrom, $dateTo])
             ->selectRaw('COALESCE(skus.brand, "Uncategorized") as brand,
                 SUM(driver_trip_sale_items.qty_bales) as qty_sold,
-                SUM(driver_trip_sale_items.qty_bales * driver_trip_sale_items.unit_price) as revenue')
+                SUM(driver_trip_sale_items.qty_bales * '.SalesRevenueService::bottledFloorPriceSql('skus').') as revenue')
             ->groupBy('brand')->get()->keyBy('brand');
 
         $brands = collect($orderByBrand->keys())->merge($tripByBrand->keys())->unique()->values();
@@ -173,9 +173,14 @@ class AnalyticsController extends Controller
                 'revenue' => round((float) $r->revenue, 2),
             ]);
 
+        $lifetime = (new SalesRevenueService())->collectedVolumeRevenue();
+
         return [
             'trend' => $trend,
-            'total_revenue' => round((float) $trend->sum('total_revenue'), 2),
+            'total_revenue' => $lifetime['revenue'],
+            'period_revenue' => round((float) $trend->sum('total_revenue'), 2),
+            'total_sales' => $lifetime['total_sales'],
+            'open_debts' => $lifetime['debts'],
             'by_brand' => $byBrand,
             'by_outlet' => $byOutlet,
             'by_route' => $byRoute,
