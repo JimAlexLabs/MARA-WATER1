@@ -757,7 +757,7 @@ const ProductionPage: React.FC = () => {
             {unsold.length > 0 && (
               <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/20 p-4">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Finished bales still unsold</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Produced minus sold. This cannot be higher than the bales made. Custom 0.5L is the same stock as Premium 0.5L. Refills are not included.</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Warehouse on hand after the latest physical count. Made and sold are shown beside it. Custom 0.5L is the same stock as Premium 0.5L. Refills are not included.</p>
                 <div className="flex flex-wrap gap-2">
                   {unsold.map((u) => (
                     <span key={u.sku_id} className="text-xs rounded-full bg-white dark:bg-gray-800 border border-emerald-200 dark:border-emerald-800 px-2 py-1">

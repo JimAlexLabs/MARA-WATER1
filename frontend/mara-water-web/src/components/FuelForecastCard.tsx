@@ -30,7 +30,7 @@ export default function FuelForecastCard() {
     api.get('/fleet/fuel-forecast')
       .then((res) => {
         setData(res.data.data);
-        setRate(String(res.data.data?.km_per_litre ?? 10));
+        setRate(String(res.data.data?.km_per_litre ?? 9));
       })
       .catch(() => {});
   };

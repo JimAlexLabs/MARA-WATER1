@@ -707,9 +707,13 @@ class DriverTripController extends Controller
                 ];
             }
 
-            // Silent fuel vs sales check (10 km/L). Drivers are not notified;
+            // Silent fuel vs sales check (9 km/L). Drivers are not notified;
             // Managers/Directors see it on Discrepancies only.
-            $expectedLiters = $kmCovered > 0 ? ($kmCovered / 10.0) : 0.0;
+            $kmPerLitre = (float) (\App\Models\Setting::allAsMap()['fuel_km_per_litre'] ?? 9);
+            if ($kmPerLitre <= 0) {
+                $kmPerLitre = 9.0;
+            }
+            $expectedLiters = $kmCovered > 0 ? ($kmCovered / $kmPerLitre) : 0.0;
             $fuelLiters = (float) \App\Models\FuelLog::whereNull('deleted_at')
                 ->where('vehicle_id', $trip->vehicle_id)
                 ->whereDate('date', $trip->trip_date)
@@ -734,7 +738,7 @@ class DriverTripController extends Controller
                 $discrepancies[] = [
                     'category' => 'fuel',
                     'amount' => round($fuelLiters - $expectedLiters, 2),
-                    'description' => "{$trip->vehicle->reg_no}: fuel {$fuelLiters} L for {$kmCovered} km (expected ~".round($expectedLiters, 1)." L at 10 km/L). Silent flag — not shown to driver.",
+                    'description' => "{$trip->vehicle->reg_no}: fuel {$fuelLiters} L for {$kmCovered} km (expected ~".round($expectedLiters, 1)." L at {$kmPerLitre} km/L). Silent flag — not shown to driver.",
                 ];
             }
             if ($fuelCost > 0 && $salesTotal >= 0 && $fuelCost > $salesTotal) {

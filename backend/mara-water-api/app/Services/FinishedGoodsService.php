@@ -77,10 +77,9 @@ class FinishedGoodsService
             }
         }
 
-        // Unsold cannot exceed bales produced minus bales sold.
-        $cap = $this->ledger($stockId)['unsold'];
-
-        return min(max(0, $fromItems), $cap);
+        // Warehouse count is the sellable on-hand. The ledger (produced − sold)
+        // is shown beside it; do not hide a lower physical count behind the book.
+        return max(0, $fromItems);
     }
 
     /** Net finished bales from stock_moves when stock_items is empty. */
@@ -355,17 +354,22 @@ class FinishedGoodsService
             if ($ledger['produced'] <= 0 && $ledger['sold'] <= 0) {
                 continue;
             }
+            $onHand = round($this->onHandBales($sku->id, $warehouseId), 2);
             $reserved = $this->reservedBales($sku->id, $warehouseId);
+            // Sold on the chip = produced − warehouse on hand, so the three
+            // figures always add up after a physical count.
+            $soldShown = round(max(0, $ledger['produced'] - $onHand), 2);
             $out[] = [
                 'sku_id' => $sku->id,
                 'sku_code' => $sku->code,
                 'sku_name' => $sku->name,
                 'brand' => $sku->brand,
                 'produced_bales' => $ledger['produced'],
-                'sold_bales' => $ledger['sold'],
-                'on_hand_bales' => $ledger['unsold'],
+                'sold_bales' => $soldShown,
+                'book_sold_bales' => $ledger['sold'],
+                'on_hand_bales' => $onHand,
                 'reserved_bales' => round($reserved, 2),
-                'unsold_bales' => $ledger['unsold'],
+                'unsold_bales' => $onHand,
             ];
         }
 

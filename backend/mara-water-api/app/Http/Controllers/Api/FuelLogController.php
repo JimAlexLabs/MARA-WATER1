@@ -34,8 +34,9 @@ class FuelLogController extends Controller
             ->whereNull('deleted_at')
             ->whereDate('date', '>=', self::FORECAST_FROM)
             ->whereNotNull('odometer')
-            ->orderBy('date')
-            ->orderBy('odometer')
+            ->orderByDesc('date')
+            ->orderByDesc('odometer')
+            ->orderByDesc('created_at')
             ->get();
 
         $rows = $logs->map(function (FuelLog $log) use ($kmPerLitre) {
@@ -81,10 +82,10 @@ class FuelLogController extends Controller
 
     private function kmPerLitre(): float
     {
-        $stored = Setting::allAsMap()['fuel_km_per_litre'] ?? 10;
+        $stored = Setting::allAsMap()['fuel_km_per_litre'] ?? 9;
         $km = (float) $stored;
 
-        return $km > 0 ? $km : 10.0;
+        return $km > 0 ? $km : 9.0;
     }
 
     public function index(Request $request)
