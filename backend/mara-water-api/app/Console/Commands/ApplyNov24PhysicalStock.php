@@ -112,7 +112,7 @@ class ApplyNov24PhysicalStock extends Command
                 'counted_qty' => $qty,
                 'uom' => 'BALE',
                 'ref_entity' => 'stock_correction',
-                'ref_id' => 'Physical count 24 Nov 2026 after both trips',
+                'ref_id' => '24Nov physical',
             ], true);
             $this->line("{$code} finished stock → {$qty}");
         }
@@ -134,7 +134,7 @@ class ApplyNov24PhysicalStock extends Command
                 'counted_qty' => $qty,
                 'uom' => $material->uom ?: 'PCS',
                 'ref_entity' => 'stock_correction',
-                'ref_id' => 'Physical warehouse count 24 Nov 2026',
+                'ref_id' => '24Nov warehouse',
             ], true);
             $this->line("{$code} → {$qty}");
         }
