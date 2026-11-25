@@ -523,6 +523,7 @@ Route::prefix('v1')->group(function () {
             // every driver, so Manager/Director only (a driver's own trip
             // list below is scoped to just their own trips).
             Route::get('/trips/statistics', [DriverTripController::class, 'statistics']);
+            Route::get('/trips/field-sales-by-sku', [DriverTripController::class, 'fieldSalesBySku']);
             Route::get('/trips/mileage-trend', [DriverTripController::class, 'mileageTrend']);
             Route::get('/trips/export', [DriverTripController::class, 'export']);
 

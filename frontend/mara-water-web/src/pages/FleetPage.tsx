@@ -237,6 +237,12 @@ const FleetPage: React.FC = () => {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [tripsLoading, setTripsLoading] = useState(false);
   const [mileageTrend, setMileageTrend] = useState<any[]>([]);
+  const [fieldSalesTotals, setFieldSalesTotals] = useState<{
+    by_sku: { sku_id: string; sku_name: string; sku_code: string; total_bales: number }[];
+    by_size: { size: string; total_bales: number }[];
+    grand_total_bales: number;
+    note?: string;
+  } | null>(null);
   const [viewingTrip, setViewingTrip] = useState<Trip | null>(null);
   const [exportingTrips, setExportingTrips] = useState(false);
   const [showUnlockPrompt, setShowUnlockPrompt] = useState(false);
@@ -258,6 +264,9 @@ const FleetPage: React.FC = () => {
 
   const fetchTripRefData = () => {
     api.get('/fleet/trips/mileage-trend').then(res => setMileageTrend(res.data.data)).catch(() => {});
+    api.get('/fleet/trips/field-sales-by-sku')
+      .then((res) => setFieldSalesTotals(res.data.data))
+      .catch(() => setFieldSalesTotals(null));
   };
 
   useEffect(() => {
@@ -641,6 +650,40 @@ const FleetPage: React.FC = () => {
 
       {activeTab === 'trips' && (
         <>
+          {fieldSalesTotals && (fieldSalesTotals.by_sku?.length > 0 || fieldSalesTotals.grand_total_bales > 0) && (
+            <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/20 p-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Field sales (all trips)</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Bales sold on the road by size, the same way production shows bales made. Outlet ticket copies are not counted twice.</p>
+                </div>
+                <p className="text-lg font-bold text-blue-800 dark:text-blue-200">
+                  {Number(fieldSalesTotals.grand_total_bales || 0).toLocaleString()} bales
+                </p>
+              </div>
+              {(fieldSalesTotals.by_size?.length ?? 0) > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                  {fieldSalesTotals.by_size.map((row) => (
+                    <div key={row.size} className="rounded-lg bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-800 px-3 py-2">
+                      <p className="text-xs text-gray-500">{row.size} sold on field</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{Number(row.total_bales).toLocaleString()} bales</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {fieldSalesTotals.by_sku.map((row) => (
+                  <span key={row.sku_id} className="text-xs rounded-full bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-800 px-2 py-1">
+                    {row.sku_name}: <strong>{Number(row.total_bales).toLocaleString()}</strong> bales
+                  </span>
+                ))}
+              </div>
+              {fieldSalesTotals.note && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">{fieldSalesTotals.note}</p>
+              )}
+            </div>
+          )}
+
           {mileageTrend.length > 0 && (
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Mileage &amp; Fuel Efficiency (last 30 days)</h2>

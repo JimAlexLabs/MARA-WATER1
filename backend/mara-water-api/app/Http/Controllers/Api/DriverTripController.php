@@ -1063,6 +1063,92 @@ class DriverTripController extends Controller
     }
 
     /**
+     * All field-trip bottled sales by SKU / size, same shape as production
+     * totals. Outlet ticket copies (source_order_id set) are left out so
+     * the same bales are not counted twice.
+     */
+    public function fieldSalesBySku(Request $request)
+    {
+        $query = DB::table('driver_trip_sale_items as si')
+            ->join('driver_trip_sales as ts', 'ts.id', '=', 'si.driver_trip_sale_id')
+            ->join('driver_trips as dt', 'dt.id', '=', 'ts.driver_trip_id')
+            ->join('skus as sk', 'sk.id', '=', 'si.sku_id')
+            ->whereNull('ts.deleted_at')
+            ->whereNull('dt.deleted_at')
+            ->whereNull('ts.source_order_id')
+            ->whereRaw(\App\Services\SalesRevenueService::bottledSkuSql('sk'));
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('dt.trip_date', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('dt.trip_date', '<=', $request->date_to);
+        }
+
+        $rows = $query
+            ->selectRaw('sk.id as sku_id, sk.code as sku_code, sk.name as sku_name, sk.size_liters, sk.brand, SUM(si.qty_bales) as total_bales, COUNT(DISTINCT ts.id) as sale_count, COUNT(DISTINCT dt.id) as trip_count')
+            ->groupBy('sk.id', 'sk.code', 'sk.name', 'sk.size_liters', 'sk.brand')
+            ->orderBy('sk.size_liters')
+            ->orderBy('sk.code')
+            ->get();
+
+        $bySku = $rows->map(fn ($r) => [
+            'sku_id' => $r->sku_id,
+            'sku_code' => $r->sku_code,
+            'sku_name' => $r->sku_name,
+            'brand' => $r->brand,
+            'size_liters' => (float) $r->size_liters,
+            'total_bales' => round((float) $r->total_bales, 2),
+            'sale_count' => (int) $r->sale_count,
+            'trip_count' => (int) $r->trip_count,
+        ])->values();
+
+        // Custom 0.5L draws the same Premium 0.5L stock — fold into Premium.
+        $custom = $bySku->first(fn ($row) => str_contains(strtoupper((string) $row['sku_code']), 'CUSTOM'));
+        if ($custom) {
+            $bySku = $bySku
+                ->reject(fn ($row) => str_contains(strtoupper((string) $row['sku_code']), 'CUSTOM'))
+                ->map(function ($row) use ($custom) {
+                    if (strtoupper((string) $row['sku_code']) === 'PREM-0.5L') {
+                        $row['total_bales'] = round($row['total_bales'] + $custom['total_bales'], 2);
+                        $row['sale_count'] += $custom['sale_count'];
+                    }
+
+                    return $row;
+                })
+                ->values();
+        }
+
+        $bySize = $bySku
+            ->groupBy(function ($row) {
+                $size = round((float) $row['size_liters'], 2);
+                if (abs($size - (int) $size) < 0.011) {
+                    return ((int) $size).'L';
+                }
+
+                return rtrim(rtrim(number_format($size, 2, '.', ''), '0'), '.').'L';
+            })
+            ->map(fn ($group, $size) => [
+                'size' => $size,
+                'total_bales' => round((float) $group->sum('total_bales'), 2),
+                'sku_count' => $group->count(),
+            ])
+            ->sortBy(fn ($row) => (float) $row['size'])
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'by_sku' => $bySku,
+                'by_size' => $bySize,
+                'grand_total_bales' => round((float) $bySku->sum('total_bales'), 2),
+                'sku_count' => $bySku->count(),
+                'note' => '0.5L, 1L and 1.5L field sales only. Refills and Premium Custom stay out (Custom is folded into Premium 0.5L). Outlet ticket copies are not counted twice.',
+            ],
+        ]);
+    }
+
+    /**
      * Round 2 Phase 7: one-click CSV (opens straight in Excel) export of
      * the trip log -- "every column above": a column per active SKU for
      * dispatched/returned/sold, plus payment method breakdown, buyer
