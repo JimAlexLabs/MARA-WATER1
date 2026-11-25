@@ -1064,29 +1064,34 @@ class DriverTripController extends Controller
 
     /**
      * All field-trip bottled sales by SKU / size, same shape as production
-     * totals. Outlet ticket copies (source_order_id set) are left out so
-     * the same bales are not counted twice.
+     * totals. Uses trip load sold (carried − returned / qty_sold) so every
+     * bale that left on a trip is counted once — including sales that were
+     * first logged as outlet tickets and then linked onto the trip.
+     * Default window: from 3 Nov 2026 (first logged field trip day).
      */
     public function fieldSalesBySku(Request $request)
     {
-        $query = DB::table('driver_trip_sale_items as si')
-            ->join('driver_trip_sales as ts', 'ts.id', '=', 'si.driver_trip_sale_id')
-            ->join('driver_trips as dt', 'dt.id', '=', 'ts.driver_trip_id')
-            ->join('skus as sk', 'sk.id', '=', 'si.sku_id')
-            ->whereNull('ts.deleted_at')
+        $dateFrom = $request->filled('date_from') ? $request->date_from : '2026-11-03';
+        $dateTo = $request->filled('date_to') ? $request->date_to : null;
+
+        $query = DB::table('driver_trip_items as ti')
+            ->join('driver_trips as dt', 'dt.id', '=', 'ti.driver_trip_id')
+            ->join('skus as sk', 'sk.id', '=', 'ti.sku_id')
             ->whereNull('dt.deleted_at')
-            ->whereNull('ts.source_order_id')
+            ->whereDate('dt.trip_date', '>=', $dateFrom)
             ->whereRaw(\App\Services\SalesRevenueService::bottledSkuSql('sk'));
 
-        if ($request->filled('date_from')) {
-            $query->whereDate('dt.trip_date', '>=', $request->date_from);
-        }
-        if ($request->filled('date_to')) {
-            $query->whereDate('dt.trip_date', '<=', $request->date_to);
+        if ($dateTo) {
+            $query->whereDate('dt.trip_date', '<=', $dateTo);
         }
 
+        // Prefer qty_sold; fall back to carried − returned so older rows still count.
         $rows = $query
-            ->selectRaw('sk.id as sku_id, sk.code as sku_code, sk.name as sku_name, sk.size_liters, sk.brand, SUM(si.qty_bales) as total_bales, COUNT(DISTINCT ts.id) as sale_count, COUNT(DISTINCT dt.id) as trip_count')
+            ->selectRaw(
+                'sk.id as sku_id, sk.code as sku_code, sk.name as sku_name, sk.size_liters, sk.brand, '.
+                'SUM(COALESCE(ti.qty_sold, COALESCE(ti.qty_carried_bales, 0) - COALESCE(ti.qty_returned_bales, 0))) as total_bales, '.
+                'COUNT(DISTINCT dt.id) as trip_count'
+            )
             ->groupBy('sk.id', 'sk.code', 'sk.name', 'sk.size_liters', 'sk.brand')
             ->orderBy('sk.size_liters')
             ->orderBy('sk.code')
@@ -1099,7 +1104,6 @@ class DriverTripController extends Controller
             'brand' => $r->brand,
             'size_liters' => (float) $r->size_liters,
             'total_bales' => round((float) $r->total_bales, 2),
-            'sale_count' => (int) $r->sale_count,
             'trip_count' => (int) $r->trip_count,
         ])->values();
 
@@ -1111,7 +1115,7 @@ class DriverTripController extends Controller
                 ->map(function ($row) use ($custom) {
                     if (strtoupper((string) $row['sku_code']) === 'PREM-0.5L') {
                         $row['total_bales'] = round($row['total_bales'] + $custom['total_bales'], 2);
-                        $row['sale_count'] += $custom['sale_count'];
+                        $row['trip_count'] = max($row['trip_count'], $custom['trip_count']);
                     }
 
                     return $row;
@@ -1143,7 +1147,9 @@ class DriverTripController extends Controller
                 'by_size' => $bySize,
                 'grand_total_bales' => round((float) $bySku->sum('total_bales'), 2),
                 'sku_count' => $bySku->count(),
-                'note' => '0.5L, 1L and 1.5L field sales only. Refills and Premium Custom stay out (Custom is folded into Premium 0.5L). Outlet ticket copies are not counted twice.',
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+                'note' => 'Field load sold (carried − returned) from 3 Nov 2026 for 0.5L / 1L / 1.5L. Counts every trip once — including sales that were also logged as outlet tickets.',
             ],
         ]);
     }

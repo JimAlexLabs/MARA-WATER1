@@ -654,8 +654,8 @@ const FleetPage: React.FC = () => {
             <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/20 p-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
                 <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Field sales (all trips)</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Bales sold on the road by size, the same way production shows bales made. Outlet ticket copies are not counted twice.</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Field sales (from 3 Nov 2026)</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Bales sold on the road by size from every trip load (carried − returned), the same way production shows bales made.</p>
                 </div>
                 <p className="text-lg font-bold text-blue-800 dark:text-blue-200">
                   {Number(fieldSalesTotals.grand_total_bales || 0).toLocaleString()} bales
